@@ -5,11 +5,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>UGC Director AI</title>
     <script>
-      // Polyfill paling awal untuk mencegah "process is not defined"
+      // Polyfill paling aman: didefinisikan segera sebelum modul apa pun dimuat
       (function() {
-        window.process = window.process || { env: {} };
-        // Mencoba mengambil dari window.env jika disediakan oleh Netlify injection (opsional)
-        window.process.env = window.process.env || {};
+        if (!window.process) {
+          window.process = { env: {} };
+        }
+        if (!window.process.env) {
+          window.process.env = {};
+        }
+        // Pastikan API_KEY setidaknya didefinisikan sebagai string kosong jika tidak ada
+        window.process.env.API_KEY = window.process.env.API_KEY || "";
       })();
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
