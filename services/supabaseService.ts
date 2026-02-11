@@ -16,6 +16,48 @@ export interface SavedGeneration {
   user_id?: string;
 }
 
+// --- Auth Methods ---
+
+export const signInWithGoogle = async () => {
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: window.location.origin, // Redirect back to this app
+      queryParams: {
+        access_type: 'offline',
+        prompt: 'consent',
+      },
+    },
+  });
+  if (error) throw error;
+  return data;
+};
+
+export const signInWithEmail = async (email: string, password: string) => {
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email,
+    password,
+  });
+  if (error) throw error;
+  return data;
+};
+
+export const signUpWithEmail = async (email: string, password: string) => {
+  const { data, error } = await supabase.auth.signUp({
+    email,
+    password,
+  });
+  if (error) throw error;
+  return data;
+};
+
+export const signOut = async () => {
+  const { error } = await supabase.auth.signOut();
+  if (error) throw error;
+};
+
+// --- Database Methods ---
+
 export const saveGeneration = async (input: FormData, output: GeneratedAsset) => {
   // Try to get current user, but proceed even if anon
   const { data: { user } } = await supabase.auth.getUser();

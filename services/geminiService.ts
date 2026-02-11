@@ -10,6 +10,15 @@ const cleanJson = (text: string | undefined): string => {
   return clean;
 };
 
+// Helper to get API Key
+const getApiKey = (): string => {
+  if (typeof window !== 'undefined') {
+    const stored = localStorage.getItem('GEMINI_API_KEY');
+    if (stored) return stored;
+  }
+  return process.env.API_KEY || "";
+};
+
 // Retry wrapper for API calls to handle 429 Quota Exceeded
 async function retryOperation<T>(operation: () => Promise<T>, retries = 3, initialDelay = 2000): Promise<T> {
   let delay = initialDelay;
@@ -32,7 +41,7 @@ async function retryOperation<T>(operation: () => Promise<T>, retries = 3, initi
 
 // 1. Sanitize Input
 export const sanitizeInput = async (rawText: string): Promise<ScrapeSanitized | null> => {
-   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+   const ai = new GoogleGenAI({ apiKey: getApiKey() });
    try {
      return await retryOperation(async () => {
         const sanitizeResp = await ai.models.generateContent({
@@ -52,7 +61,7 @@ export const sanitizeInput = async (rawText: string): Promise<ScrapeSanitized | 
 
 // 2. Generate Strategy (Stage 1)
 export const generateStrategy = async (formData: FormData, contextText: string): Promise<Partial<GeneratedAsset>> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const outputLanguage = formData.constraints.language === 'en' ? 'English' : 'Indonesian (Bahasa Indonesia)';
   
   const schema = {
@@ -122,7 +131,7 @@ export const generateStrategy = async (formData: FormData, contextText: string):
 
 // 3. Generate Scenes (Stage 2)
 export const generateScenes = async (formData: FormData, strategy: Partial<GeneratedAsset>): Promise<Partial<GeneratedAsset>> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const outputLanguage = formData.constraints.language === 'en' ? 'English' : 'Indonesian (Bahasa Indonesia)';
   const targetSceneCount = formData.constraints.scene_count || 5;
 
@@ -140,6 +149,7 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
             audio_script: { type: Type.STRING },
             on_screen_text: { type: Type.STRING },
             image_prompt: { type: Type.STRING },
+            image_negative_prompt: { type: Type.STRING },
           },
           required: ["seconds", "visual_description", "audio_script", "on_screen_text", "image_prompt"]
         }
@@ -151,8 +161,8 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
   };
 
   const prompt = `
-    ROLE: You are an elite UGC Scriptwriter.
-    TASK: Write the detailed scenes for the strategy defined below.
+    ROLE: You are an elite UGC Scriptwriter and AI Prompt Engineer.
+    TASK: Write the detailed scenes and high-fidelity image prompts for the strategy defined below.
     
     STRATEGY:
     Concept: ${strategy.concept_title}
@@ -167,11 +177,15 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
     Do Not Say: ${formData.constraints.do_not_say_optional.join(', ')}
 
     OUTPUT REQUIREMENTS:
-    - Generate exactly ${targetSceneCount} scenes.
-    - **LANGUAGE**: All output (Scripts, Visual Descriptions, Captions, Rationales) MUST be in ${outputLanguage}.
-    - If ${outputLanguage} is Indonesian, use natural, conversational Indonesian suitable for social media (bisa bahasa gaul jika audience Gen Z).
-    - Image prompts should remain in English for compatibility with image generators, unless the generator supports the target language (keep prompts descriptive in English is safer, but visual_description should be ${outputLanguage}).
-    - actually, for 'image_prompt', please provide it in English as most Image AI models understand English best. All other fields must be in ${outputLanguage}.
+    1. **Language**: All Scripts, Visual Descriptions, Captions in ${outputLanguage}.
+    2. **Image Prompts (English)**: 
+       - Write HIGHLY DETAILED, PHOTOREALISTIC prompts suitable for Flux/Midjourney.
+       - Include: Lighting (e.g. 'natural golden hour window light', 'ring light'), Camera (e.g. 'shot on iPhone 15 Pro', '4k', 'macro lens'), and Style (e.g. 'authentic UGC', 'amateur footage', 'snapchat quality', 'tiktok aesthetic').
+       - AVOID: 'Professional studio lighting' if it's supposed to look like a user review.
+    3. **Negative Prompts**:
+       - Generate a string of keywords to avoid: 'cartoon, illustration, 3d render, painting, drawing, blur, distortion, low resolution, watermark, text overlay'.
+    
+    Generate exactly ${targetSceneCount} scenes.
   `;
 
   return retryOperation(async () => {
@@ -191,7 +205,7 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
 
 // Analyze Audio for Voice Cloning
 export const analyzeVoiceStyle = async (audioBase64: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   
   const prompt = "Listen to this voice sample. Describe the speaker's tone, pacing, gender, and emotional quality in a short, descriptive phrase that could be used to instruct a voice actor (e.g., 'Energetic, fast-paced young American male with a friendly rasp'). Keep it under 15 words.";
 
@@ -261,7 +275,7 @@ const pcmToWav = (base64String: string, sampleRate: number = 24000): ArrayBuffer
 };
 
 export const generateSpeech = async (text: string, voiceName: string = 'Kore', toneInstruction?: string): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   
   // Inject tone instruction into the text to guide the model's delivery.
   // We use parenthetical direction which Gemini TTS understands well.
@@ -289,7 +303,7 @@ export const getWavBlob = (base64PCM: string): Blob => {
 
 // Generate Image Preview for a Scene
 export const generateImagePreview = async (prompt: string, aspectRatio: string = "9:16"): Promise<string> => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
   try {
     return await retryOperation(async () => {
         const response = await ai.models.generateContent({

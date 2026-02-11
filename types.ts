@@ -63,6 +63,7 @@ export interface Scene {
   audio_script: string;
   on_screen_text: string;
   image_prompt: string;
+  image_negative_prompt?: string;
 }
 
 export interface VideoPromptPackage {

@@ -41,11 +41,16 @@
             },
             animation: {
               'shimmer': 'shimmer 2s linear infinite',
+              'scan': 'scan 3s linear infinite',
             },
             keyframes: {
               shimmer: {
                 '0%': { backgroundPosition: '-200% 0' },
                 '100%': { backgroundPosition: '200% 0' },
+              },
+              scan: {
+                '0%': { transform: 'translateY(-100%)' },
+                '100%': { transform: 'translateY(400%)' },
               }
             }
           },

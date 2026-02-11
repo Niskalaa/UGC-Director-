@@ -1,13 +1,18 @@
-
 import React, { useState, useEffect } from 'react';
 import { InputForm } from './components/InputForm';
 import { OutputDisplay } from './components/OutputDisplay';
+import { AuthScreen } from './components/AuthScreen'; // Import the real AuthScreen
 import { FormData, GeneratedAsset } from './types';
 import { sanitizeInput, generateStrategy, generateScenes } from './services/geminiService';
-import { saveGeneration, fetchHistory, SavedGeneration } from './services/supabaseService';
-import { Zap, Rocket, Check, Terminal, Info, Database, History as HistoryIcon, X, ChevronRight, Clock, RefreshCw } from 'lucide-react';
+import { saveGeneration, fetchHistory, SavedGeneration, supabase, signOut } from './services/supabaseService';
+import { Zap, Rocket, Check, Terminal, Info, Database, History as HistoryIcon, X, ChevronRight, Clock, RefreshCw, Settings2, LogOut, User } from 'lucide-react';
+import { SettingsModal } from './components/SettingsModal';
+import { Session } from '@supabase/supabase-js';
 
 const App: React.FC = () => {
+  const [session, setSession] = useState<Session | null>(null);
+  const [authChecking, setAuthChecking] = useState(true);
+
   const [result, setResult] = useState<GeneratedAsset | null>(null);
   const [formDataState, setFormDataState] = useState<FormData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -19,6 +24,34 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<SavedGeneration[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Settings State
+  const [showSettings, setShowSettings] = useState(false);
+
+  useEffect(() => {
+    // Check active session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setAuthChecking(false);
+    });
+
+    // Listen for auth changes
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      setAuthChecking(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleLogout = async () => {
+    await signOut();
+    setSession(null);
+    setResult(null);
+    setHistory([]);
+  };
 
   const handleSubmit = async (formData: FormData) => {
     setLoading(true);
@@ -106,8 +139,22 @@ const App: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  if (authChecking) {
+     return (
+        <div className="min-h-screen bg-black flex items-center justify-center">
+            <RefreshCw className="w-8 h-8 text-brand-500 animate-spin" />
+        </div>
+     );
+  }
+
+  if (!session) {
+      return <AuthScreen onAuthSuccess={() => { /* Handled by onAuthStateChange */ }} />;
+  }
+
   return (
     <div className="min-h-screen pb-20 animate-in overflow-x-hidden relative">
+      <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
+
       <div className="max-w-[1600px] mx-auto px-4 md:px-8 py-6">
         
         {/* Header */}
@@ -129,7 +176,20 @@ const App: React.FC = () => {
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 mr-2">
+                <User className="w-3 h-3 text-slate-400" />
+                <span className="text-xs text-slate-300 truncate max-w-[150px]">{session.user.email}</span>
+             </div>
+
+            <button 
+                onClick={() => setShowSettings(true)}
+                className="flex items-center gap-2 p-2 rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 transition-all hover:text-white"
+                title="API Settings"
+            >
+                <Settings2 className="w-5 h-5" />
+                <span className="hidden md:inline font-bold text-xs uppercase tracking-wider">Settings</span>
+            </button>
             <button 
                 onClick={handleToggleHistory}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${showHistory ? 'bg-brand-600 border-brand-500 text-white' : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'}`}
@@ -137,17 +197,13 @@ const App: React.FC = () => {
                 <HistoryIcon className="w-4 h-4" />
                 <span className="hidden md:inline font-bold text-xs uppercase tracking-wider">History</span>
             </button>
-            <div className="hidden md:block text-right">
-                <p className="text-xs text-slate-500 font-mono">AI-POWERED CREATIVE SUITE</p>
-                <div className="flex items-center justify-end gap-2 text-xs text-brand-500 font-mono">
-                <span>READY FOR INPUT</span>
-                {savedToDb && (
-                    <span className="flex items-center gap-1 text-emerald-500 animate-in fade-in">
-                    <Database className="w-3 h-3"/> SAVED
-                    </span>
-                )}
-                </div>
-            </div>
+            <button 
+                onClick={handleLogout}
+                className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-all"
+                title="Sign Out"
+            >
+                <LogOut className="w-5 h-5" />
+            </button>
           </div>
         </header>
 

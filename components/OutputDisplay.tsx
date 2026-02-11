@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { GeneratedAsset } from '../types';
 import { generateSpeech, getWavBlob, analyzeVoiceStyle, generateImagePreview } from '../services/geminiService';
 import { getStoredReplicateKey, generateFluxImage, generateMinimaxVideo } from '../services/externalService';
-import { Copy, Check, Clapperboard, Play, Loader2, Mic, Download, Pause, Volume2, FileJson, FileText, Image, Database, Settings2, Share2, MoreHorizontal, Upload, Wand2, Eye, Brain, Video, Sparkles, Monitor, Tablet, Smartphone, Maximize2, X, AlertCircle } from 'lucide-react';
+import { Copy, Check, Clapperboard, Play, Loader2, Mic, Download, Pause, Volume2, FileJson, FileText, Image, Database, Settings2, Share2, MoreHorizontal, Upload, Wand2, Eye, Brain, Video, Sparkles, Monitor, Tablet, Smartphone, Maximize2, X, AlertCircle, Camera, Film, Clock, Gauge } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 
 const VOICES = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
@@ -19,6 +19,13 @@ const SPEECH_STYLES = [
 ];
 
 type AspectRatio = "9:16" | "16:9" | "1:1";
+type VideoStyle = "vlog" | "cinematic" | "commercial";
+
+const VIDEO_STYLES: Record<VideoStyle, { label: string, promptPrefix: string }> = {
+    vlog: { label: "Vlog (Handheld)", promptPrefix: "Handheld smartphone footage, vlog style, authentic shake, UGC aesthetic" },
+    cinematic: { label: "Cinematic (Smooth)", promptPrefix: "Cinematic shot, smooth gimbal movement, high production value, 4k" },
+    commercial: { label: "Commercial (Crisp)", promptPrefix: "Professional commercial footage, steady cam, bright lighting, high clarity" }
+};
 
 export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data }) => {
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
@@ -35,6 +42,11 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
   const [loadingImageIdx, setLoadingImageIdx] = useState<number | null>(null);
   const [loadingVideoIdx, setLoadingVideoIdx] = useState<number | null>(null);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
+  
+  // Video Settings
+  const [videoStyle, setVideoStyle] = useState<VideoStyle>("vlog");
+  const [videoFps, setVideoFps] = useState<"24" | "30" | "60">("30");
+  const [videoDuration, setVideoDuration] = useState<"5s" | "10s">("5s"); // Note: Minimax often defaults to 6s, this is for prompt steering
   
   // View Modal State
   const [viewModalContent, setViewModalContent] = useState<{type: 'image' | 'video', url: string} | null>(null);
@@ -199,7 +211,11 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
 
       setLoadingVideoIdx(idx);
       try {
-          const videoUrl = await generateMinimaxVideo(prompt);
+          // Construct enhanced prompt with video settings
+          const stylePrefix = VIDEO_STYLES[videoStyle].promptPrefix;
+          const enhancedPrompt = `${stylePrefix}. ${prompt}. Frame rate: ${videoFps}fps.`;
+          
+          const videoUrl = await generateMinimaxVideo(enhancedPrompt);
           if (videoUrl) {
               setPreviewVideos(prev => ({ ...prev, [idx]: videoUrl }));
           }
@@ -284,6 +300,8 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
           </div>
 
           <div className="mt-4 flex flex-wrap items-center gap-4">
+            
+            {/* Voice Control Group */}
             <div className="flex items-center gap-3 text-xs text-brand-400 bg-brand-900/20 px-4 py-2 rounded-full border border-brand-500/20">
               <Mic className="w-3.5 h-3.5" />
               <div className="flex items-center gap-2">
@@ -333,28 +351,58 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
               </div>
             </div>
 
-            {/* Aspect Ratio Selector */}
-            <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg border border-white/5">
-                {[
-                    { val: "9:16", icon: Smartphone, label: "Story" },
-                    { val: "16:9", icon: Monitor, label: "Cinema" },
-                    { val: "1:1", icon: Tablet, label: "Square" }
-                ].map(r => (
-                    <button
-                        key={r.val}
-                        onClick={() => setAspectRatio(r.val as AspectRatio)}
-                        className={`p-1.5 rounded-md transition-all ${aspectRatio === r.val ? 'bg-white/10 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
-                        title={r.label}
+            {/* Visual Settings Group */}
+            <div className="flex items-center gap-2 bg-white/5 p-1 rounded-full border border-white/5">
+                {/* Aspect Ratio */}
+                <div className="flex items-center gap-1 border-r border-white/10 pr-2 mr-1">
+                    {[
+                        { val: "9:16", icon: Smartphone, label: "Story (9:16)" },
+                        { val: "16:9", icon: Monitor, label: "Cinema (16:9)" },
+                        { val: "1:1", icon: Tablet, label: "Square (1:1)" }
+                    ].map(r => (
+                        <button
+                            key={r.val}
+                            onClick={() => setAspectRatio(r.val as AspectRatio)}
+                            className={`p-1.5 rounded-full transition-all ${aspectRatio === r.val ? 'bg-white/10 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                            title={r.label}
+                        >
+                            <r.icon className="w-3.5 h-3.5" />
+                        </button>
+                    ))}
+                </div>
+
+                {/* Video Style */}
+                <div className="flex items-center gap-2 text-xs pr-2">
+                    <Film className="w-3.5 h-3.5 text-indigo-400" />
+                    <select 
+                        value={videoStyle}
+                        onChange={(e) => setVideoStyle(e.target.value as VideoStyle)}
+                        className="bg-transparent text-slate-300 font-bold border-none focus:ring-0 cursor-pointer p-0 text-xs appearance-none hover:text-white transition-colors w-[60px]"
+                        title="Video Generation Style"
                     >
-                        <r.icon className="w-3.5 h-3.5" />
-                    </button>
-                ))}
+                        <option className="bg-zinc-900" value="vlog">Vlog</option>
+                        <option className="bg-zinc-900" value="cinematic">Cinema</option>
+                        <option className="bg-zinc-900" value="commercial">Ad</option>
+                    </select>
+                </div>
+
+                {/* Video FPS/Duration (Visual Toggles) */}
+                {hasReplicateKey && (
+                    <div className="hidden md:flex items-center gap-2 pl-2 border-l border-white/10 text-[10px]">
+                        <button onClick={() => setVideoFps(videoFps === "30" ? "60" : "30")} className="flex items-center gap-1 text-slate-400 hover:text-indigo-400 transition-colors">
+                            <Gauge className="w-3 h-3" /> {videoFps}fps
+                        </button>
+                        <button onClick={() => setVideoDuration(videoDuration === "5s" ? "10s" : "5s")} className="flex items-center gap-1 text-slate-400 hover:text-indigo-400 transition-colors">
+                            <Clock className="w-3 h-3" /> {videoDuration}
+                        </button>
+                    </div>
+                )}
             </div>
             
             {hasReplicateKey && (
               <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-300">
                 <Sparkles className="w-3 h-3" />
-                Flux & Kling Enabled
+                Flux & Minimax Active
               </div>
             )}
           </div>
@@ -471,7 +519,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
                                 className="w-full h-full object-cover"
                             />
                             <div className="absolute top-2 left-2 bg-black/60 backdrop-blur px-2 py-1 rounded text-[10px] text-white flex items-center gap-1 z-10">
-                                <Sparkles className="w-3 h-3 text-indigo-400" /> AI Video
+                                <Sparkles className="w-3 h-3 text-indigo-400" /> AI Video ({videoStyle})
                             </div>
                              <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/media:opacity-100 transition-opacity z-10">
                                 <button onClick={() => handleDownload(previewVideos[idx], `scene-${idx+1}-video.mp4`)} className="p-1.5 bg-black/60 hover:bg-black/80 text-white rounded backdrop-blur"><Download className="w-3 h-3" /></button>
@@ -493,16 +541,61 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
                             </div>
                          </div>
                     ) : (loadingImageIdx === idx || loadingVideoIdx === idx) ? (
-                        <div className={`mb-4 relative rounded-lg overflow-hidden border border-white/10 bg-black/40 flex flex-col items-center justify-center gap-3 ${aspectRatio === "9:16" ? "aspect-[9/16]" : aspectRatio === "16:9" ? "aspect-video" : "aspect-square"}`}>
-                           <div className="absolute inset-0 bg-shimmer opacity-20 animate-shimmer"></div>
-                           <div className="w-8 h-8 relative">
-                              <div className="absolute inset-0 rounded-full border-2 border-brand-500/30 animate-ping"></div>
-                              <div className="absolute inset-0 rounded-full border-2 border-brand-500 border-t-transparent animate-spin"></div>
+                        <div className={`mb-4 relative rounded-xl overflow-hidden border border-white/10 bg-[#050505] flex flex-col items-center justify-center gap-4 group ${aspectRatio === "9:16" ? "aspect-[9/16]" : aspectRatio === "16:9" ? "aspect-video" : "aspect-square"}`}>
+                           
+                           {/* Tech Grid Background */}
+                           <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:40px_40px]"></div>
+                           
+                           {/* Radial Glow */}
+                           <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(249,115,22,0.15)_0%,transparent_70%)]"></div>
+
+                           {/* Vertical Scanning Line */}
+                           <div className="absolute inset-0 w-full h-[50%] bg-gradient-to-b from-transparent via-brand-500/10 to-transparent animate-scan blur-sm"></div>
+                           <div className="absolute inset-0 w-full h-px bg-brand-500/30 animate-scan shadow-[0_0_10px_rgba(249,115,22,0.5)]"></div>
+
+                           {/* Central HUD */}
+                           <div className="relative z-10 flex flex-col items-center">
+                              <div className="w-16 h-16 relative mb-4">
+                                 {/* Rotating Rings */}
+                                 <div className="absolute inset-0 border-2 border-slate-800 rounded-full"></div>
+                                 <div className="absolute inset-0 border-2 border-brand-500/50 rounded-full border-t-transparent animate-spin"></div>
+                                 <div className="absolute inset-2 border border-white/10 rounded-full border-b-brand-400 animate-[spin_2s_linear_infinite_reverse]"></div>
+                                 
+                                 {/* Center Icon */}
+                                 <div className="absolute inset-0 flex items-center justify-center">
+                                    {loadingVideoIdx === idx ? (
+                                       <Video className="w-6 h-6 text-white animate-pulse" />
+                                    ) : (
+                                       <Image className="w-6 h-6 text-white animate-pulse" />
+                                    )}
+                                 </div>
+                              </div>
+
+                              {/* Text Info */}
+                              <div className="space-y-1.5 text-center">
+                                  <div className="flex items-center justify-center gap-2">
+                                     <span className="relative flex h-2 w-2">
+                                       <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-400 opacity-75"></span>
+                                       <span className="relative inline-flex rounded-full h-2 w-2 bg-brand-500"></span>
+                                     </span>
+                                     <span className="text-xs font-bold text-white tracking-[0.2em] uppercase">
+                                        {loadingVideoIdx === idx ? 'GENERATING' : 'RENDERING'}
+                                     </span>
+                                  </div>
+                                  <p className="text-[10px] text-brand-500/60 font-mono">
+                                     {hasReplicateKey 
+                                        ? (loadingVideoIdx === idx ? 'MODEL: MINIMAX-01' : 'MODEL: FLUX-SCHNELL') 
+                                        : 'MODEL: GEMINI-2.5'}
+                                  </p>
+                              </div>
                            </div>
-                           <div className="text-center z-10 px-4">
-                              <p className="text-xs font-bold text-white mb-1">{loadingVideoIdx === idx ? 'FILMING VIDEO...' : 'RENDERING PIXELS...'}</p>
-                              <p className="text-[10px] text-slate-400">AI Director is at work</p>
-                           </div>
+                           
+                           {/* Corner Accents */}
+                           <div className="absolute top-0 left-0 w-8 h-8 border-l-2 border-t-2 border-white/20 rounded-tl-lg m-2"></div>
+                           <div className="absolute top-0 right-0 w-8 h-8 border-r-2 border-t-2 border-white/20 rounded-tr-lg m-2"></div>
+                           <div className="absolute bottom-0 left-0 w-8 h-8 border-l-2 border-b-2 border-white/20 rounded-bl-lg m-2"></div>
+                           <div className="absolute bottom-0 right-0 w-8 h-8 border-r-2 border-b-2 border-white/20 rounded-br-lg m-2"></div>
+
                         </div>
                     ) : null}
 
@@ -513,14 +606,23 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
                             <div className="text-[10px] text-slate-600 uppercase font-bold flex items-center gap-2">
                             <Image className="w-3 h-3"/> AI Image Prompt
                             </div>
-                            <button 
-                                onClick={() => copyToClipboard(`prompt-text-${idx}`, scene.image_prompt)}
-                                className="p-1 hover:bg-white/10 rounded text-slate-500 hover:text-white transition-colors"
-                            >
-                                {copiedSection === `prompt-text-${idx}` ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3"/>}
-                            </button>
+                            <div className="flex gap-2">
+                                <button 
+                                    onClick={() => copyToClipboard(`prompt-text-${idx}`, scene.image_prompt)}
+                                    className="p-1 hover:bg-white/10 rounded text-slate-500 hover:text-white transition-colors"
+                                    title="Copy Positive Prompt"
+                                >
+                                    {copiedSection === `prompt-text-${idx}` ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3"/>}
+                                </button>
+                            </div>
                         </div>
-                    <code className="text-xs text-brand-400 font-mono block leading-relaxed">{scene.image_prompt}</code>
+                        <code className="text-xs text-brand-400 font-mono block leading-relaxed">{scene.image_prompt}</code>
+                        {scene.image_negative_prompt && (
+                            <div className="mt-2 pt-2 border-t border-white/5">
+                                <span className="text-[10px] text-red-400/70 font-bold uppercase block mb-1">Negative Prompt</span>
+                                <code className="text-[10px] text-slate-500 font-mono block">{scene.image_negative_prompt}</code>
+                            </div>
+                        )}
                     </div>
                 </div>
 
