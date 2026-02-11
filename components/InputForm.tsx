@@ -1,345 +1,163 @@
-import React, { useState } from 'react';
-import { FormData, Brand, Product, Scrape, Constraints } from '../types';
-import { Sparkles, AlertCircle, Link, FileText, CheckCircle2, Circle } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { FormData } from '../types';
+import { Sparkles, Type, Tag, Target, Smartphone, Link, FileText, Plus, X, CheckCircle2, Globe, Clock, Layers, Settings2 } from 'lucide-react';
 
 interface InputFormProps {
   onSubmit: (data: FormData) => void;
   isLoading: boolean;
+  initialValues?: FormData | null;
 }
 
-const initialData: FormData = {
-  brand: {
-    name: '',
-    tone_hint_optional: '',
-    country_market_optional: 'ID',
-  },
-  product: {
-    type: '',
-    material: '',
-    variant_optional: '',
-    price_tier_optional: 'mid',
-    platform: ['tiktok'],
-    objective: 'conversion',
-    main_angle_optional: 'problem-solution',
-  },
-  scrape: {
-    source_url_optional: '',
-    raw_text_optional: '',
-  },
-  constraints: {
-    do_not_say_optional: [],
-    must_include_optional: [],
-    language: 'id',
-    vo_duration_seconds: 15,
-  },
+const defaultData: FormData = {
+  brand: { name: '', tone_hint_optional: '', country_market_optional: 'ID' },
+  product: { type: '', material: '', price_tier_optional: 'mid', platform: ['tiktok'], objective: 'conversion', main_angle_optional: 'problem-solution' },
+  scrape: { source_url_optional: '', raw_text_optional: '' },
+  constraints: { do_not_say_optional: [], must_include_optional: [], language: 'id', vo_duration_seconds: 30, scene_count: 5 },
 };
 
-export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading }) => {
-  const [data, setData] = useState<FormData>(initialData);
-  const [doNotSayInput, setDoNotSayInput] = useState('');
-  const [mustIncludeInput, setMustIncludeInput] = useState('');
+export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initialValues }) => {
+  const [data, setData] = useState<FormData>(defaultData);
+
+  useEffect(() => {
+    if (initialValues) {
+      setData(initialValues);
+    }
+  }, [initialValues]);
 
   const handleChange = (section: keyof FormData, field: string, value: any) => {
-    setData((prev) => ({
-      ...prev,
-      [section]: {
-        ...prev[section],
-        [field]: value,
-      },
-    }));
+    setData((prev) => ({ ...prev, [section]: { ...prev[section], [field]: value } }));
   };
 
-  const togglePlatform = (platform: 'tiktok' | 'reels' | 'shorts') => {
+  const togglePlatform = (platform: any) => {
     setData((prev) => {
       const current = prev.product.platform;
-      const updated = current.includes(platform)
-        ? current.filter((p) => p !== platform)
-        : [...current, platform];
-      
-      return {
-        ...prev,
-        product: {
-          ...prev.product,
-          platform: updated,
-        },
-      };
+      const updated = current.includes(platform) ? current.filter((p) => p !== platform) : [...current, platform];
+      return { ...prev, product: { ...prev.product, platform: updated } };
     });
   };
 
-  const handleArrayAdd = (field: 'do_not_say_optional' | 'must_include_optional', value: string, setter: (val: string) => void) => {
+  const handleArrayAdd = (field: 'do_not_say_optional' | 'must_include_optional', value: string, setter: any) => {
     if (!value.trim()) return;
-    setData(prev => ({
-      ...prev,
-      constraints: {
-        ...prev.constraints,
-        [field]: [...prev.constraints[field], value.trim()]
-      }
-    }));
+    setData(prev => ({ ...prev, constraints: { ...prev.constraints, [field]: [...prev.constraints[field], value.trim()] } }));
     setter('');
   };
 
-  const handleArrayRemove = (field: 'do_not_say_optional' | 'must_include_optional', index: number) => {
-    setData(prev => ({
-      ...prev,
-      constraints: {
-        ...prev.constraints,
-        [field]: prev.constraints[field].filter((_, i) => i !== index)
-      }
-    }));
-  };
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (data.product.platform.length === 0) {
-        alert("Please select at least one platform.");
-        return;
-    }
-    onSubmit(data);
+  // Auto-adjust duration recommendation based on scene count if user hasn't heavily customized it
+  // This is a simple heuristic: ~6s per scene
+  const handleSceneCountChange = (count: number) => {
+      handleChange('constraints', 'scene_count', count);
+      // Optional: Auto-suggest duration? 
+      // Let's keep it manual for now but maybe just update the default if it was the initial value.
+      // For now, simple manual control is safer.
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6 text-sm">
+    <form onSubmit={(e) => { e.preventDefault(); if (data.product.platform.length === 0) return alert("Select platform"); onSubmit(data); }} className="space-y-6 text-sm">
       
-      {/* Brand Section */}
-      <div className="glass-panel p-5 rounded-2xl border border-white/10 shadow-lg backdrop-blur-md">
-        <h3 className="text-brand-500 font-semibold mb-5 text-lg flex items-center gap-3">
-          <span className="w-7 h-7 rounded-full bg-brand-500/20 flex items-center justify-center text-xs font-bold ring-1 ring-brand-500/40">1</span>
-          Brand Details
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div>
-            <label className="block text-slate-300 mb-2 font-medium">Brand Name *</label>
-            <input 
-              required
-              type="text" 
-              className="w-full glass-input text-white rounded-xl px-4 py-3 md:py-3.5 focus:outline-none focus:ring-2 focus:ring-brand-500/50 placeholder-slate-500 transition-all min-h-[48px]"
-              value={data.brand.name}
-              onChange={(e) => handleChange('brand', 'name', e.target.value)}
-              placeholder="e.g. Somethinc"
-            />
-          </div>
-          <div>
-            <label className="block text-slate-300 mb-2 font-medium">Tone Hint</label>
-            <input 
-              type="text" 
-              className="w-full glass-input text-white rounded-xl px-4 py-3 md:py-3.5 focus:outline-none focus:ring-2 focus:ring-brand-500/50 placeholder-slate-500 transition-all min-h-[48px]"
-              value={data.brand.tone_hint_optional}
-              onChange={(e) => handleChange('brand', 'tone_hint_optional', e.target.value)}
-              placeholder="e.g. Fun, Energetic, Scientific"
-            />
-          </div>
+      {/* Brand */}
+      <div className="glass-panel p-5 rounded-2xl border-l-4 border-brand-500">
+        <h3 className="text-white font-bold mb-4 flex items-center gap-2"><Type className="w-4 h-4 text-brand-500"/> Brand Identity</h3>
+        <div className="grid md:grid-cols-2 gap-4 mb-4">
+          <input required type="text" className="glass-input w-full p-3 rounded-xl placeholder-slate-500" value={data.brand.name} onChange={(e) => handleChange('brand', 'name', e.target.value)} placeholder="Brand Name *" />
+          <input type="text" className="glass-input w-full p-3 rounded-xl placeholder-slate-500" value={data.brand.tone_hint_optional} onChange={(e) => handleChange('brand', 'tone_hint_optional', e.target.value)} placeholder="Tone (e.g. Fun, Scientific)" />
+        </div>
+        <div className="flex items-center gap-2 bg-zinc-900/50 p-2 rounded-xl border border-white/5">
+             <Globe className="w-4 h-4 text-slate-400 ml-2" />
+             <select 
+                className="bg-transparent w-full p-2 text-slate-200 outline-none"
+                value={data.constraints.language} 
+                onChange={(e) => handleChange('constraints', 'language', e.target.value)}
+             >
+                <option className="bg-zinc-900" value="id">Output Language: Indonesian</option>
+                <option className="bg-zinc-900" value="en">Output Language: English</option>
+             </select>
         </div>
       </div>
 
-      {/* Product Section */}
-      <div className="glass-panel p-5 rounded-2xl border border-white/10 shadow-lg backdrop-blur-md">
-        <h3 className="text-brand-500 font-semibold mb-5 text-lg flex items-center gap-3">
-          <span className="w-7 h-7 rounded-full bg-brand-500/20 flex items-center justify-center text-xs font-bold ring-1 ring-brand-500/40">2</span>
-          Product Specs
-        </h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div>
-            <label className="block text-slate-300 mb-2 font-medium">Product Type *</label>
-            <input 
-              required
-              type="text" 
-              className="w-full glass-input text-white rounded-xl px-4 py-3 md:py-3.5 focus:outline-none focus:ring-2 focus:ring-brand-500/50 placeholder-slate-500 transition-all min-h-[48px]"
-              value={data.product.type}
-              onChange={(e) => handleChange('product', 'type', e.target.value)}
-              placeholder="e.g. Serum"
-            />
-          </div>
-          <div>
-            <label className="block text-slate-300 mb-2 font-medium">Material/Key Ingredient *</label>
-            <input 
-              required
-              type="text" 
-              className="w-full glass-input text-white rounded-xl px-4 py-3 md:py-3.5 focus:outline-none focus:ring-2 focus:ring-brand-500/50 placeholder-slate-500 transition-all min-h-[48px]"
-              value={data.product.material}
-              onChange={(e) => handleChange('product', 'material', e.target.value)}
-              placeholder="e.g. Niacinamide"
-            />
-          </div>
-          <div>
-             <label className="block text-slate-300 mb-2 font-medium">Objective</label>
-             <div className="relative">
-               <select 
-                 className="w-full glass-input text-white rounded-xl px-4 py-3 md:py-3.5 focus:outline-none focus:ring-2 focus:ring-brand-500/50 appearance-none cursor-pointer min-h-[48px]"
-                 value={data.product.objective}
-                 onChange={(e) => handleChange('product', 'objective', e.target.value)}
-               >
-                 <option value="awareness" className="bg-dark-card">Awareness</option>
-                 <option value="consideration" className="bg-dark-card">Consideration</option>
-                 <option value="conversion" className="bg-dark-card">Conversion</option>
-               </select>
-               <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                 ▼
-               </div>
-             </div>
-          </div>
-          <div>
-             <label className="block text-slate-300 mb-2 font-medium">Main Angle</label>
-             <div className="relative">
-               <select 
-                 className="w-full glass-input text-white rounded-xl px-4 py-3 md:py-3.5 focus:outline-none focus:ring-2 focus:ring-brand-500/50 appearance-none cursor-pointer min-h-[48px]"
-                 value={data.product.main_angle_optional}
-                 onChange={(e) => handleChange('product', 'main_angle_optional', e.target.value)}
-               >
-                 <option value="problem-solution" className="bg-dark-card">Problem-Solution</option>
-                 <option value="routine" className="bg-dark-card">Routine / GRWM</option>
-                 <option value="review" className="bg-dark-card">Honest Review</option>
-                 <option value="aesthetic" className="bg-dark-card">Aesthetic / ASMR</option>
-                 <option value="comparison" className="bg-dark-card">Comparison</option>
-               </select>
-               <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-slate-400">
-                 ▼
-               </div>
-             </div>
-          </div>
-          
-          <div className="md:col-span-2">
-            <label className="block text-slate-300 mb-3 font-medium">Target Platforms *</label>
-            <div className="flex flex-wrap gap-3">
-              {[
-                { id: 'tiktok', label: 'TikTok' },
-                { id: 'reels', label: 'Instagram Reels' },
-                { id: 'shorts', label: 'YouTube Shorts' },
-              ].map((p) => {
-                 const isSelected = data.product.platform.includes(p.id as any);
-                 return (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => togglePlatform(p.id as any)}
-                    className={`flex items-center gap-2 px-5 py-3 rounded-xl border transition-all duration-200 min-h-[48px] ${
-                      isSelected 
-                        ? 'bg-brand-500/20 border-brand-500 text-brand-100 shadow-[0_0_15px_rgba(249,115,22,0.3)]' 
-                        : 'glass-input text-slate-400 border-white/10 hover:border-white/30 hover:bg-white/5'
-                    }`}
-                  >
-                    {isSelected ? <CheckCircle2 className="w-5 h-5 text-brand-500" /> : <Circle className="w-5 h-5" />}
-                    {p.label}
-                  </button>
-                 );
-              })}
-            </div>
-          </div>
+      {/* Product */}
+      <div className="glass-panel p-5 rounded-2xl border-l-4 border-purple-500">
+        <h3 className="text-white font-bold mb-4 flex items-center gap-2"><Tag className="w-4 h-4 text-purple-500"/> Product Specs</h3>
+        <div className="grid md:grid-cols-2 gap-4 mb-4">
+          <input required type="text" className="glass-input w-full p-3 rounded-xl placeholder-slate-500" value={data.product.type} onChange={(e) => handleChange('product', 'type', e.target.value)} placeholder="Type (e.g. Serum) *" />
+          <input required type="text" className="glass-input w-full p-3 rounded-xl placeholder-slate-500" value={data.product.material} onChange={(e) => handleChange('product', 'material', e.target.value)} placeholder="Key Feature (e.g. Retinol) *" />
+          <select className="glass-input w-full p-3 rounded-xl" value={data.product.objective} onChange={(e) => handleChange('product', 'objective', e.target.value)}>
+             <option className="bg-zinc-900" value="conversion">Conversion</option>
+             <option className="bg-zinc-900" value="awareness">Awareness</option>
+          </select>
+          <select className="glass-input w-full p-3 rounded-xl" value={data.product.main_angle_optional} onChange={(e) => handleChange('product', 'main_angle_optional', e.target.value)}>
+             <option className="bg-zinc-900" value="problem-solution">Problem-Solution</option>
+             <option className="bg-zinc-900" value="routine">Routine</option>
+             <option className="bg-zinc-900" value="review">Review</option>
+          </select>
+        </div>
+        <div className="flex gap-2">
+          {['tiktok', 'reels', 'shorts'].map(p => (
+            <button key={p} type="button" onClick={() => togglePlatform(p)} className={`flex-1 py-2 rounded-lg border flex items-center justify-center gap-2 transition-all ${data.product.platform.includes(p as any) ? 'bg-purple-900/50 border-purple-500 text-white' : 'glass-input border-transparent text-slate-500'}`}>
+              <Smartphone className="w-4 h-4"/> {p}
+            </button>
+          ))}
         </div>
       </div>
 
-      {/* Source Material Section */}
-      <div className="glass-panel p-5 rounded-2xl border border-white/10 shadow-lg backdrop-blur-md">
-        <h3 className="text-brand-500 font-semibold mb-5 text-lg flex items-center gap-3">
-          <span className="w-7 h-7 rounded-full bg-brand-500/20 flex items-center justify-center text-xs font-bold ring-1 ring-brand-500/40">3</span>
-          Source Material <span className="text-slate-500 font-normal text-xs ml-auto border border-white/10 px-2 py-1 rounded-full">Optional</span>
-        </h3>
-        <div className="space-y-5">
-           <div>
-              <label className="block text-slate-300 mb-2 font-medium flex items-center gap-2">
-                <Link className="w-4 h-4 text-brand-400" /> Source URL (Reference Only)
-              </label>
-              <input 
-                type="url" 
-                className="w-full glass-input text-white rounded-xl px-4 py-3 md:py-3.5 focus:outline-none focus:ring-2 focus:ring-brand-500/50 placeholder-slate-500 transition-all min-h-[48px]"
-                value={data.scrape.source_url_optional}
-                onChange={(e) => handleChange('scrape', 'source_url_optional', e.target.value)}
-                placeholder="https://..."
-              />
-           </div>
-           <div>
-              <label className="block text-slate-300 mb-2 font-medium flex items-center gap-2">
-                <FileText className="w-4 h-4 text-brand-400" /> Raw Product Info / Scraped Text
-              </label>
-              <textarea 
-                className="w-full glass-input text-white rounded-xl px-4 py-3 md:py-3.5 focus:outline-none focus:ring-2 focus:ring-brand-500/50 placeholder-slate-500 transition-all min-h-[120px]"
-                value={data.scrape.raw_text_optional}
-                onChange={(e) => handleChange('scrape', 'raw_text_optional', e.target.value)}
-                placeholder="Paste product description, reviews, or raw text here. The AI will sanitize it automatically."
-              />
-              <p className="text-xs text-slate-400 mt-2 flex items-center gap-1.5 opacity-80">
-                <CheckCircle2 className="w-3 h-3 text-brand-500" />
-                Auto-sanitization enabled: Removes UI noise & blocks prompt injection attempts.
-              </p>
-           </div>
-        </div>
-      </div>
-
-      {/* Constraints Section */}
-      <div className="glass-panel p-5 rounded-2xl border border-white/10 shadow-lg backdrop-blur-md">
-        <h3 className="text-brand-500 font-semibold mb-5 text-lg flex items-center gap-3">
-          <span className="w-7 h-7 rounded-full bg-brand-500/20 flex items-center justify-center text-xs font-bold ring-1 ring-brand-500/40">4</span>
-          Rules & Constraints
-        </h3>
+      {/* Format Settings (Scenes & Duration) */}
+      <div className="glass-panel p-5 rounded-2xl border-l-4 border-blue-500">
+        <h3 className="text-white font-bold mb-4 flex items-center gap-2"><Settings2 className="w-4 h-4 text-blue-500"/> Format Control</h3>
         
-        <div className="mb-6">
-          <label className="block text-slate-300 mb-2 font-medium">Must Include</label>
-          <div className="flex gap-2 mb-3">
-            <input 
-              type="text"
-              className="flex-1 glass-input text-white rounded-xl px-4 py-3 md:py-3.5 focus:outline-none focus:ring-2 focus:ring-brand-500/50 placeholder-slate-500 min-h-[48px]"
-              value={mustIncludeInput}
-              onChange={(e) => setMustIncludeInput(e.target.value)}
-              placeholder="Add key phrase..."
-              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleArrayAdd('must_include_optional', mustIncludeInput, setMustIncludeInput))}
-            />
-            <button type="button" onClick={() => handleArrayAdd('must_include_optional', mustIncludeInput, setMustIncludeInput)} className="bg-brand-600/20 border border-brand-500/50 text-brand-400 px-5 rounded-xl hover:bg-brand-500 hover:text-white transition-all text-xl font-light min-h-[48px]">+</button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {data.constraints.must_include_optional.map((item, i) => (
-              <span key={i} className="bg-emerald-500/10 text-emerald-300 border border-emerald-500/30 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2">
-                {item}
-                <button type="button" onClick={() => handleArrayRemove('must_include_optional', i)} className="hover:text-white bg-emerald-500/20 rounded-full w-4 h-4 flex items-center justify-center">×</button>
-              </span>
-            ))}
-          </div>
-        </div>
+        <div className="space-y-6">
+            {/* Scene Count Slider */}
+            <div>
+                <div className="flex justify-between text-sm mb-2">
+                    <span className="text-slate-400 flex items-center gap-2"><Layers className="w-4 h-4 text-blue-400"/> Scene Count</span>
+                    <span className="text-white font-bold bg-blue-500/20 px-2 py-0.5 rounded text-xs border border-blue-500/20">{data.constraints.scene_count || 5} Scenes</span>
+                </div>
+                <input 
+                    type="range" 
+                    min="3" 
+                    max="10" 
+                    step="1" 
+                    value={data.constraints.scene_count || 5} 
+                    onChange={(e) => handleSceneCountChange(parseInt(e.target.value))}
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+                <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-mono">
+                    <span>3 (Short)</span>
+                    <span>10 (Long)</span>
+                </div>
+            </div>
 
-        <div className="mb-2">
-          <label className="block text-slate-300 mb-2 font-medium">Do Not Say</label>
-          <div className="flex gap-2 mb-3">
-            <input 
-              type="text"
-              className="flex-1 glass-input text-white rounded-xl px-4 py-3 md:py-3.5 focus:outline-none focus:ring-2 focus:ring-red-500/50 placeholder-slate-500 min-h-[48px]"
-              value={doNotSayInput}
-              onChange={(e) => setDoNotSayInput(e.target.value)}
-              placeholder="Add banned word..."
-              onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), handleArrayAdd('do_not_say_optional', doNotSayInput, setDoNotSayInput))}
-            />
-            <button type="button" onClick={() => handleArrayAdd('do_not_say_optional', doNotSayInput, setDoNotSayInput)} className="bg-red-600/20 border border-red-500/50 text-red-400 px-5 rounded-xl hover:bg-red-500 hover:text-white transition-all text-xl font-light min-h-[48px]">+</button>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {data.constraints.do_not_say_optional.map((item, i) => (
-              <span key={i} className="bg-red-500/10 text-red-300 border border-red-500/30 px-3 py-1.5 rounded-lg text-xs font-medium flex items-center gap-2">
-                {item}
-                <button type="button" onClick={() => handleArrayRemove('do_not_say_optional', i)} className="hover:text-white bg-red-500/20 rounded-full w-4 h-4 flex items-center justify-center">×</button>
-              </span>
-            ))}
-          </div>
+            {/* Duration Slider */}
+            <div>
+                <div className="flex justify-between text-sm mb-2">
+                    <span className="text-slate-400 flex items-center gap-2"><Clock className="w-4 h-4 text-blue-400"/> Target Duration</span>
+                    <span className="text-white font-bold bg-blue-500/20 px-2 py-0.5 rounded text-xs border border-blue-500/20">{data.constraints.vo_duration_seconds} Seconds</span>
+                </div>
+                <input 
+                    type="range" 
+                    min="15" 
+                    max="90" 
+                    step="5" 
+                    value={data.constraints.vo_duration_seconds} 
+                    onChange={(e) => handleChange('constraints', 'vo_duration_seconds', parseInt(e.target.value))}
+                    className="w-full h-2 bg-white/10 rounded-lg appearance-none cursor-pointer accent-blue-500"
+                />
+                <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-mono">
+                    <span>15s</span>
+                    <span>90s</span>
+                </div>
+            </div>
         </div>
       </div>
 
-      <button 
-        type="submit" 
-        disabled={isLoading}
-        className="w-full bg-gradient-to-r from-brand-600 via-orange-500 to-yellow-500 hover:from-brand-500 hover:to-yellow-400 text-white font-bold py-5 rounded-2xl shadow-[0_0_20px_rgba(249,115,22,0.4)] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed hover:scale-[1.01] active:scale-[0.99] border border-white/20 min-h-[56px]"
-      >
-        {isLoading ? (
-          <>
-            <div className="animate-spin h-5 w-5 border-2 border-white border-t-transparent rounded-full"></div>
-            Sanitizing & Generating...
-          </>
-        ) : (
-          <>
-            <Sparkles className="w-5 h-5 fill-white/20" />
-            <span className="text-lg">Generate UGC Plan</span>
-          </>
-        )}
+      {/* Context */}
+      <div className="glass-panel p-5 rounded-2xl border-l-4 border-emerald-500">
+        <h3 className="text-white font-bold mb-4 flex items-center gap-2"><FileText className="w-4 h-4 text-emerald-500"/> Context (Optional)</h3>
+        <textarea className="glass-input w-full p-3 rounded-xl h-24 placeholder-slate-500" value={data.scrape.raw_text_optional} onChange={(e) => handleChange('scrape', 'raw_text_optional', e.target.value)} placeholder="Paste raw product details, facts, or existing copy here..." />
+      </div>
+
+      <button disabled={isLoading} className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-brand-500/20 transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+        {isLoading ? <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"/> : <Sparkles className="w-5 h-5"/>}
+        {isLoading ? 'GENERATING...' : 'GENERATE BRIEF'}
       </button>
-
-      <div className="flex items-start gap-3 text-xs text-slate-400 bg-white/5 border border-white/5 p-4 rounded-xl backdrop-blur-sm">
-        <AlertCircle className="w-5 h-5 mt-0.5 shrink-0 text-brand-500" />
-        <p>AI will strictly follow compliance rules. No medical claims or guarantees will be generated.</p>
-      </div>
     </form>
   );
 };

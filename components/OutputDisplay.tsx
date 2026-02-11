@@ -1,887 +1,597 @@
-import React, { useState } from 'react';
+
+import React, { useState, useRef, useEffect } from 'react';
 import { GeneratedAsset } from '../types';
-import { generateSpeech, playAudio, getWavBlob } from '../services/geminiService';
-import { Copy, Check, Video, MessageSquare, AlertTriangle, Layers, ShieldCheck, ShieldAlert, FileSearch, Fingerprint, Lock, Clapperboard, Anchor, Camera, Hand, ScanFace, Lamp, Mic, Volume2, Film, Focus, Ban, Globe, ClipboardCheck, Wrench, RefreshCw, XCircle, Code, Play, Loader2, Download, FileJson } from 'lucide-react';
+import { generateSpeech, getWavBlob, analyzeVoiceStyle, generateImagePreview } from '../services/geminiService';
+import { getStoredReplicateKey, generateFluxImage, generateMinimaxVideo } from '../services/externalService';
+import { Copy, Check, Clapperboard, Play, Loader2, Mic, Download, Pause, Volume2, FileJson, FileText, Image, Database, Settings2, Share2, MoreHorizontal, Upload, Wand2, Eye, Brain, Video, Sparkles, Monitor, Tablet, Smartphone, Maximize2, X, AlertCircle } from 'lucide-react';
+import { SettingsModal } from './SettingsModal';
 
-interface OutputDisplayProps {
-  data: GeneratedAsset | null;
-}
+const VOICES = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
+const SPEECH_STYLES = [
+  'Natural',
+  'Excited',
+  'Serious',
+  'Whispering',
+  'Shouting',
+  'Fast-paced',
+  'Slow & Deliberate',
+  'Friendly'
+];
 
-interface JsonViewerProps {
-  data: any;
-  label: string;
-}
+type AspectRatio = "9:16" | "16:9" | "1:1";
 
-const JsonViewer: React.FC<JsonViewerProps> = ({ data, label }) => {
-  const [copied, setCopied] = useState(false);
-  const jsonString = JSON.stringify(data, null, 2);
+export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data }) => {
+  const [playingIdx, setPlayingIdx] = useState<number | null>(null);
+  const [loadingIdx, setLoadingIdx] = useState<number | null>(null);
+  const [audioUrls, setAudioUrls] = useState<Record<number, string>>({});
+  const [activeAudio, setActiveAudio] = useState<HTMLAudioElement | null>(null);
+  const [copiedSection, setCopiedSection] = useState<string | null>(null);
+  const [overrideVoice, setOverrideVoice] = useState<string | null>(null);
+  const [speechStyle, setSpeechStyle] = useState<string>('Natural');
+  
+  // Media Generation State
+  const [previewImages, setPreviewImages] = useState<Record<number, string>>({});
+  const [previewVideos, setPreviewVideos] = useState<Record<number, string>>({});
+  const [loadingImageIdx, setLoadingImageIdx] = useState<number | null>(null);
+  const [loadingVideoIdx, setLoadingVideoIdx] = useState<number | null>(null);
+  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
+  
+  // View Modal State
+  const [viewModalContent, setViewModalContent] = useState<{type: 'image' | 'video', url: string} | null>(null);
+  
+  // Settings State
+  const [showSettings, setShowSettings] = useState(false);
+  const [hasReplicateKey, setHasReplicateKey] = useState(false);
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(jsonString);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  // Custom Voice State
+  const [isProcessingVoice, setIsProcessingVoice] = useState(false);
+  const [customVoiceTone, setCustomVoiceTone] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  return (
-    <div className="mt-4 border-t border-white/10 pt-4 animate-in fade-in slide-in-from-top-2">
-      <div className="flex justify-between items-center mb-2">
-        <span className="text-[10px] text-slate-500 font-mono uppercase font-bold flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-brand-500"></div>
-          {label} JSON
-        </span>
-        <button 
-          onClick={handleCopy} 
-          className="text-[10px] bg-brand-500/10 hover:bg-brand-500/20 text-brand-400 px-2 py-1 rounded border border-brand-500/20 flex items-center gap-1 transition-colors"
-        >
-          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-          Copy JSON
-        </button>
-      </div>
-      <pre className="bg-black/80 p-3 rounded-xl text-[10px] text-slate-400 font-mono overflow-x-auto max-h-60 border border-white/10 shadow-inner custom-scrollbar">
-        {jsonString}
-      </pre>
+  useEffect(() => {
+    setHasReplicateKey(!!getStoredReplicateKey());
+  }, [showSettings]);
+
+  if (!data) return (
+    <div className="h-full flex flex-col items-center justify-center text-slate-600 border-2 border-dashed border-white/5 rounded-3xl bg-white/[0.01]">
+      <Clapperboard className="w-12 h-12 mb-4 opacity-50" />
+      <p>Waiting for director's input...</p>
     </div>
   );
-};
 
-export const OutputDisplay: React.FC<OutputDisplayProps> = ({ data }) => {
-  const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-  const [copiedPrompt, setCopiedPrompt] = useState<number | null>(null);
-  const [copiedUGCPrompt, setCopiedUGCPrompt] = useState<number | null>(null);
-  const [copiedAltHook, setCopiedAltHook] = useState<number | null>(null);
-  const [copiedNegVideo, setCopiedNegVideo] = useState(false);
-  const [copiedFullJson, setCopiedFullJson] = useState(false);
-  
-  // State for toggling JSON views
-  const [showJson, setShowJson] = useState<Record<string, boolean>>({});
-  
-  // State for audio
-  const [playingIndex, setPlayingIndex] = useState<number | null>(null);
-  const [audioCache, setAudioCache] = useState<Record<number, string>>({});
+  // Helper to determine the best voice and tone
+  const getVoiceConfig = () => {
+    const dna = data.brand_dna;
+    const traits = dna?.voice_traits?.map(t => t.toLowerCase()) || [];
+    const audience = dna?.audience_guess?.toLowerCase() || '';
 
-  if (!data) {
-    return (
-      <div className="h-full flex flex-col items-center justify-center text-slate-500 min-h-[400px] border-2 border-dashed border-white/10 rounded-3xl bg-white/5 backdrop-blur-sm">
-        <div className="bg-white/5 p-4 rounded-full mb-4">
-           <Layers className="w-8 h-8 text-brand-500 opacity-50" />
-        </div>
-        <p className="font-medium text-slate-400">Fill out the brief to generate your plan.</p>
-        <p className="text-xs text-slate-600 mt-2">Ready to create viral content?</p>
-      </div>
-    );
+    let voice = 'Kore'; 
+    if (audience.includes('male') || audience.includes('men') || traits.some(t => ['deep', 'authoritative', 'bold', 'assertive'].includes(t))) {
+      voice = 'Fenrir'; 
+    } else if (traits.some(t => ['calm', 'soft', 'gentle'].includes(t))) {
+       voice = 'Kore'; 
+    }
+
+    const tone = customVoiceTone || (speechStyle !== 'Natural' ? `Speak in a ${speechStyle} tone` : null) || (traits.slice(0, 3).join(', '));
+    return { voice, tone };
+  };
+
+  const { voice: recommendedVoice, tone: activeTone } = getVoiceConfig();
+  const activeVoice = overrideVoice || recommendedVoice;
+
+  const handleVoiceChange = (newVoice: string) => {
+    setOverrideVoice(newVoice);
+    setAudioUrls({});
+    if (activeAudio) {
+      activeAudio.pause();
+      setActiveAudio(null);
+    }
+    setPlayingIdx(null);
+  };
+
+  const handleStyleChange = (style: string) => {
+    setSpeechStyle(style);
+    setAudioUrls({}); 
+    if (activeAudio) {
+        activeAudio.pause();
+        setActiveAudio(null);
+    }
+    setPlayingIdx(null);
   }
 
-  const toggleJson = (section: string) => {
-    setShowJson(prev => ({ ...prev, [section]: !prev[section] }));
-  };
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
 
-  const handleCopyFullJson = () => {
-    navigator.clipboard.writeText(JSON.stringify(data, null, 2));
-    setCopiedFullJson(true);
-    setTimeout(() => setCopiedFullJson(false), 2000);
-  }
-
-  const handleCopyScript = (text: string, index: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedIndex(index);
-    setTimeout(() => setCopiedIndex(null), 2000);
-  };
-
-  const handleCopyPrompt = (text: string, index: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedPrompt(index);
-    setTimeout(() => setCopiedPrompt(null), 2000);
-  };
-
-  const handleCopyUGCPrompt = (text: string, index: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedUGCPrompt(index);
-    setTimeout(() => setCopiedUGCPrompt(null), 2000);
-  };
-
-  const handleCopyAltHook = (text: string, index: number) => {
-    navigator.clipboard.writeText(text);
-    setCopiedAltHook(index);
-    setTimeout(() => setCopiedAltHook(null), 2000);
-  };
-
-  const handleCopyNegVideo = (text: string) => {
-    navigator.clipboard.writeText(text);
-    setCopiedNegVideo(true);
-    setTimeout(() => setCopiedNegVideo(false), 2000);
-  };
-  
-  const handlePlayAudio = async (text: string, index: number) => {
-    if (playingIndex !== null) return; // Prevent multiple plays
-    
-    setPlayingIndex(index);
+    setIsProcessingVoice(true);
     try {
-      let audioData = audioCache[index];
-      if (!audioData) {
-        audioData = await generateSpeech(text);
-        setAudioCache(prev => ({ ...prev, [index]: audioData }));
-      }
-      await playAudio(audioData);
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+            const base64Audio = (reader.result as string).split(',')[1];
+            const analyzedTone = await analyzeVoiceStyle(base64Audio);
+            setCustomVoiceTone(analyzedTone);
+            setAudioUrls({});
+            alert(`Voice Clone Active: Style adapted to "${analyzedTone}"`);
+        };
+        reader.readAsDataURL(file);
     } catch (err) {
-      console.error("Audio playback failed", err);
-      alert("Failed to generate audio. Please check API key/quota.");
+        console.error("Voice analysis failed", err);
+        alert("Could not analyze voice sample.");
     } finally {
-      setPlayingIndex(null);
+        setIsProcessingVoice(false);
     }
   };
 
-  const handleDownloadAudio = (index: number) => {
-    const audioData = audioCache[index];
-    if (!audioData) return;
+  const handleTogglePlay = async (text: string, idx: number) => {
+    if (playingIdx === idx && activeAudio) {
+      activeAudio.pause();
+      setPlayingIdx(null);
+      return;
+    }
+    if (activeAudio) {
+      activeAudio.pause();
+      setPlayingIdx(null);
+    }
+    setLoadingIdx(idx);
 
-    const wavBlob = getWavBlob(audioData);
-    const url = URL.createObjectURL(wavBlob);
+    try {
+      let url = audioUrls[idx];
+      if (!url) {
+        const b64 = await generateSpeech(text, activeVoice, activeTone || undefined);
+        const blob = getWavBlob(b64);
+        url = URL.createObjectURL(blob);
+        setAudioUrls(prev => ({ ...prev, [idx]: url }));
+      }
+      
+      const audio = new Audio(url);
+      audio.onended = () => {
+        setPlayingIdx(null);
+        setActiveAudio(null);
+      };
+      
+      try {
+        await audio.play();
+        setActiveAudio(audio);
+        setPlayingIdx(idx);
+      } catch (playErr) {
+        console.warn("Auto-play blocked after generation.", playErr);
+      }
+      
+    } catch (e) {
+      console.error(e);
+      alert("Error generating audio. Please check quota or try again.");
+    } finally {
+      setLoadingIdx(null);
+    }
+  };
+
+  const handleGeneratePreview = async (prompt: string, idx: number) => {
+      if (loadingImageIdx !== null) return;
+      setLoadingImageIdx(idx);
+      try {
+          let imageUrl = "";
+          // Determine Provider
+          if (hasReplicateKey) {
+             imageUrl = await generateFluxImage(prompt, aspectRatio);
+          } else {
+             imageUrl = await generateImagePreview(prompt, aspectRatio);
+          }
+
+          if (imageUrl) {
+              setPreviewImages(prev => ({ ...prev, [idx]: imageUrl }));
+          } else {
+              alert("Failed to generate preview image.");
+          }
+      } catch (e) {
+          console.error(e);
+          alert(e instanceof Error ? e.message : "Image generation failed");
+      } finally {
+          setLoadingImageIdx(null);
+      }
+  };
+
+  const handleGenerateVideo = async (prompt: string, idx: number) => {
+      if (loadingVideoIdx !== null) return;
+      if (!hasReplicateKey) {
+          setShowSettings(true);
+          return;
+      }
+
+      setLoadingVideoIdx(idx);
+      try {
+          const videoUrl = await generateMinimaxVideo(prompt);
+          if (videoUrl) {
+              setPreviewVideos(prev => ({ ...prev, [idx]: videoUrl }));
+          }
+      } catch (e) {
+          console.error(e);
+          alert(e instanceof Error ? e.message : "Video generation failed");
+      } finally {
+          setLoadingVideoIdx(null);
+      }
+  };
+
+  const handleDownload = (url: string, filename: string) => {
     const a = document.createElement('a');
     a.href = url;
-    a.download = `vo_segment_${index}.wav`;
+    a.download = filename;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
   };
 
-  const hasInjections = data.sanitization_report && data.sanitization_report.detected_injection_patterns.length > 0;
+  const copyToClipboard = (label: string, content: any) => {
+    const text = typeof content === 'string' ? content : JSON.stringify(content, null, 2);
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedSection(label);
+      setTimeout(() => setCopiedSection(null), 2000);
+    }).catch(err => {
+      console.error("Clipboard access denied:", err);
+      alert("Cannot copy to clipboard. Please allow clipboard permissions or copy manually.");
+    });
+  };
+
+  const isPartial = !data.scenes || data.scenes.length === 0;
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-700">
-      
-      {/* Global Actions */}
-      <div className="flex justify-end">
+    <div className="space-y-6 animate-in pb-12">
+      <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
+
+      {/* Media Viewer Modal */}
+      {viewModalContent && (
+        <div className="fixed inset-0 z-[100] bg-black/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+           <button 
+              onClick={() => setViewModalContent(null)}
+              className="absolute top-6 right-6 p-2 rounded-full bg-white/10 hover:bg-white/20 text-white transition-colors"
+           >
+              <X className="w-6 h-6" />
+           </button>
+           <div className="relative w-full max-w-5xl max-h-[90vh] flex flex-col items-center">
+              {viewModalContent.type === 'video' ? (
+                <video src={viewModalContent.url} controls autoPlay className="max-w-full max-h-[80vh] rounded-lg shadow-2xl" />
+              ) : (
+                <img src={viewModalContent.url} alt="Full view" className="max-w-full max-h-[80vh] rounded-lg shadow-2xl object-contain" />
+              )}
+              <div className="mt-6 flex gap-4">
+                 <button 
+                    onClick={() => handleDownload(viewModalContent.url, `ugc-generated-${Date.now()}.${viewModalContent.type === 'video' ? 'mp4' : 'jpg'}`)}
+                    className="flex items-center gap-2 px-6 py-3 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-bold transition-all"
+                 >
+                    <Download className="w-5 h-5" /> Download {viewModalContent.type === 'video' ? 'Video' : 'Image'}
+                 </button>
+              </div>
+           </div>
+        </div>
+      )}
+
+      {/* Title & Controls */}
+      <div className="glass-panel p-8 rounded-3xl border-l-4 border-brand-500 bg-gradient-to-r from-brand-900/10 to-transparent relative overflow-hidden">
+        {/* Settings Trigger */}
         <button 
-          onClick={handleCopyFullJson}
-          className="flex items-center gap-2 text-xs font-medium text-brand-400 bg-brand-500/10 hover:bg-brand-500/20 border border-brand-500/20 px-3 py-2 rounded-lg transition-all"
+          onClick={() => setShowSettings(true)}
+          className={`absolute top-6 right-6 p-2 rounded-lg transition-colors border ${hasReplicateKey ? 'bg-brand-900/20 text-brand-400 border-brand-500/30' : 'bg-white/5 text-slate-400 border-white/5 hover:bg-white/10'}`}
+          title="Configure External AI Keys"
         >
-          {copiedFullJson ? <Check className="w-3.5 h-3.5" /> : <FileJson className="w-3.5 h-3.5" />}
-          Copy Full Project Data
+          <Settings2 className="w-5 h-5" />
         </button>
-      </div>
 
-      {/* Header Info */}
-      <div className="glass-panel border border-white/10 rounded-2xl p-6 relative overflow-hidden shadow-2xl group">
-        <div className="absolute top-0 right-0 w-48 h-48 bg-brand-500/20 rounded-full blur-[80px] -mr-10 -mt-10 pointer-events-none group-hover:bg-brand-500/30 transition-all duration-700"></div>
         <div className="relative z-10">
-          <div className="flex items-start justify-between gap-4 mb-2">
-             <h2 className="text-2xl md:text-3xl font-bold text-white leading-tight">{data.concept_title}</h2>
+          <div className="flex justify-between items-start gap-4 pr-12">
+            <div>
+               <h2 className="text-3xl font-black text-white mb-2">{data.concept_title}</h2>
+               <p className="text-slate-300 italic mb-4">"{data.hook_rationale}"</p>
+            </div>
           </div>
-          <p className="text-slate-400 text-sm mb-5 leading-relaxed max-w-2xl">{data.hook_rationale}</p>
-          
-          <div className="flex flex-wrap gap-2 text-xs">
-             <div className="bg-white/10 text-slate-200 px-3 py-1.5 rounded-full border border-white/10 backdrop-blur-sm shadow-sm">
-                CTA: <span className="font-semibold text-brand-300">{data.cta_button}</span>
-             </div>
-             <div className="bg-emerald-950/40 text-emerald-400 px-3 py-1.5 rounded-full border border-emerald-500/30 flex items-center gap-1.5 shadow-sm">
-                <Check className="w-3 h-3" /> Compliance Checked
-             </div>
-          </div>
-        </div>
-      </div>
 
-      {/* Sanitization Alert */}
-      {data.sanitization_report && (
-        <div className={`glass-panel border rounded-2xl p-4 flex items-start gap-4 ${hasInjections ? 'border-red-500/30 bg-red-950/20' : 'border-emerald-500/20 bg-emerald-950/20'}`}>
-           <div className={`p-2 rounded-full ${hasInjections ? 'bg-red-500/20 text-red-400' : 'bg-emerald-500/20 text-emerald-400'}`}>
-             {hasInjections ? <ShieldAlert className="w-5 h-5" /> : <ShieldCheck className="w-5 h-5" />}
-           </div>
-           <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className={`text-sm font-bold ${hasInjections ? 'text-red-400' : 'text-emerald-400'}`}>
-                        Sanitizer Report (Step 0A)
-                    </h4>
-                    <p className="text-xs text-slate-400 mt-1 truncate">
-                        Content cleaned. {data.sanitization_report.removed_sections_summary.length} noisy sections removed.
-                    </p>
-                  </div>
-                  <button onClick={() => toggleJson('sanitize')} className="text-slate-500 hover:text-white transition-colors p-1">
-                      <Code className="w-4 h-4" />
-                  </button>
+          <div className="mt-4 flex flex-wrap items-center gap-4">
+            <div className="flex items-center gap-3 text-xs text-brand-400 bg-brand-900/20 px-4 py-2 rounded-full border border-brand-500/20">
+              <Mic className="w-3.5 h-3.5" />
+              <div className="flex items-center gap-2">
+                <span className="text-brand-500/70 uppercase font-bold tracking-wider">Voice:</span>
+                <select 
+                  value={activeVoice}
+                  onChange={(e) => handleVoiceChange(e.target.value)}
+                  className="bg-transparent text-white font-bold border-none focus:ring-0 cursor-pointer p-0 text-xs appearance-none hover:text-brand-300 transition-colors"
+                >
+                  {VOICES.map(v => (
+                    <option key={v} value={v} className="bg-zinc-900 text-slate-200">{v}</option>
+                  ))}
+                </select>
               </div>
-              
-              {hasInjections && (
-                 <div className="mt-2">
-                    <span className="text-xs font-bold text-red-400 block mb-1">Blocked Injections:</span>
-                    <ul className="list-disc list-inside text-xs text-red-300/80">
-                       {data.sanitization_report.detected_injection_patterns.map((p, i) => (
-                         <li key={i}>{p}</li>
-                       ))}
-                    </ul>
-                 </div>
-              )}
-              
-              {showJson['sanitize'] && <JsonViewer data={data.sanitization_report} label="Sanitizer" />}
-           </div>
-        </div>
-      )}
-
-      {/* Brand DNA & Facts Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Brand DNA Report */}
-        {data.brand_dna && (
-            <div className="glass-panel border border-purple-500/20 bg-purple-950/20 rounded-2xl p-4 md:p-5 flex flex-col">
-                <div className="flex justify-between items-start mb-4">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-full bg-purple-500/20 text-purple-400">
-                            <Fingerprint className="w-4 h-4" />
-                        </div>
-                        <div>
-                            <h4 className="text-sm font-bold text-purple-400">Brand DNA</h4>
-                            <p className="text-[10px] text-slate-400">Tone & Style</p>
-                        </div>
-                    </div>
-                    <button onClick={() => toggleJson('brand')} className="text-purple-400/50 hover:text-purple-300 transition-colors p-1">
-                        <Code className="w-4 h-4" />
-                    </button>
-                </div>
-
-                <div className="space-y-4 flex-1">
-                    <div>
-                        <span className="text-[10px] font-bold text-slate-300 block mb-1.5 uppercase tracking-wider">Voice Traits</span>
-                        <div className="flex flex-wrap gap-1.5">
-                            {data.brand_dna.voice_traits.map((trait, i) => (
-                            <span key={i} className="text-xs bg-purple-900/40 text-purple-200 px-2 py-1 rounded border border-purple-500/20">{trait}</span>
-                            ))}
-                        </div>
-                    </div>
-                    <div>
-                        <span className="text-[10px] font-bold text-slate-300 block mb-1.5 uppercase tracking-wider">Taboo Words</span>
-                        <p className="text-xs text-slate-500 italic">{data.brand_dna.taboo_words.join(', ')}</p>
-                    </div>
-                </div>
-                
-                {showJson['brand'] && <JsonViewer data={data.brand_dna} label="Brand DNA" />}
-            </div>
-        )}
-
-        {/* Fact Extraction Report */}
-        {data.fact_extraction_report && (
-            <div className="glass-panel border border-blue-500/20 bg-blue-950/20 rounded-2xl p-4 md:p-5 flex flex-col">
-                <div className="flex justify-between items-start mb-4">
-                    <div className="flex items-center gap-3">
-                        <div className="p-2 rounded-full bg-blue-500/20 text-blue-400">
-                            <FileSearch className="w-4 h-4" />
-                        </div>
-                        <div>
-                            <h4 className="text-sm font-bold text-blue-400">Product Facts</h4>
-                            <p className="text-[10px] text-slate-400">Extracted Data</p>
-                        </div>
-                    </div>
-                    <button onClick={() => toggleJson('facts')} className="text-blue-400/50 hover:text-blue-300 transition-colors p-1">
-                        <Code className="w-4 h-4" />
-                    </button>
-                </div>
-                
-                <div className="space-y-3 flex-1 overflow-y-auto max-h-40 custom-scrollbar pr-2">
-                    <div>
-                        <ul className="list-disc list-inside text-xs text-slate-400 space-y-1.5">
-                            {data.fact_extraction_report.facts.slice(0, 5).map((f, i) => (
-                                <li key={i}>{f}</li>
-                            ))}
-                        </ul>
-                    </div>
-                </div>
-
-                {showJson['facts'] && <JsonViewer data={data.fact_extraction_report} label="Facts" />}
-            </div>
-        )}
-      </div>
-
-      {/* Product Truth Sheet (Step 2) */}
-      {data.product_truth_sheet && (
-         <div className="glass-panel border border-rose-500/20 bg-rose-950/20 rounded-2xl p-5">
-            <div className="flex justify-between items-start mb-4">
-               <div className="flex items-center gap-3">
-                   <div className="p-2 rounded-full bg-rose-500/20 text-rose-400">
-                       <Lock className="w-4 h-4" />
-                   </div>
-                   <div>
-                       <h4 className="text-sm font-bold text-rose-400">Product Truth Sheet</h4>
-                       <p className="text-[10px] text-slate-400">Compliance & Safety</p>
-                   </div>
-               </div>
-               <button onClick={() => toggleJson('pts')} className="text-rose-400/50 hover:text-rose-300 transition-colors p-1">
-                   <Code className="w-4 h-4" />
-               </button>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
-               <div className="space-y-4">
-                   <div>
-                     <span className="font-bold text-slate-200 block mb-2">Safe Benefit Phrases</span>
-                     <ul className="list-disc list-inside text-emerald-400/80 space-y-1 bg-black/20 p-3 rounded-xl border border-white/5">
-                       {data.product_truth_sheet.safe_benefit_phrases.slice(0, 5).map((p, i) => <li key={i}>{p}</li>)}
-                     </ul>
-                   </div>
-                   <div>
-                     <span className="font-bold text-slate-200 block mb-2">Required Disclaimer</span>
-                     <div className="bg-black/40 border border-white/10 p-3 rounded-xl text-slate-400 italic">
-                       "{data.product_truth_sheet.required_disclaimer}"
-                     </div>
-                   </div>
-               </div>
-               <div>
-                   <span className="font-bold text-red-400 block mb-2">Forbidden Claims (NEVER Use)</span>
-                   <ul className="list-disc list-inside text-red-400/70 space-y-1 bg-red-950/10 p-3 rounded-xl border border-red-500/10">
-                     {data.product_truth_sheet.forbidden_claims.slice(0, 8).map((p, i) => <li key={i}>{p}</li>)}
-                   </ul>
-               </div>
-            </div>
-
-            {showJson['pts'] && <JsonViewer data={data.product_truth_sheet} label="PTS" />}
-         </div>
-      )}
-
-      {/* Storyboard Planner (Step 3) */}
-      {data.storyboard && (
-         <div className="glass-panel border border-orange-500/20 bg-orange-950/20 rounded-2xl p-5">
-             <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-full bg-orange-500/20 text-orange-400">
-                        <Clapperboard className="w-4 h-4" />
-                    </div>
-                    <div>
-                        <h4 className="text-sm font-bold text-orange-400">Storyboard Planner</h4>
-                        <p className="text-[10px] text-slate-400">Preset: <span className="text-orange-300 font-bold uppercase">{data.storyboard.preset_used_optional || "Custom"}</span></p>
-                    </div>
-                </div>
-                <div className="flex items-center gap-2">
-                    <div className="text-[10px] bg-orange-900/30 border border-orange-500/30 px-2 py-1 rounded text-orange-300 font-mono">
-                       {data.storyboard.total_seconds}s
-                    </div>
-                    <button onClick={() => toggleJson('storyboard')} className="text-orange-400/50 hover:text-orange-300 transition-colors p-1">
-                       <Code className="w-4 h-4" />
-                    </button>
-                </div>
-             </div>
-
-             <div className="space-y-2">
-                {data.storyboard.scenes.map((scene, i) => (
-                    <div key={i} className="bg-white/5 rounded-xl p-3 text-xs border border-white/5 flex items-center gap-3">
-                        <div className="text-orange-400 font-mono font-bold w-8 text-center shrink-0">{scene.seconds}</div>
-                        <div className="flex-1 min-w-0">
-                            <div className="flex flex-wrap items-center gap-2 mb-1">
-                                <span className="bg-white/10 text-slate-300 px-1.5 py-0.5 rounded text-[9px] uppercase font-bold tracking-wider">{scene.scene_id}</span>
-                                <span className="text-slate-200 font-bold truncate">{scene.goal}</span>
-                            </div>
-                            <div className="flex flex-wrap gap-x-2 text-[10px] text-slate-500">
-                               <span className="flex items-center gap-1 truncate"><Anchor className="w-3 h-3" /> {scene.hook_mechanic}</span>
-                               <span className="text-slate-700 hidden sm:inline">|</span>
-                               <span className="truncate">{scene.location}</span>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-             </div>
-
-             {showJson['storyboard'] && <JsonViewer data={data.storyboard} label="Storyboard" />}
-         </div>
-      )}
-
-      {/* UGC Shot List (Step 4) */}
-      {data.ugc_prompts && (
-         <div className="glass-panel border border-teal-500/20 bg-teal-950/20 rounded-2xl p-5">
-             <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center gap-3">
-                    <div className="p-2 rounded-full bg-teal-500/20 text-teal-400">
-                        <Camera className="w-4 h-4" />
-                    </div>
-                    <div>
-                        <h4 className="text-sm font-bold text-teal-400">UGC Shot List</h4>
-                        <p className="text-[10px] text-slate-400">Production Prompts</p>
-                    </div>
-                </div>
-                <button onClick={() => toggleJson('ugc')} className="text-teal-400/50 hover:text-teal-300 transition-colors p-1">
-                    <Code className="w-4 h-4" />
-                </button>
-             </div>
-             
-             <div className="grid gap-4">
-                {data.ugc_prompts.map((prompt, i) => (
-                    <div key={i} className="bg-white/5 rounded-xl p-4 text-xs border border-white/5 hover:border-teal-500/30 transition-colors">
-                        <div className="flex justify-between items-center mb-3 pb-2 border-b border-white/5">
-                            <span className="text-teal-400 font-bold uppercase tracking-wider">{prompt.scene_id}</span>
-                            <span className="text-slate-500 font-mono">{data.storyboard?.scenes[i]?.seconds || `Scene ${i+1}`}</span>
-                        </div>
-                        
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-3">
-                            <div>
-                                <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Action & Pose</span>
-                                <div className="flex items-start gap-2 text-slate-300">
-                                    <ScanFace className="w-3 h-3 mt-0.5 text-teal-500/70 shrink-0" />
-                                    <p className="leading-relaxed">{prompt.pose} — {prompt.action}</p>
-                                </div>
-                            </div>
-                            <div>
-                                <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Framing & Handling</span>
-                                <div className="flex items-start gap-2 text-slate-300">
-                                    <Hand className="w-3 h-3 mt-0.5 text-teal-500/70 shrink-0" />
-                                    <p className="leading-relaxed">{prompt.shot_framing} — {prompt.hands_and_product_handling}</p>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="space-y-2">
-                            <div className="bg-black/30 p-3 rounded-xl border border-white/10 relative group">
-                                <span className="text-[9px] text-slate-500 uppercase font-bold absolute top-2 right-2">Midjourney</span>
-                                <p className="text-slate-400 pr-12 line-clamp-2 group-hover:line-clamp-none transition-all leading-relaxed">{prompt.ugc_prompt}</p>
-                                <button 
-                                    onClick={() => handleCopyUGCPrompt(prompt.ugc_prompt, i)}
-                                    className="text-teal-500 hover:text-teal-400 absolute bottom-2 right-2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-white/10"
-                                >
-                                    {copiedUGCPrompt === i ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                ))}
-             </div>
-             
-             {showJson['ugc'] && <JsonViewer data={data.ugc_prompts} label="UGC Prompts" />}
-         </div>
-      )}
-
-      {/* Scene Setups (Step 5) */}
-      {data.scene_setups && (
-        <div className="glass-panel border border-indigo-500/20 bg-indigo-950/20 rounded-2xl p-5">
-             <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center gap-3">
-                   <div className="p-2 rounded-full bg-indigo-500/20 text-indigo-400">
-                      <Lamp className="w-4 h-4" />
-                   </div>
-                   <div>
-                      <h4 className="text-sm font-bold text-indigo-400">Production Setup</h4>
-                      <p className="text-[10px] text-slate-400">Lighting & Props</p>
-                   </div>
-                </div>
-                <button onClick={() => toggleJson('scenes')} className="text-indigo-400/50 hover:text-indigo-300 transition-colors p-1">
-                    <Code className="w-4 h-4" />
-                </button>
-             </div>
-             
-             <div className="grid gap-3">
-                {data.scene_setups.map((setup, i) => (
-                  <div key={i} className="bg-white/5 rounded-xl p-3 text-xs border border-white/5">
-                    <div className="flex justify-between items-center mb-2 pb-2 border-b border-white/5">
-                        <span className="text-indigo-400 font-bold uppercase tracking-wider">{setup.scene_id}</span>
-                        <div className="flex items-center gap-2">
-                           <span className="text-[10px] bg-indigo-900/40 text-indigo-200 px-1.5 py-0.5 rounded border border-indigo-500/30 truncate max-w-[100px]">{setup.lighting}</span>
-                           <span className="text-[10px] text-slate-500 hidden sm:inline">{setup.time_of_day}</span>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      <div>
-                        <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Set Dressing</span>
-                        <ul className="list-disc list-inside text-slate-300/80 space-y-0.5">
-                          {setup.set_dressing.map((item, idx) => <li key={idx} className="truncate">{item}</li>)}
-                        </ul>
-                      </div>
-                      <div className="space-y-2">
-                           <div className="bg-white/5 p-2 rounded border border-white/10">
-                              <span className="text-[9px] text-slate-500 font-bold block">Continuity</span>
-                              <p className="text-slate-400 leading-tight">{setup.continuity_notes.join('. ')}</p>
-                           </div>
-                           <div className="bg-red-900/10 p-2 rounded border border-red-900/20">
-                              <span className="text-[9px] text-red-400/60 font-bold block">Safety</span>
-                              <p className="text-red-300/60 leading-tight">{setup.safety_and_compliance_notes.join('. ')}</p>
-                           </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-             </div>
-
-             {showJson['scenes'] && <JsonViewer data={data.scene_setups} label="Scene Setups" />}
-        </div>
-      )}
-
-      {/* VO Script & Audio (Step 6) */}
-      {data.vo_script && (
-         <div className="glass-panel border border-pink-500/20 bg-pink-950/20 rounded-2xl p-5">
-             <div className="flex justify-between items-start mb-4">
-                <div className="flex items-center gap-3">
-                   <div className="p-2 rounded-full bg-pink-500/20 text-pink-400">
-                      <Mic className="w-4 h-4" />
-                   </div>
-                   <div>
-                      <h4 className="text-sm font-bold text-pink-400">VO Script</h4>
-                      <p className="text-[10px] text-slate-400">Gen Z Indonesian ({data.vo_script.duration_seconds}s)</p>
-                   </div>
-                </div>
-                <button onClick={() => toggleJson('vo')} className="text-pink-400/50 hover:text-pink-300 transition-colors p-1">
-                   <Code className="w-4 h-4" />
-                </button>
-             </div>
-
-             {/* Master Script Table */}
-             <div className="bg-black/40 rounded-xl overflow-x-auto border border-white/5 mb-4 shadow-inner custom-scrollbar">
-               <table className="w-full text-xs text-left min-w-[500px]">
-                 <thead className="bg-white/5 text-slate-400 font-medium">
-                   <tr>
-                     <th className="px-4 py-3 w-16">Time</th>
-                     <th className="px-4 py-3">Line (Bahasa Indonesia)</th>
-                     <th className="px-4 py-3 w-32 text-right">Audio</th>
-                   </tr>
-                 </thead>
-                 <tbody className="divide-y divide-white/5">
-                   {data.vo_script.timecodes.map((tc, i) => (
-                     <tr key={i} className="hover:bg-white/5 transition-colors group">
-                       <td className="px-4 py-3 font-mono text-pink-400/80 align-middle">{tc.seconds}</td>
-                       <td className="px-4 py-3 text-slate-200 relative pr-8 align-middle">
-                         {tc.line}
-                         <button 
-                             onClick={() => handleCopyScript(tc.line, i + 100)} 
-                             className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-600 hover:text-white opacity-0 group-hover:opacity-100 transition-opacity p-1"
-                             title="Copy Text"
-                         >
-                             {copiedIndex === i + 100 ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                         </button>
-                       </td>
-                       <td className="px-4 py-3 text-right align-middle">
-                          <div className="flex items-center justify-end gap-1.5">
-                             <button 
-                               onClick={() => handlePlayAudio(tc.line, i)}
-                               disabled={playingIndex !== null}
-                               className={`p-2 rounded-lg transition-all ${
-                                 playingIndex === i 
-                                   ? 'bg-pink-500 text-white' 
-                                   : 'bg-white/10 text-pink-400 hover:bg-pink-500/20'
-                               } disabled:opacity-50`}
-                               title="Generate & Play Audio"
-                             >
-                               {playingIndex === i ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5 fill-current" />}
-                             </button>
-                             {audioCache[i] && (
-                                 <button 
-                                   onClick={() => handleDownloadAudio(i)}
-                                   className="p-2 rounded-lg bg-white/10 text-slate-400 hover:bg-white/20 hover:text-white transition-all"
-                                   title="Download WAV"
-                                 >
-                                   <Download className="w-3.5 h-3.5" />
-                                 </button>
-                             )}
-                          </div>
-                       </td>
-                     </tr>
-                   ))}
-                 </tbody>
-               </table>
-               <div className="bg-pink-900/20 px-4 py-3 border-t border-pink-500/20 flex flex-col sm:flex-row justify-between items-start sm:items-center min-w-[500px] gap-2">
-                  <span className="text-pink-300 font-bold uppercase text-[10px] tracking-wider">Call To Action</span>
-                  <span className="text-white font-medium text-xs">{data.vo_script.cta}</span>
-               </div>
-             </div>
-
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Alt Hooks */}
-                <div>
-                   <span className="text-[10px] text-slate-500 uppercase font-bold block mb-2">Alternative Hooks (A/B Test)</span>
-                   <div className="space-y-2">
-                     {data.vo_script.alt_hooks.slice(0, 5).map((hook, i) => (
-                       <div key={i} className="flex items-center justify-between text-xs bg-white/5 px-3 py-2.5 rounded-lg border border-white/5 group hover:border-pink-500/30 transition-colors">
-                          <span className="text-slate-300 truncate mr-2">{hook}</span>
-                          <button 
-                             onClick={() => handleCopyAltHook(hook, i)}
-                             className="text-slate-600 hover:text-pink-400 opacity-0 group-hover:opacity-100 transition-opacity p-1"
-                          >
-                             {copiedAltHook === i ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                          </button>
-                       </div>
-                     ))}
-                   </div>
-                </div>
-                
-                {/* On Screen Text */}
-                <div>
-                   <span className="text-[10px] text-slate-500 uppercase font-bold block mb-2">On-Screen Text Ideas</span>
-                   <div className="flex flex-wrap gap-2">
-                     {data.vo_script.on_screen_text_suggestions.map((txt, i) => (
-                       <span key={i} className="text-xs bg-black/40 text-yellow-400/80 px-3 py-1.5 rounded-lg border border-white/10">
-                         {txt}
-                       </span>
-                     ))}
-                   </div>
-                   {data.vo_script.required_disclaimer_included && (
-                     <div className="mt-3 flex items-center gap-1.5 text-[10px] text-emerald-400 bg-emerald-900/20 px-3 py-2 rounded-lg border border-emerald-900/30">
-                        <Check className="w-3 h-3" />
-                        Disclaimer Included Automatically
-                     </div>
-                   )}
-                </div>
-             </div>
-
-             {showJson['vo'] && <JsonViewer data={data.vo_script} label="VO Script" />}
-         </div>
-      )}
-
-      {/* Video Prompt Package (Step 7) */}
-      {data.video_prompt && (
-        <div className="glass-panel border border-cyan-500/20 bg-cyan-950/20 rounded-2xl p-5">
-          <div className="flex justify-between items-start mb-4">
-             <div className="flex items-center gap-3">
-                <div className="p-2 rounded-full bg-cyan-500/20 text-cyan-400">
-                   <Film className="w-4 h-4" />
-                </div>
-                <div>
-                   <h4 className="text-sm font-bold text-cyan-400">Video AI Prompts</h4>
-                   <p className="text-[10px] text-slate-400">Runway / Luma / Kling</p>
-                </div>
-             </div>
-             <button onClick={() => toggleJson('video')} className="text-cyan-400/50 hover:text-cyan-300 transition-colors p-1">
-                 <Code className="w-4 h-4" />
-             </button>
-          </div>
-
-          <div className="space-y-4">
-             {/* Shotlist Table */}
-             <div className="bg-black/40 rounded-xl overflow-hidden border border-white/5">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-white/5 text-slate-400 font-medium">
-                    <tr>
-                      <th className="px-4 py-2 w-16">Scene</th>
-                      <th className="px-4 py-2">Camera Move</th>
-                      <th className="px-4 py-2">Focus & Constraints</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/5">
-                    {data.video_prompt.shotlist.map((shot, i) => (
-                      <tr key={i} className="hover:bg-white/5 transition-colors">
-                         <td className="px-4 py-2 font-mono text-cyan-400/80 uppercase">{shot.scene_id}</td>
-                         <td className="px-4 py-2 text-slate-200">{shot.camera_move}</td>
-                         <td className="px-4 py-2">
-                            <div className="space-y-1">
-                               <div className="flex items-center gap-1.5 text-slate-300">
-                                  <Focus className="w-3 h-3 text-cyan-500/70" /> {shot.focus_rule}
-                               </div>
-                               <div className="flex items-center gap-1.5 text-slate-400">
-                                  <ShieldCheck className="w-3 h-3 text-emerald-500/70" /> {shot.product_readability_rule}
-                               </div>
-                            </div>
-                         </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-             </div>
-
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Global Constraints */}
-                <div>
-                   <span className="text-[10px] text-slate-500 uppercase font-bold block mb-2 flex items-center gap-1">
-                     <Globe className="w-3 h-3" /> Global Constraints
-                   </span>
-                   <div className="flex flex-wrap gap-1.5">
-                      {data.video_prompt.global_constraints.map((constaint, i) => (
-                        <span key={i} className="text-xs bg-white/5 text-slate-300 px-2 py-1 rounded border border-white/10">
-                          {constaint}
-                        </span>
-                      ))}
-                   </div>
-                </div>
-
-                {/* Negative Prompt */}
-                <div>
-                   <div className="flex justify-between items-center mb-2">
-                     <span className="text-[10px] text-slate-500 uppercase font-bold flex items-center gap-1">
-                       <Ban className="w-3 h-3" /> Negative Video Prompt
-                     </span>
-                     <button 
-                        onClick={() => handleCopyNegVideo(data.video_prompt!.negative_prompt_video.join(', '))}
-                        className="text-cyan-500 hover:text-cyan-400 text-[10px] flex items-center gap-1 transition-colors p-1"
-                     >
-                        {copiedNegVideo ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                        Copy All
-                     </button>
-                   </div>
-                   <div className="bg-red-950/20 p-3 rounded-xl border border-red-900/30 max-h-32 overflow-y-auto custom-scrollbar">
-                      <p className="text-xs text-red-300/70 leading-relaxed font-mono">
-                        {data.video_prompt.negative_prompt_video.join(', ')}
-                      </p>
-                   </div>
-                </div>
-             </div>
-
-             {showJson['video'] && <JsonViewer data={data.video_prompt} label="Video Prompt" />}
-          </div>
-        </div>
-      )}
-
-      {/* Evaluation Report (Step 8) */}
-      {data.evaluation && (
-        <div className={`glass-panel border rounded-2xl p-5 flex items-start gap-4 ${data.evaluation.passed ? 'border-green-500/30 bg-green-950/20' : 'border-yellow-500/30 bg-yellow-950/20'}`}>
-           <div className={`p-2 rounded-full ${data.evaluation.passed ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
-             {data.evaluation.passed ? <ClipboardCheck className="w-5 h-5" /> : <AlertTriangle className="w-5 h-5" />}
-           </div>
-           <div className="flex-1 min-w-0">
-              <div className="flex justify-between items-start">
-                  <div>
-                    <h4 className={`text-sm font-bold ${data.evaluation.passed ? 'text-green-400' : 'text-yellow-400'}`}>
-                        Validation Report
-                    </h4>
-                    <p className="text-xs text-slate-400 mt-1 mb-3">
-                        AI Agent Quality Control
-                    </p>
-                  </div>
-                  <button onClick={() => toggleJson('eval')} className="text-slate-500 hover:text-white transition-colors p-1">
-                      <Code className="w-4 h-4" />
-                  </button>
+              <span className="text-brand-500/20">|</span>
+              <div className="flex items-center gap-2">
+                <span className="text-brand-500/70 uppercase font-bold tracking-wider">Style:</span>
+                <select 
+                  value={speechStyle}
+                  onChange={(e) => handleStyleChange(e.target.value)}
+                  className="bg-transparent text-white font-bold border-none focus:ring-0 cursor-pointer p-0 text-xs appearance-none hover:text-brand-300 transition-colors"
+                >
+                  {SPEECH_STYLES.map(s => (
+                    <option key={s} value={s} className="bg-zinc-900 text-slate-200">{s}</option>
+                  ))}
+                </select>
               </div>
+              <span className="text-brand-500/20">|</span>
+              
+              <div className="flex items-center gap-2 pl-2 border-l border-brand-500/20">
+                 <input 
+                    type="file" 
+                    ref={fileInputRef}
+                    accept="audio/*"
+                    onChange={handleFileUpload}
+                    className="hidden" 
+                 />
+                 <button 
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isProcessingVoice}
+                    className={`flex items-center gap-1.5 hover:text-white transition-colors ${customVoiceTone ? 'text-emerald-400' : 'text-brand-300'}`}
+                    title={customVoiceTone ? `Active Clone Style: ${customVoiceTone}` : "Upload sample to clone style"}
+                 >
+                    {isProcessingVoice ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3"/>}
+                    {customVoiceTone ? 'Custom Active' : 'Clone Voice'}
+                 </button>
+              </div>
+            </div>
 
-              {data.evaluation.issues.length > 0 && (
-                <div className="mb-3">
-                   <span className="text-[10px] font-bold text-red-400 uppercase tracking-wider block mb-1">Issues Found</span>
-                   <ul className="space-y-1">
-                      {data.evaluation.issues.map((issue, i) => (
-                        <li key={i} className="text-xs text-red-300/80 flex items-start gap-1.5">
-                           <XCircle className="w-3 h-3 mt-0.5 shrink-0" />
-                           {issue}
-                        </li>
-                      ))}
-                   </ul>
-                </div>
-              )}
-
-              {data.evaluation.fixes_applied.length > 0 && (
-                <div className="mb-3">
-                   <span className="text-[10px] font-bold text-blue-400 uppercase tracking-wider block mb-1">Auto-Fixes Applied</span>
-                   <ul className="space-y-1">
-                      {data.evaluation.fixes_applied.map((fix, i) => (
-                        <li key={i} className="text-xs text-blue-300/80 flex items-start gap-1.5">
-                           <Wrench className="w-3 h-3 mt-0.5 shrink-0" />
-                           {fix}
-                        </li>
-                      ))}
-                   </ul>
-                </div>
-              )}
-
-              {data.evaluation.regenerate_steps.length > 0 && (
-                 <div className="mt-2 bg-yellow-950/30 p-2 rounded border border-yellow-900/30">
-                    <div className="flex items-center gap-2 text-yellow-500/80 text-xs font-bold mb-1">
-                       <RefreshCw className="w-3 h-3" />
-                       Recommended Regeneration
-                    </div>
-                    <p className="text-xs text-yellow-600/70">
-                       Ideally, the system should restart: {data.evaluation.regenerate_steps.join(', ')}
-                    </p>
-                 </div>
-              )}
-
-              {showJson['eval'] && <JsonViewer data={data.evaluation} label="Evaluation" />}
-           </div>
-        </div>
-      )}
-
-      {/* Header Info (Repeat for Footer Context) */}
-      <div className="glass-panel border border-white/5 rounded-2xl p-6">
-        <h3 className="text-xl font-bold text-white flex items-center gap-2 mb-2">
-          <Video className="w-6 h-6 text-brand-500" />
-          Master Production Board
-        </h3>
-        
-        {data.scenes.map((scene, idx) => (
-          <div key={idx} className="bg-white/5 rounded-2xl overflow-hidden group hover:border-brand-500/40 transition-all duration-300 mt-4 border border-white/5">
-            {/* Time Header */}
-            <div className="bg-black/20 px-5 py-3 flex justify-between items-center border-b border-white/5">
-              <span className="font-mono text-brand-400 text-sm font-bold bg-brand-900/20 px-2 py-0.5 rounded border border-brand-500/20">{scene.seconds}</span>
-              <span className="text-xs text-slate-500 uppercase tracking-widest font-semibold">Scene {idx + 1}</span>
+            {/* Aspect Ratio Selector */}
+            <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg border border-white/5">
+                {[
+                    { val: "9:16", icon: Smartphone, label: "Story" },
+                    { val: "16:9", icon: Monitor, label: "Cinema" },
+                    { val: "1:1", icon: Tablet, label: "Square" }
+                ].map(r => (
+                    <button
+                        key={r.val}
+                        onClick={() => setAspectRatio(r.val as AspectRatio)}
+                        className={`p-1.5 rounded-md transition-all ${aspectRatio === r.val ? 'bg-white/10 text-white shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+                        title={r.label}
+                    >
+                        <r.icon className="w-3.5 h-3.5" />
+                    </button>
+                ))}
             </div>
             
-            <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* Visuals */}
-              <div className="space-y-4">
-                <div>
-                  <span className="text-slate-500 uppercase text-[10px] font-bold tracking-wider block mb-1.5">Visual Direction</span>
-                  <p className="text-slate-200 leading-relaxed text-sm">{scene.visual_description}</p>
-                </div>
-                <div>
-                   <span className="text-slate-500 uppercase text-[10px] font-bold tracking-wider block mb-1.5">Overlay Text</span>
-                   <span className="bg-black/40 text-yellow-400 px-3 py-1.5 rounded-lg font-medium text-sm border border-white/10 inline-block shadow-lg">
-                     "{scene.on_screen_text}"
-                   </span>
+            {hasReplicateKey && (
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-500/10 border border-indigo-500/20 text-[10px] text-indigo-300">
+                <Sparkles className="w-3 h-3" />
+                Flux & Kling Enabled
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Strategy Dashboard */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 animate-in fade-in slide-in-from-bottom-2">
+         <div className="glass-panel p-4 rounded-xl border border-white/5">
+             <div className="flex items-center gap-2 mb-2">
+                 <Brain className="w-4 h-4 text-purple-500" />
+                 <h4 className="text-xs font-bold text-slate-400 uppercase">Brand DNA</h4>
+             </div>
+             <div className="flex flex-wrap gap-1.5">
+                 {data.brand_dna?.voice_traits?.map((trait, i) => (
+                     <span key={i} className="px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 text-[10px] border border-purple-500/20">{trait}</span>
+                 )) || <div className="h-4 w-20 bg-white/5 rounded animate-pulse"></div>}
+             </div>
+         </div>
+         <div className="glass-panel p-4 rounded-xl border border-white/5">
+             <div className="flex items-center gap-2 mb-2">
+                 <Eye className="w-4 h-4 text-emerald-500" />
+                 <h4 className="text-xs font-bold text-slate-400 uppercase">Audience</h4>
+             </div>
+             <p className="text-xs text-slate-200">
+                 {data.brand_dna?.audience_guess || <div className="h-4 w-full bg-white/5 rounded animate-pulse"></div>}
+             </p>
+         </div>
+         <div className="glass-panel p-4 rounded-xl border border-white/5 lg:col-span-2">
+             <div className="flex items-center gap-2 mb-2">
+                 <Check className="w-4 h-4 text-brand-500" />
+                 <h4 className="text-xs font-bold text-slate-400 uppercase">Core Product Truths</h4>
+             </div>
+              <div className="flex flex-wrap gap-2">
+                 {data.product_truth_sheet?.core_facts?.slice(0,3).map((fact, i) => (
+                     <div key={i} className="flex items-center gap-1.5 text-[10px] text-slate-300 bg-white/5 px-2 py-1 rounded">
+                         <div className="w-1 h-1 bg-brand-500 rounded-full"></div>
+                         {fact}
+                     </div>
+                 )) || <div className="h-4 w-40 bg-white/5 rounded animate-pulse"></div>}
+              </div>
+         </div>
+      </div>
+
+      {/* Scenes */}
+      {isPartial ? (
+         <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+            <div className="p-8 text-center border border-dashed border-white/10 rounded-2xl bg-white/[0.02]">
+                <Loader2 className="w-8 h-8 text-brand-500 animate-spin mx-auto mb-3" />
+                <h3 className="text-slate-300 font-bold mb-1">Director is drafting scenes...</h3>
+                <p className="text-xs text-slate-500">Writing scripts based on brand DNA: <span className="text-brand-400">{data.brand_dna?.voice_traits?.join(', ')}</span></p>
+            </div>
+         </div>
+      ) : (
+        <div className="space-y-4">
+            {data.scenes!.map((scene, idx) => (
+            <div key={idx} className="glass-panel p-6 rounded-2xl border border-white/5 hover:border-brand-500/30 transition-colors group/card">
+                
+                {/* Scene Header */}
+                <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-3">
+                    <div className="bg-brand-500 text-white font-bold px-3 py-1 rounded text-xs">{scene.seconds}s</div>
+                    <div className="text-xs font-bold text-slate-500 uppercase tracking-widest">Scene {idx + 1}</div>
+                    </div>
+                    <button 
+                        onClick={() => copyToClipboard(`scene-${idx}`, scene)}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-[10px] text-slate-400 hover:text-white transition-colors border border-white/5"
+                    >
+                        {copiedSection === `scene-${idx}` ? <Check className="w-3 h-3 text-emerald-500"/> : <FileJson className="w-3 h-3"/>}
+                        JSON
+                    </button>
                 </div>
                 
-                {/* Image Prompt for AI Gen */}
-                <div className="mt-4 pt-4 border-t border-white/5">
-                   <div className="flex justify-between items-center mb-2">
-                      <span className="text-slate-600 uppercase text-[10px] font-bold tracking-wider">Midjourney / SD Prompt</span>
-                      <button 
-                        onClick={() => handleCopyPrompt(scene.image_prompt, idx)}
-                        className="text-brand-500 hover:text-brand-400 text-[10px] flex items-center gap-1 p-1"
-                      >
-                         {copiedPrompt === idx ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-                         Copy
-                      </button>
-                   </div>
-                   <p className="text-xs text-slate-500 bg-black/40 p-3 rounded-xl border border-white/5 font-mono break-all line-clamp-2 hover:line-clamp-none transition-all cursor-help hover:text-slate-400" title={scene.image_prompt}>
-                     {scene.image_prompt}
-                   </p>
+                <div className="grid md:grid-cols-2 gap-6">
+                {/* Visual Column */}
+                <div>
+                    <div className="flex items-center justify-between mb-2">
+                        <div className="text-xs text-slate-500 uppercase font-bold">Visual</div>
+                        <div className="flex gap-2">
+                             {/* Image Gen Button */}
+                             {!previewImages[idx] && !previewVideos[idx] && (
+                                <button 
+                                    onClick={() => handleGeneratePreview(scene.image_prompt, idx)}
+                                    disabled={loadingImageIdx === idx}
+                                    className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] transition-colors ${hasReplicateKey ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20' : 'bg-white/5 hover:bg-white/10 text-slate-300'}`}
+                                >
+                                    {loadingImageIdx === idx ? <Loader2 className="w-3 h-3 animate-spin"/> : <Image className="w-3 h-3"/>}
+                                    {hasReplicateKey ? 'Generate Flux' : 'Visualize'}
+                                </button>
+                             )}
+                             {/* Video Gen Button */}
+                             {!previewVideos[idx] && (
+                                 <button 
+                                     onClick={() => handleGenerateVideo(scene.image_prompt, idx)}
+                                     disabled={loadingVideoIdx === idx}
+                                     className="flex items-center gap-1.5 px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-slate-300 text-[10px] transition-colors border border-white/5"
+                                     title={hasReplicateKey ? "Generate Video (Minimax)" : "Configure Replicate Key first"}
+                                 >
+                                     {loadingVideoIdx === idx ? <Loader2 className="w-3 h-3 animate-spin"/> : <Video className="w-3 h-3"/>}
+                                     Video
+                                 </button>
+                             )}
+                        </div>
+                    </div>
+                    
+                    {/* Visual Media Display */}
+                    {previewVideos[idx] ? (
+                        <div className={`mb-4 relative rounded-lg overflow-hidden border border-white/10 bg-black group/media ${aspectRatio === "9:16" ? "aspect-[9/16]" : aspectRatio === "16:9" ? "aspect-video" : "aspect-square"}`}>
+                            <video 
+                                src={previewVideos[idx]} 
+                                controls 
+                                autoPlay 
+                                loop 
+                                className="w-full h-full object-cover"
+                            />
+                            <div className="absolute top-2 left-2 bg-black/60 backdrop-blur px-2 py-1 rounded text-[10px] text-white flex items-center gap-1 z-10">
+                                <Sparkles className="w-3 h-3 text-indigo-400" /> AI Video
+                            </div>
+                             <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/media:opacity-100 transition-opacity z-10">
+                                <button onClick={() => handleDownload(previewVideos[idx], `scene-${idx+1}-video.mp4`)} className="p-1.5 bg-black/60 hover:bg-black/80 text-white rounded backdrop-blur"><Download className="w-3 h-3" /></button>
+                                <button onClick={() => setViewModalContent({type: 'video', url: previewVideos[idx]})} className="p-1.5 bg-black/60 hover:bg-black/80 text-white rounded backdrop-blur"><Maximize2 className="w-3 h-3" /></button>
+                            </div>
+                        </div>
+                    ) : previewImages[idx] ? (
+                         <div className={`mb-4 relative rounded-lg overflow-hidden border border-white/10 group/media bg-black ${aspectRatio === "9:16" ? "aspect-[9/16]" : aspectRatio === "16:9" ? "aspect-video" : "aspect-square"}`}>
+                            <img src={previewImages[idx]} alt="Scene Preview" className="w-full h-full object-cover" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-2 opacity-0 group-hover/media:opacity-100 transition-opacity">
+                                <span className="text-[10px] text-white/80 flex items-center gap-1">
+                                    {hasReplicateKey ? <Sparkles className="w-3 h-3 text-indigo-400"/> : <Image className="w-3 h-3"/>}
+                                    {hasReplicateKey ? 'Flux Schnell' : 'Gemini Flash Image'}
+                                </span>
+                            </div>
+                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/media:opacity-100 transition-opacity">
+                                <button onClick={() => handleDownload(previewImages[idx], `scene-${idx+1}-image.jpg`)} className="p-1.5 bg-black/60 hover:bg-black/80 text-white rounded backdrop-blur"><Download className="w-3 h-3" /></button>
+                                <button onClick={() => setViewModalContent({type: 'image', url: previewImages[idx]})} className="p-1.5 bg-black/60 hover:bg-black/80 text-white rounded backdrop-blur"><Maximize2 className="w-3 h-3" /></button>
+                            </div>
+                         </div>
+                    ) : (loadingImageIdx === idx || loadingVideoIdx === idx) ? (
+                        <div className={`mb-4 relative rounded-lg overflow-hidden border border-white/10 bg-black/40 flex flex-col items-center justify-center gap-3 ${aspectRatio === "9:16" ? "aspect-[9/16]" : aspectRatio === "16:9" ? "aspect-video" : "aspect-square"}`}>
+                           <div className="absolute inset-0 bg-shimmer opacity-20 animate-shimmer"></div>
+                           <div className="w-8 h-8 relative">
+                              <div className="absolute inset-0 rounded-full border-2 border-brand-500/30 animate-ping"></div>
+                              <div className="absolute inset-0 rounded-full border-2 border-brand-500 border-t-transparent animate-spin"></div>
+                           </div>
+                           <div className="text-center z-10 px-4">
+                              <p className="text-xs font-bold text-white mb-1">{loadingVideoIdx === idx ? 'FILMING VIDEO...' : 'RENDERING PIXELS...'}</p>
+                              <p className="text-[10px] text-slate-400">AI Director is at work</p>
+                           </div>
+                        </div>
+                    ) : null}
+
+                    <p className="text-slate-200 text-sm leading-relaxed mb-4">{scene.visual_description}</p>
+                    
+                    <div className="bg-black/30 p-3 rounded border border-white/5 relative group/prompt">
+                        <div className="flex justify-between items-center mb-2 pb-2 border-b border-white/5">
+                            <div className="text-[10px] text-slate-600 uppercase font-bold flex items-center gap-2">
+                            <Image className="w-3 h-3"/> AI Image Prompt
+                            </div>
+                            <button 
+                                onClick={() => copyToClipboard(`prompt-text-${idx}`, scene.image_prompt)}
+                                className="p-1 hover:bg-white/10 rounded text-slate-500 hover:text-white transition-colors"
+                            >
+                                {copiedSection === `prompt-text-${idx}` ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3"/>}
+                            </button>
+                        </div>
+                    <code className="text-xs text-brand-400 font-mono block leading-relaxed">{scene.image_prompt}</code>
+                    </div>
                 </div>
-              </div>
 
-              {/* Audio */}
-              <div className="glass-panel bg-white/5 rounded-xl p-4 border border-white/5 relative flex flex-col justify-center">
-                 <span className="text-slate-500 uppercase text-[10px] font-bold tracking-wider block mb-3 flex items-center gap-1.5"><Volume2 className="w-3 h-3" /> Voiceover (ID)</span>
-                 <p className="text-lg text-white font-medium leading-relaxed font-sans pr-10">"{scene.audio_script}"</p>
-                 <div className="absolute top-3 right-3 flex flex-col gap-1.5">
-                   <button 
-                     onClick={() => handlePlayAudio(scene.audio_script, idx + 200)}
-                     disabled={playingIndex !== null}
-                     className={`p-2 rounded-lg hover:bg-white/10 transition-colors ${playingIndex === idx + 200 ? 'text-pink-500' : 'text-slate-400 hover:text-white'}`}
-                     title="Play Audio"
-                   >
-                     {playingIndex === idx + 200 ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4 fill-current" />}
-                   </button>
-                    {audioCache[idx + 200] && (
+                {/* Audio Column */}
+                <div className="bg-white/5 p-4 rounded-xl flex flex-col justify-between">
+                    <div>
+                        <div className="flex justify-between items-center mb-2">
+                        <div className="text-xs text-slate-500 uppercase font-bold flex items-center gap-2"><Mic className="w-3 h-3"/> Audio Script</div>
                         <button 
-                          onClick={() => handleDownloadAudio(idx + 200)}
-                          className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                          title="Download WAV"
+                                onClick={() => copyToClipboard(`script-text-${idx}`, scene.audio_script)}
+                                className="p-1 hover:bg-white/10 rounded text-slate-500 hover:text-white transition-colors"
+                            >
+                                {copiedSection === `script-text-${idx}` ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3"/>}
+                            </button>
+                        </div>
+                        <p className="text-white font-medium text-lg leading-relaxed">"{scene.audio_script}"</p>
+                        
+                        <div className="mt-4 flex items-start justify-between gap-2 p-2 bg-yellow-500/5 border border-yellow-500/10 rounded-lg">
+                        <div className="flex flex-col">
+                            <span className="text-[10px] text-yellow-500/80 uppercase font-bold mb-0.5">Overlay Text</span>
+                            <span className="text-xs text-yellow-100">{scene.on_screen_text}</span>
+                        </div>
+                        <button 
+                                onClick={() => copyToClipboard(`overlay-${idx}`, scene.on_screen_text)}
+                                className="p-1 hover:bg-white/10 rounded text-slate-500 hover:text-yellow-400 transition-colors"
+                            >
+                                {copiedSection === `overlay-${idx}` ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3"/>}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div className="mt-6 pt-4 border-t border-white/10 flex items-center gap-3">
+                        <button 
+                        onClick={() => handleTogglePlay(scene.audio_script, idx)} 
+                        disabled={loadingIdx === idx}
+                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${
+                            playingIdx === idx 
+                            ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30' 
+                            : 'bg-brand-600 hover:bg-brand-500 text-white shadow-lg shadow-brand-500/20'
+                        }`}
                         >
-                          <Download className="w-4 h-4" />
+                        {loadingIdx === idx ? (
+                            <>
+                            <Loader2 className="w-4 h-4 animate-spin"/> Generating...
+                            </>
+                        ) : playingIdx === idx ? (
+                            <>
+                            <Pause className="w-4 h-4 fill-current"/> Pause VO
+                            </>
+                        ) : (
+                            <>
+                            <Play className="w-4 h-4 fill-current"/> {audioUrls[idx] ? 'Play VO' : 'Generate VO'}
+                            </>
+                        )}
                         </button>
-                    )}
-                   <button 
-                     onClick={() => handleCopyScript(scene.audio_script, idx)}
-                     className="p-2 rounded-lg hover:bg-white/10 text-slate-400 hover:text-white transition-colors"
-                     title="Copy Script"
-                   >
-                     {copiedIndex === idx ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
-                   </button>
-                 </div>
-              </div>
+
+                        {audioUrls[idx] && (
+                        <button 
+                            onClick={() => handleDownload(audioUrls[idx], `scene-${idx+1}-audio.wav`)}
+                            className="p-2.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
+                        >
+                            <Download className="w-5 h-5" />
+                        </button>
+                        )}
+                    </div>
+                </div>
+                </div>
             </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Meta Data */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-         <div className="glass-panel border border-white/5 rounded-2xl p-6">
-            <h4 className="text-sm font-bold text-slate-300 mb-4 flex items-center gap-2">
-              <MessageSquare className="w-4 h-4 text-purple-500" />
-              Suggested Caption
-            </h4>
-            <p className="text-sm text-slate-400 whitespace-pre-line leading-relaxed">{data.caption}</p>
-         </div>
-
-         <div className="glass-panel border border-white/5 rounded-2xl p-6">
-            <h4 className="text-sm font-bold text-slate-300 mb-4 flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-orange-500" />
-              Compliance Notes
-            </h4>
-            <p className="text-sm text-slate-400 leading-relaxed mb-4">{data.compliance_check}</p>
-            <div>
-              <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider block mb-2">Negative Prompt (Video)</span>
-              <code className="text-[10px] text-slate-500 bg-black/40 p-3 rounded-lg block font-mono break-all">{data.negative_prompt_video}</code>
-            </div>
-         </div>
-      </div>
-
+            ))}
+        </div>
+      )}
     </div>
   );
 };
