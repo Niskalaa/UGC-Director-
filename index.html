@@ -4,6 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>UGC Director AI</title>
+    <script>
+      // Polyfill paling awal untuk mencegah "process is not defined"
+      (function() {
+        window.process = window.process || { env: {} };
+        // Mencoba mengambil dari window.env jika disediakan oleh Netlify injection (opsional)
+        window.process.env = window.process.env || {};
+      })();
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
@@ -16,37 +24,15 @@
                 200: '#fed7aa',
                 300: '#fdba74',
                 400: '#fb923c',
-                500: '#f97316', // Orange Primary
+                500: '#f97316',
                 600: '#ea580c',
                 700: '#c2410c',
                 800: '#9a3412',
                 900: '#7c2d12',
-              },
-              dark: {
-                bg: '#000000',
-                surface: '#09090b',
-                card: '#18181b',
-                input: '#27272a'
               }
             },
             fontFamily: {
               sans: ['Inter', 'sans-serif'],
-            },
-            animation: {
-              'gradient-x': 'gradient-x 15s ease infinite',
-              'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
-            },
-            keyframes: {
-              'gradient-x': {
-                '0%, 100%': {
-                  'background-size': '200% 200%',
-                  'background-position': 'left center'
-                },
-                '50%': {
-                  'background-size': '200% 200%',
-                  'background-position': 'right center'
-                },
-              },
             },
           },
         },
@@ -64,40 +50,9 @@
           radial-gradient(at 100% 100%, rgba(249, 115, 22, 0.1) 0px, transparent 50%);
         background-attachment: fixed;
       }
-      
-      .glass-panel {
-        background: rgba(24, 24, 27, 0.6);
-        backdrop-filter: blur(16px);
-        -webkit-backdrop-filter: blur(16px);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-      }
-
-      .glass-input {
-        background: rgba(0, 0, 0, 0.4);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        backdrop-filter: blur(4px);
-      }
-      
-      .glass-input:focus {
-        background: rgba(0, 0, 0, 0.6);
-        border-color: #f97316;
-      }
-
-      /* Custom scrollbar */
-      ::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
-      }
-      ::-webkit-scrollbar-track {
-        background: transparent; 
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #3f3f46; 
-        border-radius: 10px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #52525b; 
-      }
+      .glass-panel { background: rgba(24, 24, 27, 0.6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); }
+      .glass-input { background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(4px); }
+      .glass-input:focus { background: rgba(0, 0, 0, 0.6); border-color: #f97316; }
     </style>
   <script type="importmap">
 {

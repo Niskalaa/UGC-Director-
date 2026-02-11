@@ -9,30 +9,39 @@ import { Zap, Github, Terminal, Sparkles, Loader2, Clock, Cloud, History, Folder
 
 const App: React.FC = () => {
   const [session, setSession] = useState<any>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
   const [result, setResult] = useState<GeneratedAsset | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<SavedGeneration[]>([]);
   const [isSyncing, setIsSyncing] = useState(false);
   
-  // Loading state tracking
   const [loadingStep, setLoadingStep] = useState(0);
   const [elapsedTime, setElapsedTime] = useState(0);
 
-  // Auth Session Listener
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-    });
+    // Initial session check
+    const checkSession = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setSession(session);
+      } catch (err) {
+        console.error("Session check failed", err);
+      } finally {
+        setIsInitializing(false);
+      }
+    };
+
+    checkSession();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
+      setIsInitializing(false);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // Load history when session changes
   useEffect(() => {
     if (session) {
       const loadHistory = async () => {
@@ -77,11 +86,10 @@ const App: React.FC = () => {
         const saved = await saveGeneration(formData, data);
         setHistory(prev => [saved, ...prev.slice(0, 9)]);
       } catch (syncErr) {
-        console.warn('Sync to cloud failed, but local result is ready', syncErr);
+        console.warn('Sync failed', syncErr);
       } finally {
         setIsSyncing(false);
       }
-
     } catch (err) {
       console.error(err);
       setError(err instanceof Error ? err.message : 'An unexpected error occurred');
@@ -98,23 +106,32 @@ const App: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <div className="relative">
+            <div className="w-16 h-16 border-4 border-brand-500/20 border-t-brand-500 rounded-full animate-spin"></div>
+            <Zap className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-6 h-6 text-brand-500 fill-brand-500" />
+          </div>
+          <p className="text-slate-500 text-sm font-medium animate-pulse">Initializing Terminal...</p>
+        </div>
+      </div>
+    );
+  }
+
   if (!session) {
     return <AuthScreen onAuthSuccess={() => {}} />;
   }
 
   return (
     <div className="min-h-screen bg-black text-slate-200 font-sans selection:bg-brand-500/30 selection:text-brand-200 pb-10">
-      
-      {/* Background Gradients */}
       <div className="fixed inset-0 z-0 overflow-hidden pointer-events-none">
         <div className="absolute top-0 left-1/4 w-[500px] h-[500px] bg-brand-600/10 rounded-full blur-[100px] mix-blend-screen opacity-40"></div>
         <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-brand-800/10 rounded-full blur-[100px] mix-blend-screen opacity-30"></div>
-        <div className="absolute top-0 left-0 w-full h-full bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.03)_1px,transparent_1px)] bg-[length:32px_32px] opacity-20"></div>
       </div>
 
       <div className="relative z-10 max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-12">
-        
-        {/* Header */}
         <header className="flex flex-col md:flex-row gap-4 justify-between items-center mb-8 md:mb-12 glass-panel p-4 rounded-2xl border border-white/5">
           <div className="flex items-center gap-3 w-full md:w-auto">
             <div className="bg-gradient-to-br from-brand-500 to-yellow-500 p-2 md:p-2.5 rounded-xl shadow-lg shadow-brand-500/20">
@@ -136,13 +153,8 @@ const App: React.FC = () => {
                <User className="w-3 h-3 text-brand-500" />
                <span className="max-w-[120px] truncate">{session.user.email}</span>
              </div>
-             
              <div className="flex items-center gap-2">
-               <button 
-                 onClick={handleLogout}
-                 className="p-2.5 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500 hover:text-white transition-all group"
-                 title="Logout"
-               >
+               <button onClick={handleLogout} className="p-2.5 rounded-xl bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500 hover:text-white transition-all">
                  <LogOut className="w-4 h-4" />
                </button>
                <a href="https://github.com/google/genai" target="_blank" rel="noreferrer" className="text-slate-500 hover:text-white transition-colors p-2.5 bg-white/5 rounded-xl border border-white/10">
@@ -152,9 +164,7 @@ const App: React.FC = () => {
           </div>
         </header>
 
-        {/* Main Content Grid */}
         <main className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12">
-          
           <div className="lg:col-span-4 space-y-6">
             <div className="bg-white/5 border border-white/10 rounded-3xl p-1 backdrop-blur-xl shadow-2xl">
                <div className="bg-black/40 rounded-[22px] p-4 md:p-6 border border-white/5">
@@ -176,19 +186,12 @@ const App: React.FC = () => {
                   </div>
                   <span className="text-[10px] text-slate-600 font-mono">{history.length}/10</span>
                </div>
-               
                <div className="space-y-2">
                   {history.length === 0 ? (
-                    <div className="text-center py-8 text-slate-600 text-xs italic">
-                      No cloud history found yet.
-                    </div>
+                    <div className="text-center py-8 text-slate-600 text-xs italic">No history found.</div>
                   ) : (
                     history.map((item) => (
-                      <button 
-                        key={item.id}
-                        onClick={() => loadFromHistory(item)}
-                        className="w-full flex items-center justify-between p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-brand-500/30 transition-all group text-left"
-                      >
+                      <button key={item.id} onClick={() => loadFromHistory(item)} className="w-full flex items-center justify-between p-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 hover:border-brand-500/30 transition-all group text-left">
                          <div className="min-w-0">
                             <p className="text-xs font-bold text-slate-200 truncate group-hover:text-brand-400">{item.brand_name}</p>
                             <p className="text-[10px] text-slate-500 truncate">{item.product_type} • {new Date(item.created_at).toLocaleDateString()}</p>
@@ -202,7 +205,6 @@ const App: React.FC = () => {
 
             {loading && (
               <div className="bg-brand-950/20 border border-brand-500/30 rounded-2xl p-6 backdrop-blur-md relative overflow-hidden">
-                <div className="absolute inset-0 bg-gradient-to-r from-transparent via-brand-500/5 to-transparent animate-pulse"></div>
                 <div className="relative z-10">
                   <div className="flex justify-between items-center mb-3">
                     <div className="flex items-center gap-2 text-brand-400">
@@ -214,14 +216,9 @@ const App: React.FC = () => {
                       {elapsedTime}s
                     </div>
                   </div>
-                  
                   <div className="w-full bg-brand-900/50 rounded-full h-1.5 mb-3 overflow-hidden">
-                     <div 
-                       className="bg-gradient-to-r from-brand-600 to-brand-400 h-1.5 rounded-full transition-all duration-500 ease-out" 
-                       style={{ width: `${Math.min((loadingStep / 9) * 100, 95)}%` }}
-                     ></div>
+                     <div className="bg-gradient-to-r from-brand-600 to-brand-400 h-1.5 rounded-full transition-all duration-500 ease-out" style={{ width: `${Math.min((loadingStep / 9) * 100, 95)}%` }}></div>
                   </div>
-                  
                   <div className="flex justify-between text-[10px] text-brand-300/50 font-mono uppercase tracking-wider">
                     <span>Processing</span>
                     <span>Step {loadingStep}/9</span>
@@ -236,7 +233,7 @@ const App: React.FC = () => {
                     <Terminal className="w-5 h-5" />
                  </div>
                  <div>
-                    <h3 className="text-red-400 font-bold text-sm mb-1">Generation Failed</h3>
+                    <h3 className="text-red-400 font-bold text-sm mb-1">Error</h3>
                     <p className="text-xs text-red-200/60 leading-relaxed">{error}</p>
                  </div>
               </div>
@@ -247,11 +244,7 @@ const App: React.FC = () => {
              {history.length > 0 && (
                 <div className="lg:hidden flex gap-3 overflow-x-auto pb-4 scrollbar-none snap-x">
                    {history.map((item) => (
-                      <button 
-                        key={item.id}
-                        onClick={() => loadFromHistory(item)}
-                        className="snap-start flex-none w-48 p-3 rounded-2xl glass-panel border-white/10 active:scale-95 transition-transform"
-                      >
+                      <button key={item.id} onClick={() => loadFromHistory(item)} className="snap-start flex-none w-48 p-3 rounded-2xl glass-panel border-white/10 active:scale-95 transition-transform">
                          <div className="flex items-center gap-2 mb-2">
                            <FolderOpen className="w-3 h-3 text-brand-400" />
                            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Recent Sync</span>
@@ -270,16 +263,9 @@ const App: React.FC = () => {
                   </div>
                   <h2 className="text-base md:text-lg font-semibold text-white">Generated Strategy</h2>
                 </div>
-                {result && (
-                  <div className="flex items-center gap-2 text-[10px] font-mono text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/20">
-                    <LayoutDashboard className="w-3 h-3" /> PRODUCTION READY
-                  </div>
-                )}
              </div>
-             
              <OutputDisplay data={result} />
           </div>
-
         </main>
       </div>
     </div>
