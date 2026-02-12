@@ -3,7 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { GeneratedAsset } from '../types';
 import { generateSpeech, getWavBlob, analyzeVoiceStyle, generateImagePreview, generateVideo } from '../services/geminiService';
 import { fetchElevenLabsVoices, generateElevenLabsSpeech, ElevenLabsVoice, ELEVENLABS_MODELS, ElevenLabsSettings } from '../services/elevenLabsService';
-import { Copy, Check, Clapperboard, Play, Loader2, Mic, Download, Pause, Image, Settings2, Sparkles, Monitor, Tablet, Smartphone, Maximize2, X, Film, Wand2, Video as VideoIcon, Volume2, SlidersHorizontal, Info } from 'lucide-react';
+import { Copy, Check, Clapperboard, Play, Loader2, Mic, Download, Pause, Image, Settings2, Sparkles, Monitor, Tablet, Smartphone, Maximize2, X, Film, Wand2, Video as VideoIcon, Volume2, SlidersHorizontal, Info, FileText, FileJson, Printer } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 
 const GEMINI_VOICES = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
@@ -269,6 +269,100 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
     });
   };
 
+  const handleExportJSON = () => {
+    if (!data) return;
+    const jsonString = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonString], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${data.concept_title.replace(/\s+/g, '_')}_script.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleExportTXT = () => {
+    if (!data) return;
+    let txt = `TITLE: ${data.concept_title}\n`;
+    txt += `HOOK: ${data.hook_rationale}\n`;
+    txt += `ANGLE: ${data.analysis_report?.winning_angle_logic}\n\n`;
+    txt += `--- SCRIPT ---\n\n`;
+    
+    data.scenes?.forEach((scene, i) => {
+        txt += `SCENE ${i + 1} (${scene.seconds}s)\n`;
+        txt += `VISUAL: ${scene.visual_description}\n`;
+        txt += `AUDIO: ${scene.audio_script}\n`;
+        txt += `TEXT OVERLAY: ${scene.on_screen_text}\n\n`;
+    });
+    
+    const blob = new Blob([txt], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `${data.concept_title.replace(/\s+/g, '_')}_script.txt`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+  
+  const handlePrint = () => {
+    if (!data) return;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return alert("Please allow popups to print");
+    
+    const html = `
+      <html>
+        <head>
+          <title>${data.concept_title}</title>
+          <style>
+            body { font-family: sans-serif; padding: 40px; max-width: 800px; margin: 0 auto; color: #1e293b; }
+            h1 { font-size: 24px; margin-bottom: 10px; }
+            .meta { color: #64748b; font-size: 14px; margin-bottom: 30px; border-bottom: 1px solid #e2e8f0; padding-bottom: 20px; }
+            .scene { margin-bottom: 30px; page-break-inside: avoid; border: 1px solid #e2e8f0; padding: 20px; border-radius: 8px; }
+            .scene-header { font-weight: bold; font-size: 14px; color: #f97316; margin-bottom: 10px; text-transform: uppercase; }
+            .label { font-weight: bold; font-size: 12px; color: #94a3b8; text-transform: uppercase; margin-top: 10px; display: block; }
+            p { margin-top: 4px; line-height: 1.5; }
+            @media print {
+               body { padding: 0; }
+               .scene { border: none; border-bottom: 1px solid #e2e8f0; border-radius: 0; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>${data.concept_title}</h1>
+          <div class="meta">
+            <p><strong>Hook:</strong> ${data.hook_rationale}</p>
+            <p><strong>Winning Angle:</strong> ${data.analysis_report?.winning_angle_logic}</p>
+            <p><strong>Duration:</strong> ${data.scenes?.reduce((acc, s) => acc + (parseInt(s.seconds) || 0), 0) || 0}s est.</p>
+          </div>
+          
+          ${data.scenes?.map((scene, i) => `
+            <div class="scene">
+              <div class="scene-header">Scene ${i+1} • ${scene.seconds}s</div>
+              
+              <span class="label">Visual</span>
+              <p>${scene.visual_description}</p>
+              
+              <span class="label">Audio</span>
+              <p>"${scene.audio_script}"</p>
+              
+              <span class="label">Overlay</span>
+              <p>${scene.on_screen_text}</p>
+            </div>
+          `).join('')}
+          
+          <script>
+            window.onload = () => { window.print(); }
+          </script>
+        </body>
+      </html>
+    `;
+    
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
+
   if (!data) return (
     <div className="h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-3xl bg-white/40 p-8">
       <Clapperboard className="w-12 h-12 mb-4 opacity-30 text-slate-500" />
@@ -423,10 +517,37 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
         </button>
 
         <div className="relative z-10">
-          <div className="flex justify-between items-start gap-4 pr-12">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pr-12">
             <div>
                <h2 className="text-2xl md:text-3xl font-black text-slate-900 mb-2">{data.concept_title}</h2>
                <p className="text-slate-500 italic mb-4 text-sm md:text-base">"{data.hook_rationale}"</p>
+            </div>
+            
+            {/* Export Actions */}
+            <div className="flex items-center gap-2 bg-slate-50 p-1 rounded-xl border border-slate-200 self-start md:self-auto">
+                <button 
+                    onClick={handleExportTXT} 
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-white hover:text-brand-600 hover:shadow-sm transition-all"
+                    title="Export as Text"
+                >
+                    <FileText className="w-3.5 h-3.5" /> TXT
+                </button>
+                <div className="w-px h-4 bg-slate-200"></div>
+                <button 
+                    onClick={handleExportJSON} 
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-white hover:text-brand-600 hover:shadow-sm transition-all"
+                    title="Export as JSON"
+                >
+                    <FileJson className="w-3.5 h-3.5" /> JSON
+                </button>
+                <div className="w-px h-4 bg-slate-200"></div>
+                <button 
+                    onClick={handlePrint} 
+                    className="flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-600 hover:bg-white hover:text-brand-600 hover:shadow-sm transition-all"
+                    title="Print / PDF"
+                >
+                    <Printer className="w-3.5 h-3.5" /> PDF
+                </button>
             </div>
           </div>
 

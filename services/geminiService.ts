@@ -492,21 +492,22 @@ export const getWavBlob = (base64PCM: string): Blob => {
 // Generate Image Preview for a Scene
 export const generateImagePreview = async (prompt: string, aspectRatio: string = "9:16"): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  
+  // Try Gemini 2.5 Flash Image first (Nano Banana) with array wrapped contents
   try {
     return await retryOperation(async () => {
         const response = await ai.models.generateContent({
         model: 'gemini-2.5-flash-image',
-        contents: {
+        contents: [{
             parts: [{ text: prompt }],
-        },
+        }],
         config: {
             imageConfig: {
-                aspectRatio: aspectRatio as any, // "9:16" | "16:9" | "1:1"
+                aspectRatio: aspectRatio as any, 
             }
         }
         });
         
-        // Iterate to find image part
         if (response.candidates?.[0]?.content?.parts) {
             for (const part of response.candidates[0].content.parts) {
                 if (part.inlineData) {
@@ -514,10 +515,30 @@ export const generateImagePreview = async (prompt: string, aspectRatio: string =
                 }
             }
         }
-        return "";
-    });
+        throw new Error("No image data in Gemini response");
+    }, 1);
   } catch (e) {
-    console.error("Image gen failed", e);
-    return "";
+    console.warn("Gemini 2.5 Image Gen failed, falling back to Imagen 3.0...", e);
+    
+    // Fallback to Imagen 3.0 (which is often more reliable for pure image gen if available)
+    try {
+        return await retryOperation(async () => {
+             const response = await ai.models.generateImages({
+                model: 'imagen-3.0-generate-001',
+                prompt: prompt,
+                config: {
+                    numberOfImages: 1,
+                    aspectRatio: aspectRatio as any,
+                    outputMimeType: 'image/jpeg'
+                }
+             });
+             const b64 = response.generatedImages?.[0]?.image?.imageBytes;
+             if (b64) return `data:image/jpeg;base64,${b64}`;
+             throw new Error("No image data in Imagen response");
+        }, 1);
+    } catch (imagenError) {
+        console.error("Imagen fallback failed", imagenError);
+        return "";
+    }
   }
 };
