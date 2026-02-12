@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { InputForm } from './components/InputForm';
 import { OutputDisplay } from './components/OutputDisplay';
-import { AuthScreen } from './components/AuthScreen'; // Import the real AuthScreen
+import { AuthScreen } from './components/AuthScreen';
 import { FormData, GeneratedAsset } from './types';
 import { sanitizeInput, generateStrategy, generateScenes } from './services/geminiService';
-import { saveGeneration, fetchHistory, SavedGeneration, supabase, signOut } from './services/supabaseService';
+import { saveGeneration, updateGeneration, fetchHistory, SavedGeneration, supabase, signOut } from './services/supabaseService';
 import { Zap, Rocket, Check, Terminal, Info, Database, History as HistoryIcon, X, ChevronRight, Clock, RefreshCw, Settings2, LogOut, User } from 'lucide-react';
 import { SettingsModal } from './components/SettingsModal';
 import { Session } from '@supabase/supabase-js';
@@ -59,41 +59,73 @@ const App: React.FC = () => {
     setError(null);
     setResult(null);
     setSavedToDb(false);
-    setFormDataState(formData); // Persist for re-runs
+    setFormDataState(formData);
+
+    let draftId: string | null = null;
 
     try {
-      // Step 1: Sanitize (Parallel with simple UI update)
-      let contextText = formData.scrape.raw_text_optional || "";
-      let sanReport = undefined;
-      
-      if (contextText) {
-          const sanitized = await sanitizeInput(contextText);
-          if (sanitized) {
-              contextText = sanitized.clean_text;
-              sanReport = sanitized;
-          }
-      }
+      // --- IMMEDIATE SAVE: Create a draft record so history is updated instantly ---
+      const placeholderResult: GeneratedAsset = {
+        concept_title: "Generating Strategy...",
+        hook_rationale: "AI Director is analyzing your brief.",
+        brand_dna: { voice_traits: [], cta_style: "Loading...", audience_guess: "Loading..." },
+        product_truth_sheet: { core_facts: [], safe_benefit_phrases: [], forbidden_claims: [], required_disclaimer: "" },
+        scenes: [] 
+      };
 
-      // Step 2: Generate Strategy (First Draft)
-      setLoadingStage('drafting');
-      const strategyData = await generateStrategy(formData, contextText);
+      // Fire and forget (don't await to block UI, but capture ID)
+      saveGeneration(formData, placeholderResult).then(saved => {
+        if (saved) {
+           draftId = saved.id;
+           setSavedToDb(true);
+        }
+      });
+
+      // --- PARALLEL PROCESSING: Speed Boost ---
+      // We don't wait for sanitization to start strategy. Strategy is robust enough to handle raw text.
+      // Sanitization runs in background for the report.
+      const rawText = formData.scrape.raw_text_optional || "";
       
-      // Update UI with Draft immediately
-      const draftResult: GeneratedAsset = {
-          ...strategyData as any, // Cast for partial match
-          sanitization_report: sanReport,
+      const sanitizePromise = rawText ? sanitizeInput(rawText) : Promise.resolve(null);
+      
+      // Step 1: Generate Strategy (Starts immediately)
+      // Note: We pass rawText directly. The API filters safety anyway.
+      const strategyPromise = generateStrategy(formData, rawText);
+
+      // Wait for Strategy (Critical Path)
+      const strategyData = await strategyPromise;
+      setLoadingStage('drafting');
+
+      // Update UI with Strategy immediately while Scenes generate
+      let draftResult: GeneratedAsset = {
+          ...strategyData as any,
       };
       setResult(draftResult);
 
-      // Step 3: Generate Scenes (Finalize)
+      // Step 2: Generate Scenes (Finalize)
       setLoadingStage('finalizing');
       const scenesData = await generateScenes(formData, draftResult);
       
+      // Get sanitization result (non-blocking)
+      const sanReport = await sanitizePromise;
+
       const finalResult: GeneratedAsset = {
           ...draftResult,
           ...scenesData as any,
+          sanitization_report: sanReport || undefined
       };
+      
       setResult(finalResult);
+
+      // --- UPDATE DB: Replace draft with final result ---
+      if (draftId) {
+        updateGeneration(draftId, finalResult).then(() => {
+          console.log("Draft updated with final result");
+        });
+      } else {
+        // Fallback if draft save failed or hasn't finished (race condition handled by saveGeneration usually)
+        saveGeneration(formData, finalResult);
+      }
 
       // Auto scroll to results on mobile
       if (window.innerWidth < 1024) {
@@ -101,16 +133,6 @@ const App: React.FC = () => {
           document.getElementById('output-section')?.scrollIntoView({ behavior: 'smooth' });
         }, 500);
       }
-
-      // Save to Supabase Backend
-      saveGeneration(formData, finalResult).then((saved) => {
-        if (saved) {
-          console.log("Successfully saved to Supabase", saved.id);
-          setSavedToDb(true);
-        }
-      }).catch(err => {
-        console.warn("Background save failed", err);
-      });
 
     } catch (err) {
       console.error(err);
@@ -135,7 +157,6 @@ const App: React.FC = () => {
     setResult(item.output_plan);
     setFormDataState(item.input_brief);
     setShowHistory(false);
-    // Optional: scroll to top
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -168,7 +189,7 @@ const App: React.FC = () => {
                 UGC<span className="text-brand-500">Director</span>
               </h1>
               <div className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] bg-white/10 text-slate-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold">Beta v2.2</span>
+                <span className="text-[10px] bg-white/10 text-slate-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold">Beta v2.3 Turbo</span>
                 <span className="flex h-2 w-2 relative">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Key, ExternalLink, Save, Check, Zap, Sparkles } from 'lucide-react';
+import { X, Key, ExternalLink, Save, Check, Zap, Sparkles, Image as ImageIcon, Video, Clock, Gauge } from 'lucide-react';
 import { getStoredReplicateKey, setStoredReplicateKey } from '../services/externalService';
 
 interface SettingsModalProps {
@@ -10,12 +10,18 @@ interface SettingsModalProps {
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [replicateKey, setReplicateKey] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
+  const [defaultImageModel, setDefaultImageModel] = useState('flux');
+  const [defaultVideoDuration, setDefaultVideoDuration] = useState('5s');
+  const [defaultVideoFps, setDefaultVideoFps] = useState('30');
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setReplicateKey(getStoredReplicateKey());
       setGeminiKey(localStorage.getItem('GEMINI_API_KEY') || '');
+      setDefaultImageModel(localStorage.getItem('PREF_IMAGE_MODEL') || 'flux');
+      setDefaultVideoDuration(localStorage.getItem('PREF_VIDEO_DURATION') || '5s');
+      setDefaultVideoFps(localStorage.getItem('PREF_VIDEO_FPS') || '30');
     }
   }, [isOpen]);
 
@@ -28,10 +34,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         localStorage.removeItem('GEMINI_API_KEY');
     }
 
+    localStorage.setItem('PREF_IMAGE_MODEL', defaultImageModel);
+    localStorage.setItem('PREF_VIDEO_DURATION', defaultVideoDuration);
+    localStorage.setItem('PREF_VIDEO_FPS', defaultVideoFps);
+
     setSaved(true);
     setTimeout(() => {
       setSaved(false);
       onClose();
+      // Reload page to apply changes if necessary, or just close. 
+      // Components read from localStorage on mount usually.
+      // Ideally we should use a Context for this, but simple localStorage read in components works for now.
+      window.location.reload(); 
     }, 800);
   };
 
@@ -39,7 +53,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-      <div className="bg-[#0f0f0f] border border-white/10 w-full max-w-md rounded-2xl p-6 shadow-2xl relative animate-in zoom-in-95 duration-200">
+      <div className="bg-[#0f0f0f] border border-white/10 w-full max-w-md rounded-2xl p-6 shadow-2xl relative animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
         <button 
           onClick={onClose}
           className="absolute top-4 right-4 text-slate-500 hover:text-white transition-colors"
@@ -52,8 +66,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
             <Key className="w-5 h-5 text-brand-500" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white">API Configurations</h2>
-            <p className="text-xs text-slate-400">Manage your own API keys</p>
+            <h2 className="text-xl font-bold text-white">System Settings</h2>
+            <p className="text-xs text-slate-400">API Keys & Generation Defaults</p>
           </div>
         </div>
 
@@ -71,7 +85,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </a>
              </div>
              <p className="text-[11px] text-slate-500 leading-relaxed">
-                Optional. Use your own key if the default quota is exhausted (429 errors).
+                Optional. Use your own key if the default quota is exhausted.
              </p>
              <div className="relative">
                 <input 
@@ -85,7 +99,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </div>
 
           {/* Replicate Section */}
-          <div className="space-y-3">
+          <div className="space-y-3 pb-6 border-b border-white/5">
              <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-indigo-400" />
@@ -109,12 +123,63 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
              </div>
           </div>
 
+          {/* Defaults Section */}
+          <div className="space-y-4">
+             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Generation Defaults</h3>
+             
+             {/* Image Model Pref */}
+             <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <ImageIcon className="w-4 h-4 text-slate-500" /> Image Model
+                </div>
+                <select 
+                    value={defaultImageModel} 
+                    onChange={(e) => setDefaultImageModel(e.target.value)}
+                    className="bg-zinc-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500"
+                >
+                    <option value="flux">Flux Schnell (Replicate)</option>
+                    <option value="gemini">Gemini Imagen</option>
+                </select>
+             </div>
+
+             {/* Video Duration */}
+             <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <Clock className="w-4 h-4 text-slate-500" /> Video Duration
+                </div>
+                <select 
+                    value={defaultVideoDuration} 
+                    onChange={(e) => setDefaultVideoDuration(e.target.value)}
+                    className="bg-zinc-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500"
+                >
+                    <option value="5s">5 Seconds</option>
+                    <option value="10s">10 Seconds</option>
+                </select>
+             </div>
+
+             {/* Video FPS */}
+             <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <Gauge className="w-4 h-4 text-slate-500" /> Video FPS
+                </div>
+                <select 
+                    value={defaultVideoFps} 
+                    onChange={(e) => setDefaultVideoFps(e.target.value)}
+                    className="bg-zinc-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500"
+                >
+                    <option value="24">24 FPS</option>
+                    <option value="30">30 FPS</option>
+                    <option value="60">60 FPS</option>
+                </select>
+             </div>
+          </div>
+
           <button 
             onClick={handleSave}
             className="w-full bg-white text-black font-bold py-3 rounded-xl hover:bg-slate-200 transition-colors flex items-center justify-center gap-2 mt-4"
           >
              {saved ? <Check className="w-4 h-4"/> : <Save className="w-4 h-4" />}
-             {saved ? 'Saved!' : 'Save Configuration'}
+             {saved ? 'Settings Saved' : 'Save & Reload'}
           </button>
         </div>
       </div>

@@ -46,7 +46,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
   // Video Settings
   const [videoStyle, setVideoStyle] = useState<VideoStyle>("vlog");
   const [videoFps, setVideoFps] = useState<"24" | "30" | "60">("30");
-  const [videoDuration, setVideoDuration] = useState<"5s" | "10s">("5s"); // Note: Minimax often defaults to 6s, this is for prompt steering
+  const [videoDuration, setVideoDuration] = useState<"5s" | "10s">("5s");
   
   // View Modal State
   const [viewModalContent, setViewModalContent] = useState<{type: 'image' | 'video', url: string} | null>(null);
@@ -62,6 +62,12 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
 
   useEffect(() => {
     setHasReplicateKey(!!getStoredReplicateKey());
+    // Load defaults
+    const prefFps = localStorage.getItem('PREF_VIDEO_FPS');
+    if (prefFps) setVideoFps(prefFps as any);
+    
+    const prefDur = localStorage.getItem('PREF_VIDEO_DURATION');
+    if (prefDur) setVideoDuration(prefDur as any);
   }, [showSettings]);
 
   if (!data) return (
@@ -183,9 +189,13 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
       try {
           let imageUrl = "";
           // Determine Provider
-          if (hasReplicateKey) {
+          const prefModel = localStorage.getItem('PREF_IMAGE_MODEL');
+          
+          // Use Replicate if key exists AND (pref is flux OR pref is null)
+          if (hasReplicateKey && (prefModel === 'flux' || !prefModel)) {
              imageUrl = await generateFluxImage(prompt, aspectRatio);
           } else {
+             // Fallback to Gemini
              imageUrl = await generateImagePreview(prompt, aspectRatio);
           }
 

@@ -2,9 +2,9 @@ import { createClient } from '@supabase/supabase-js';
 import { FormData, GeneratedAsset } from '../types';
 
 const supabaseUrl = 'https://lnhqonvgclsgsehjsaob.supabase.co';
-const supabaseKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuaHFvbnZnY2xzZ3NlaGpzYW9iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3NTQyOTEsImV4cCI6MjA4NjMzMDI5MX0.Oq0HA2udJFN5tWcffkJahh9SKfI62pbrZsFO_PQD8m8';
+const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImxuaHFvbnZnY2xzZ3NlaGpzYW9iIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA3NTQyOTEsImV4cCI6MjA4NjMzMDI5MX0.Oq0HA2udJFN5tWcffkJahh9SKfI62pbrZsFO_PQD8m8';
 
-export const supabase = createClient(supabaseUrl, supabaseKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 export interface SavedGeneration {
   id: string;
@@ -81,6 +81,17 @@ export const saveGeneration = async (input: FormData, output: GeneratedAsset) =>
     return null;
   }
   return data?.[0] as SavedGeneration;
+};
+
+export const updateGeneration = async (id: string, output: GeneratedAsset) => {
+  const { error } = await supabase
+    .from('ugc_generations')
+    .update({ output_plan: output })
+    .eq('id', id);
+
+  if (error) {
+    console.error('Supabase Update Error:', error);
+  }
 };
 
 export const fetchHistory = async () => {
