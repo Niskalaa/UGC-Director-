@@ -6,8 +6,8 @@ import { AuthScreen } from './components/AuthScreen';
 import { FormData, GeneratedAsset } from './types';
 import { sanitizeInput, generateStrategy as generateStrategyGemini, generateScenes as generateScenesGemini } from './services/geminiService';
 import { generateStrategyOpenRouter, generateScenesOpenRouter, getStoredOpenRouterKey, getStoredOpenRouterModel } from './services/externalService';
-import { saveGeneration, updateGeneration, fetchHistory, SavedGeneration, supabase, signOut } from './services/supabaseService';
-import { Zap, Check, Info, History as HistoryIcon, X, ChevronRight, Clock, RefreshCw, Settings2, LogOut, User, Network } from 'lucide-react';
+import { saveGeneration, updateGeneration, fetchHistory, deleteGeneration, SavedGeneration, supabase, signOut } from './services/supabaseService';
+import { Zap, Check, Info, History as HistoryIcon, X, ChevronRight, Clock, RefreshCw, Settings2, LogOut, User, Network, Trash2, CheckCircle2, Cpu } from 'lucide-react';
 import { SettingsModal } from './components/SettingsModal';
 import { Session } from '@supabase/supabase-js';
 
@@ -26,6 +26,9 @@ const App: React.FC = () => {
   const [history, setHistory] = useState<SavedGeneration[]>([]);
   const [showHistory, setShowHistory] = useState(false);
   const [loadingHistory, setLoadingHistory] = useState(false);
+
+  // Notification State
+  const [notification, setNotification] = useState<string | null>(null);
 
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
@@ -51,6 +54,11 @@ const App: React.FC = () => {
 
     return () => subscription.unsubscribe();
   }, [showSettings]); // Re-check when settings close
+
+  const showNotificationMsg = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 3000);
+  };
 
   const handleLogout = async () => {
     await signOut();
@@ -168,6 +176,21 @@ const App: React.FC = () => {
     setFormDataState(item.input_brief);
     setShowHistory(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+    showNotificationMsg("Brief & Strategy Loaded Successfully");
+  };
+
+  const handleDeleteHistoryItem = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation(); // Prevent loading the item when clicking delete
+    if (window.confirm("Are you sure you want to delete this saved generation?")) {
+        try {
+            await deleteGeneration(id);
+            setHistory(prev => prev.filter(item => item.id !== id));
+            showNotificationMsg("Item deleted");
+        } catch (err) {
+            console.error(err);
+            alert("Failed to delete item");
+        }
+    }
   };
 
   if (authChecking) {
@@ -185,6 +208,16 @@ const App: React.FC = () => {
   return (
     <div className="min-h-screen pb-20 animate-in overflow-x-hidden relative">
       <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
+
+      {/* Notification Toast */}
+      {notification && (
+        <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-top-4">
+             <div className="bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 text-emerald-400 px-6 py-3 rounded-full shadow-2xl flex items-center gap-2">
+                 <CheckCircle2 className="w-4 h-4" />
+                 <span className="text-sm font-bold">{notification}</span>
+             </div>
+        </div>
+      )}
 
       <div className="max-w-[1600px] mx-auto px-4 md:px-8 py-6">
         
@@ -282,13 +315,27 @@ const App: React.FC = () => {
                              Finalizing Scenes & Scripts
                         </div>
                     </div>
-                    {useOpenRouter && (
-                         <div className="mt-4 pt-3 border-t border-white/10">
-                             <p className="text-[10px] text-indigo-400 flex items-center gap-1">
-                                 <Network className="w-3 h-3" /> Using {getStoredOpenRouterModel().split('/')[1]}
-                             </p>
-                         </div>
-                    )}
+                    
+                    {/* Model Indicator Footer */}
+                    <div className="mt-4 pt-3 border-t border-white/10">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Intelligence Engine</span>
+                            <div className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono border ${useOpenRouter ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300' : 'bg-brand-500/10 border-brand-500/30 text-brand-300'}`}>
+                                {useOpenRouter ? <Network className="w-3 h-3" /> : <Cpu className="w-3 h-3" />}
+                                {useOpenRouter 
+                                    ? getStoredOpenRouterModel().split('/').pop() 
+                                    : (formDataState?.constraints.ai_model || 'gemini-3-pro-preview')}
+                            </div>
+                        </div>
+                        {!useOpenRouter && (
+                            <p className="text-[9px] text-slate-600 mt-1 text-right flex items-center justify-end gap-1">
+                                {(formDataState?.constraints.ai_model === 'gemini-3-flash-preview') ? 
+                                   <><Cpu className="w-2.5 h-2.5" /> High Speed Mode</> :
+                                   <><Zap className="w-2.5 h-2.5" /> Thinking Mode Active</>
+                                }
+                            </p>
+                        )}
+                    </div>
                  </div>
               </div>
             )}
@@ -343,9 +390,9 @@ const App: React.FC = () => {
                       <div 
                         key={item.id} 
                         onClick={() => loadHistoryItem(item)}
-                        className="group bg-white/5 hover:bg-white/10 border border-white/5 hover:border-brand-500/30 p-4 rounded-xl cursor-pointer transition-all"
+                        className="group bg-white/5 hover:bg-white/10 border border-white/5 hover:border-brand-500/30 p-4 rounded-xl cursor-pointer transition-all relative"
                       >
-                         <div className="flex justify-between items-start mb-2">
+                         <div className="flex justify-between items-start mb-2 pr-6">
                             <span className="text-xs font-bold text-brand-400 bg-brand-900/20 px-2 py-0.5 rounded">{item.brand_name}</span>
                             <span className="text-[10px] text-slate-500 flex items-center gap-1">
                                <Clock className="w-3 h-3" />
@@ -359,6 +406,15 @@ const App: React.FC = () => {
                                 Open <ChevronRight className="w-3 h-3" />
                              </div>
                          </div>
+                         
+                         {/* Delete Button */}
+                         <button 
+                            onClick={(e) => handleDeleteHistoryItem(e, item.id)}
+                            className="absolute top-2 right-2 p-1.5 text-slate-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                            title="Delete"
+                         >
+                            <Trash2 className="w-4 h-4" />
+                         </button>
                       </div>
                    ))
                )}

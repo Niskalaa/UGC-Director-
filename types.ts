@@ -26,6 +26,7 @@ export interface Constraints {
   language: string;
   vo_duration_seconds: number;
   scene_count?: number;
+  ai_model?: string;
 }
 
 export interface FormData {
@@ -72,6 +73,7 @@ export interface Scene {
   on_screen_text: string;
   image_prompt: string;
   image_negative_prompt?: string;
+  video_prompt?: string;
 }
 
 export interface VideoPromptPackage {

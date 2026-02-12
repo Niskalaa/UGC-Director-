@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { FormData } from '../types';
-import { Sparkles, Type, Tag, Target, Smartphone, Link, FileText, Plus, X, CheckCircle2, Globe, Clock, Layers, Settings2 } from 'lucide-react';
+import { Sparkles, Type, Tag, Target, Smartphone, Link, FileText, Plus, X, CheckCircle2, Globe, Clock, Layers, Settings2, Image as ImageIcon, Loader2, Cpu, Zap } from 'lucide-react';
+import { analyzeImageForBrief } from '../services/geminiService';
 
 interface InputFormProps {
   onSubmit: (data: FormData) => void;
@@ -12,15 +14,25 @@ const defaultData: FormData = {
   brand: { name: '', tone_hint_optional: '', country_market_optional: 'ID' },
   product: { type: '', material: '', price_tier_optional: 'mid', platform: ['tiktok'], objective: 'conversion', main_angle_optional: 'problem-solution' },
   scrape: { source_url_optional: '', raw_text_optional: '' },
-  constraints: { do_not_say_optional: [], must_include_optional: [], language: 'id', vo_duration_seconds: 30, scene_count: 5 },
+  constraints: { do_not_say_optional: [], must_include_optional: [], language: 'id', vo_duration_seconds: 30, scene_count: 5, ai_model: 'gemini-3-pro-preview' },
 };
 
 export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initialValues }) => {
   const [data, setData] = useState<FormData>(defaultData);
+  const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (initialValues) {
-      setData(initialValues);
+      // Ensure ai_model is set if loading from legacy history
+      const safeData = {
+          ...initialValues,
+          constraints: {
+              ...initialValues.constraints,
+              ai_model: initialValues.constraints.ai_model || 'gemini-3-pro-preview'
+          }
+      };
+      setData(safeData);
     }
   }, [initialValues]);
 
@@ -42,21 +54,91 @@ export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initi
     setter('');
   };
 
-  // Auto-adjust duration recommendation based on scene count if user hasn't heavily customized it
-  // This is a simple heuristic: ~6s per scene
+  // Auto-adjust duration recommendation based on scene count
   const handleSceneCountChange = (count: number) => {
       handleChange('constraints', 'scene_count', count);
-      // Optional: Auto-suggest duration? 
-      // Let's keep it manual for now but maybe just update the default if it was the initial value.
-      // For now, simple manual control is safer.
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsAnalyzingImage(true);
+    try {
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+            const base64String = (reader.result as string).split(',')[1];
+            const mimeType = file.type;
+            
+            try {
+                const analysis = await analyzeImageForBrief(base64String, mimeType);
+                
+                // Merge analysis into form data
+                setData(prev => ({
+                    ...prev,
+                    brand: {
+                        ...prev.brand,
+                        name: analysis.brand_name || prev.brand.name,
+                        tone_hint_optional: analysis.brand_tone || prev.brand.tone_hint_optional
+                    },
+                    product: {
+                        ...prev.product,
+                        type: analysis.product_type || prev.product.type,
+                        material: analysis.product_material || prev.product.material,
+                        price_tier_optional: analysis.price_tier || prev.product.price_tier_optional,
+                        main_angle_optional: analysis.marketing_angle || prev.product.main_angle_optional
+                    },
+                    scrape: {
+                        ...prev.scrape,
+                        raw_text_optional: (prev.scrape.raw_text_optional ? prev.scrape.raw_text_optional + "\n\n" : "") + (analysis.raw_context ? `[Image Analysis]: ${analysis.raw_context}` : "")
+                    }
+                }));
+                
+                alert("Form auto-filled from image analysis!");
+            } catch (err) {
+                console.error(err);
+                alert("Could not analyze image. Please try again.");
+            } finally {
+                setIsAnalyzingImage(false);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+            }
+        };
+        reader.readAsDataURL(file);
+    } catch (err) {
+        setIsAnalyzingImage(false);
+        console.error("File reading failed", err);
+    }
   };
 
   return (
     <form onSubmit={(e) => { e.preventDefault(); if (data.product.platform.length === 0) return alert("Select platform"); onSubmit(data); }} className="space-y-6 text-sm">
       
       {/* Brand */}
-      <div className="glass-panel p-5 rounded-2xl border-l-4 border-brand-500">
-        <h3 className="text-white font-bold mb-4 flex items-center gap-2"><Type className="w-4 h-4 text-brand-500"/> Brand Identity</h3>
+      <div className="glass-panel p-5 rounded-2xl border-l-4 border-brand-500 relative">
+        <div className="flex justify-between items-center mb-4">
+             <h3 className="text-white font-bold flex items-center gap-2"><Type className="w-4 h-4 text-brand-500"/> Brand Identity</h3>
+             
+             {/* Image Upload Trigger */}
+             <div>
+                <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    accept="image/*" 
+                    onChange={handleImageUpload} 
+                    className="hidden" 
+                />
+                <button 
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={isAnalyzingImage || isLoading}
+                    className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-brand-900/30 border border-brand-500/30 text-brand-300 text-xs hover:bg-brand-900/50 hover:text-white transition-all"
+                >
+                    {isAnalyzingImage ? <Loader2 className="w-3 h-3 animate-spin"/> : <ImageIcon className="w-3 h-3" />}
+                    {isAnalyzingImage ? "Analyzing..." : "Auto-fill from Image"}
+                </button>
+             </div>
+        </div>
+
         <div className="grid md:grid-cols-2 gap-4 mb-4">
           <input required type="text" className="glass-input w-full p-3 rounded-xl placeholder-slate-500" value={data.brand.name} onChange={(e) => handleChange('brand', 'name', e.target.value)} placeholder="Brand Name *" />
           <input type="text" className="glass-input w-full p-3 rounded-xl placeholder-slate-500" value={data.brand.tone_hint_optional} onChange={(e) => handleChange('brand', 'tone_hint_optional', e.target.value)} placeholder="Tone (e.g. Fun, Scientific)" />
@@ -104,6 +186,50 @@ export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initi
         <h3 className="text-white font-bold mb-4 flex items-center gap-2"><Settings2 className="w-4 h-4 text-blue-500"/> Format Control</h3>
         
         <div className="space-y-6">
+            {/* AI Model Selector */}
+            <div>
+                 <div className="flex justify-between text-sm mb-2">
+                    <span className="text-slate-400 flex items-center gap-2"><Cpu className="w-4 h-4 text-blue-400"/> AI Model</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                    <button 
+                        type="button"
+                        onClick={() => handleChange('constraints', 'ai_model', 'gemini-3-pro-preview')}
+                        className={`py-3 px-4 rounded-xl border text-left transition-all relative ${
+                            data.constraints.ai_model === 'gemini-3-pro-preview' 
+                            ? 'bg-blue-500/20 border-blue-500 text-white' 
+                            : 'bg-white/5 border-white/5 text-slate-400 hover:bg-white/10'
+                        }`}
+                    >
+                        <div className="font-bold text-xs flex items-center gap-2">
+                            Gemini 3 Pro
+                            {data.constraints.ai_model === 'gemini-3-pro-preview' && <CheckCircle2 className="w-3 h-3 text-blue-400"/>}
+                        </div>
+                        <div className="text-[10px] opacity-60 mt-1 flex items-center gap-1">
+                             <Zap className="w-3 h-3" /> Max Thinking (Slow)
+                        </div>
+                    </button>
+
+                    <button 
+                        type="button"
+                        onClick={() => handleChange('constraints', 'ai_model', 'gemini-3-flash-preview')}
+                        className={`py-3 px-4 rounded-xl border text-left transition-all relative ${
+                            data.constraints.ai_model === 'gemini-3-flash-preview' 
+                            ? 'bg-emerald-500/20 border-emerald-500 text-white' 
+                            : 'bg-white/5 border-white/5 text-slate-400 hover:bg-white/10'
+                        }`}
+                    >
+                        <div className="font-bold text-xs flex items-center gap-2">
+                            Gemini 3 Flash
+                             {data.constraints.ai_model === 'gemini-3-flash-preview' && <CheckCircle2 className="w-3 h-3 text-emerald-400"/>}
+                        </div>
+                         <div className="text-[10px] opacity-60 mt-1 flex items-center gap-1">
+                             <Cpu className="w-3 h-3" /> Balanced (Fast)
+                        </div>
+                    </button>
+                </div>
+            </div>
+
             {/* Scene Count Slider */}
             <div>
                 <div className="flex justify-between text-sm mb-2">

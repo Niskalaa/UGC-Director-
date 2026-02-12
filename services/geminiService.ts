@@ -63,11 +63,62 @@ export const sanitizeInput = async (rawText: string): Promise<ScrapeSanitized | 
    }
 };
 
+// Analyze Image to Auto-fill Brief
+export const analyzeImageForBrief = async (base64Image: string, mimeType: string): Promise<any> => {
+    const ai = new GoogleGenAI({ apiKey: getApiKey() });
+    
+    const prompt = `
+        Analyze this product image and extract key marketing details for a UGC ad brief.
+        Identify the brand (if visible), product type, key materials/ingredients, and estimate the price tier and potential marketing angle.
+        Also provide a short description of what is seen to be used as context.
+    `;
+
+    const schema = {
+        type: Type.OBJECT,
+        properties: {
+            brand_name: { type: Type.STRING },
+            brand_tone: { type: Type.STRING },
+            product_type: { type: Type.STRING },
+            product_material: { type: Type.STRING },
+            price_tier: { type: Type.STRING, enum: ["budget", "mid", "premium"] },
+            marketing_angle: { type: Type.STRING, enum: ["problem-solution", "routine", "review", "aesthetic", "comparison"] },
+            raw_context: { type: Type.STRING }
+        }
+    };
+
+    try {
+         const response = await ai.models.generateContent({
+            model: "gemini-3-pro-preview",
+            contents: {
+                parts: [
+                    { inlineData: { mimeType, data: base64Image } },
+                    { text: prompt }
+                ]
+            },
+            config: {
+                responseMimeType: "application/json",
+                responseSchema: schema,
+            }
+        });
+        
+        return JSON.parse(cleanJson(response.text));
+    } catch (e) {
+        console.error("Image analysis failed", e);
+        throw e;
+    }
+};
+
 // 2. Generate Strategy (Stage 1) - DEEP ANALYSIS UPGRADE WITH FALLBACK
 export const generateStrategy = async (formData: FormData, contextText: string): Promise<Partial<GeneratedAsset>> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const outputLanguage = formData.constraints.language === 'en' ? 'English' : 'Indonesian (Bahasa Indonesia)';
   
+  // Determine Model and Budget
+  const preferredModel = formData.constraints.ai_model || "gemini-3-pro-preview";
+  let thinkingBudget = 0;
+  if (preferredModel === "gemini-3-pro-preview") thinkingBudget = 32768; // Max thinking for Pro
+  else if (preferredModel === "gemini-3-flash-preview") thinkingBudget = 2048; // Moderate thinking for Flash
+
   const schema = {
     type: Type.OBJECT,
     properties: {
@@ -135,17 +186,23 @@ export const generateStrategy = async (formData: FormData, contextText: string):
   `;
 
   // Helper to execute generation with specified model
-  const executeGen = async (modelName: string, thinkingBudget: number) => {
+  const executeGen = async (modelName: string, budget: number) => {
     return retryOperation(async () => {
+      const config: any = {
+          responseMimeType: "application/json",
+          responseSchema: schema,
+          thinkingConfig: { thinkingBudget: budget }
+      };
+
+      // Do not set maxOutputTokens when using the large thinking budget on Pro
+      if (modelName !== "gemini-3-pro-preview") {
+          config.maxOutputTokens = 8192;
+      }
+
       const response = await ai.models.generateContent({
           model: modelName,
           contents: prompt,
-          config: {
-              responseMimeType: "application/json",
-              responseSchema: schema,
-              maxOutputTokens: 8192,
-              thinkingConfig: { thinkingBudget }
-          }
+          config: config
       });
 
       if (!response.text) throw new Error("No strategy data returned.");
@@ -154,11 +211,12 @@ export const generateStrategy = async (formData: FormData, contextText: string):
   };
 
   try {
-    // Try Primary Model (Pro)
-    return await executeGen("gemini-3-pro-preview", 4096);
+    return await executeGen(preferredModel, thinkingBudget);
   } catch (e: any) {
-    // If quota exceeded or busy, fallback to Flash
-    if (e.message?.includes('Quota') || e.message?.includes('busy')) {
+    // Only fallback if the preferred model was Pro and it failed (e.g. Quota).
+    // If user selected Flash explicitly, we likely shouldn't fallback unless we want to try without thinking?
+    // For now, preserve existing fallback behavior if Pro fails.
+    if (preferredModel === "gemini-3-pro-preview" && (e.message?.includes('Quota') || e.message?.includes('busy'))) {
         console.warn("Strategy Generation: Pro model quota hit, falling back to Flash...");
         return await executeGen("gemini-3-flash-preview", 2048);
     }
@@ -171,6 +229,12 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const outputLanguage = formData.constraints.language === 'en' ? 'English' : 'Indonesian (Bahasa Indonesia)';
   const targetSceneCount = formData.constraints.scene_count || 5;
+
+  // Determine Model and Budget
+  const preferredModel = formData.constraints.ai_model || "gemini-3-pro-preview";
+  let thinkingBudget = 0;
+  if (preferredModel === "gemini-3-pro-preview") thinkingBudget = 32768;
+  else if (preferredModel === "gemini-3-flash-preview") thinkingBudget = 2048;
 
   const schema = {
     type: Type.OBJECT,
@@ -187,8 +251,9 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
             on_screen_text: { type: Type.STRING },
             image_prompt: { type: Type.STRING },
             image_negative_prompt: { type: Type.STRING },
+            video_prompt: { type: Type.STRING },
           },
-          required: ["seconds", "visual_description", "audio_script", "on_screen_text", "image_prompt"]
+          required: ["seconds", "visual_description", "audio_script", "on_screen_text", "image_prompt", "video_prompt"]
         }
       },
       caption: { type: Type.STRING },
@@ -218,12 +283,10 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
     3. **The Solution**: Show, don't just tell.
     4. **The CTA**: Clear instruction on what to do next.
 
-    IMAGE PROMPT ENGINEERING:
-    - Write photorealistic prompts for Flux/Midjourney.
-    - Lighting: Specify "Natural window light", "Ring light", "Golden hour".
-    - Camera: "Shot on iPhone 15 Pro", "Macro lens", "Handheld POV".
-    - Aesthetic: "UGC", "Authentic", "Unpolished", "Viral TikTok style".
-    - **Negative Prompts**: Generate a specific negative prompt for each scene to avoid common AI artifacts.
+    MEDIA PROMPT ENGINEERING:
+    - **Image Prompt**: Photorealistic for Flux/Midjourney. Lighting (Golden hour, Ring light), Camera (iPhone 15 Pro, Macro), Aesthetic (UGC, Authentic).
+    - **Video Prompt**: A concise, motion-focused prompt for Veo/Sora. Describe the movement (e.g., "Camera pans left", "Product rotates", "Hand squeezes tube"). Keep it under 40 words.
+    - **Negative Prompts**: Generate a specific negative prompt for each scene.
 
     OUTPUT:
     - Audio Script must be colloquial (spoken word), including fillers like "um", "so yeah" if it fits the persona.
@@ -231,17 +294,22 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
   `;
 
   // Helper to execute generation with specified model
-  const executeGen = async (modelName: string, thinkingBudget: number) => {
+  const executeGen = async (modelName: string, budget: number) => {
     return retryOperation(async () => {
+      const config: any = {
+          responseMimeType: "application/json",
+          responseSchema: schema,
+          thinkingConfig: { thinkingBudget: budget } 
+      };
+
+      if (modelName !== "gemini-3-pro-preview") {
+          config.maxOutputTokens = 8192;
+      }
+
       const response = await ai.models.generateContent({
-          model: modelName, // Upgraded to Pro for better creative writing
+          model: modelName, 
           contents: prompt,
-          config: {
-              responseMimeType: "application/json",
-              responseSchema: schema,
-              maxOutputTokens: 8192,
-              thinkingConfig: { thinkingBudget } 
-          }
+          config: config
       });
 
       if (!response.text) throw new Error("No scene data returned.");
@@ -250,15 +318,65 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
   };
 
   try {
-    return await executeGen("gemini-3-pro-preview", 2048);
+    return await executeGen(preferredModel, thinkingBudget);
   } catch (e: any) {
-    if (e.message?.includes('Quota') || e.message?.includes('busy')) {
+    if (preferredModel === "gemini-3-pro-preview" && (e.message?.includes('Quota') || e.message?.includes('busy'))) {
         console.warn("Scene Generation: Pro model quota hit, falling back to Flash...");
         return await executeGen("gemini-3-flash-preview", 1024);
     }
     throw e;
   }
 };
+
+// 4. Generate Video (Veo)
+export const generateVideo = async (prompt: string): Promise<string> => {
+    // Check for AI Studio environment API Key selection
+    if (typeof window !== 'undefined' && (window as any).aistudio) {
+        const aistudio = (window as any).aistudio;
+        try {
+             const hasKey = await aistudio.hasSelectedApiKey();
+             if (!hasKey) {
+                 await aistudio.openSelectKey();
+             }
+        } catch (e) {
+            console.warn("AI Studio key selection check failed", e);
+        }
+    }
+
+    const apiKey = getApiKey();
+    const ai = new GoogleGenAI({ apiKey });
+
+    let operation = await ai.models.generateVideos({
+        model: 'veo-3.1-fast-generate-preview',
+        prompt: prompt,
+        config: {
+            numberOfVideos: 1,
+            resolution: '720p',
+            aspectRatio: '9:16'
+        }
+    });
+
+    // Poll for completion
+    while (!operation.done) {
+        await new Promise(resolve => setTimeout(resolve, 5000)); // 5s delay
+        operation = await ai.operations.getVideosOperation({ operation: operation });
+    }
+    
+    if (operation.error) {
+        throw new Error(`Video generation failed: ${operation.error.message}`);
+    }
+
+    const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
+    if (!videoUri) throw new Error("No video URI returned.");
+
+    // Fetch the actual video blob
+    const response = await fetch(`${videoUri}&key=${apiKey}`);
+    if (!response.ok) throw new Error("Failed to download video.");
+    
+    const blob = await response.blob();
+    return URL.createObjectURL(blob);
+};
+
 
 // Analyze Audio for Voice Cloning
 export const analyzeVoiceStyle = async (audioBase64: string): Promise<string> => {

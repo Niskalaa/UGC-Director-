@@ -1,8 +1,8 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { GeneratedAsset } from '../types';
-import { generateSpeech, getWavBlob, analyzeVoiceStyle, generateImagePreview } from '../services/geminiService';
-import { Copy, Check, Clapperboard, Play, Loader2, Mic, Download, Pause, Image, Settings2, Sparkles, Monitor, Tablet, Smartphone, Maximize2, X, Film, Wand2 } from 'lucide-react';
+import { generateSpeech, getWavBlob, analyzeVoiceStyle, generateImagePreview, generateVideo } from '../services/geminiService';
+import { Copy, Check, Clapperboard, Play, Loader2, Mic, Download, Pause, Image, Settings2, Sparkles, Monitor, Tablet, Smartphone, Maximize2, X, Film, Wand2, Video as VideoIcon } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 
 const VOICES = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
@@ -30,11 +30,13 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
   
   // Media Generation State
   const [previewImages, setPreviewImages] = useState<Record<number, string>>({});
+  const [previewVideos, setPreviewVideos] = useState<Record<number, string>>({});
   const [loadingImageIdx, setLoadingImageIdx] = useState<number | null>(null);
+  const [loadingVideoIdx, setLoadingVideoIdx] = useState<number | null>(null);
   const [aspectRatio, setAspectRatio] = useState<AspectRatio>("9:16");
   
   // View Modal State
-  const [viewModalContent, setViewModalContent] = useState<{type: 'image', url: string} | null>(null);
+  const [viewModalContent, setViewModalContent] = useState<{type: 'image' | 'video', url: string} | null>(null);
   
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
@@ -177,6 +179,22 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
       }
   };
 
+  const handleGenerateVideo = async (prompt: string, idx: number) => {
+     if (loadingVideoIdx !== null) return;
+     setLoadingVideoIdx(idx);
+     try {
+         const videoUrl = await generateVideo(prompt);
+         if (videoUrl) {
+             setPreviewVideos(prev => ({ ...prev, [idx]: videoUrl }));
+         }
+     } catch (e) {
+         console.error(e);
+         alert(e instanceof Error ? e.message : "Video generation failed");
+     } finally {
+         setLoadingVideoIdx(null);
+     }
+  };
+
   const handleDownload = (url: string, filename: string) => {
     const a = document.createElement('a');
     a.href = url;
@@ -213,13 +231,17 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
               <X className="w-6 h-6" />
            </button>
            <div className="relative w-full max-w-5xl max-h-[90vh] flex flex-col items-center">
-              <img src={viewModalContent.url} alt="Full view" className="max-w-full max-h-[80vh] rounded-lg shadow-2xl object-contain" />
+              {viewModalContent.type === 'image' ? (
+                  <img src={viewModalContent.url} alt="Full view" className="max-w-full max-h-[80vh] rounded-lg shadow-2xl object-contain" />
+              ) : (
+                  <video src={viewModalContent.url} controls autoPlay className="max-w-full max-h-[80vh] rounded-lg shadow-2xl" />
+              )}
               <div className="mt-6 flex gap-4">
                  <button 
-                    onClick={() => handleDownload(viewModalContent.url, `ugc-generated-${Date.now()}.jpg`)}
+                    onClick={() => handleDownload(viewModalContent.url, `ugc-generated-${Date.now()}.${viewModalContent.type === 'image' ? 'jpg' : 'mp4'}`)}
                     className="flex items-center gap-2 px-6 py-3 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-bold transition-all"
                  >
-                    <Download className="w-5 h-5" /> Download Image
+                    <Download className="w-5 h-5" /> Download {viewModalContent.type === 'image' ? 'Image' : 'Video'}
                  </button>
               </div>
            </div>
@@ -429,14 +451,34 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
                                     className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] transition-colors bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5"
                                 >
                                     {loadingImageIdx === idx ? <Loader2 className="w-3 h-3 animate-spin"/> : <Image className="w-3 h-3"/>}
-                                    Visualize
+                                    Image
+                                </button>
+                             )}
+                             
+                             {/* Video Gen Button */}
+                             {scene.video_prompt && !previewVideos[idx] && (
+                                <button 
+                                    onClick={() => handleGenerateVideo(scene.video_prompt || scene.visual_description, idx)}
+                                    disabled={loadingVideoIdx === idx}
+                                    className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] transition-colors bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-300 border border-indigo-500/20"
+                                >
+                                    {loadingVideoIdx === idx ? <Loader2 className="w-3 h-3 animate-spin"/> : <VideoIcon className="w-3 h-3"/>}
+                                    Video (Veo)
                                 </button>
                              )}
                         </div>
                     </div>
                     
-                    {/* Visual Media Display */}
-                    {previewImages[idx] ? (
+                    {/* Visual Media Display (Video Priority) */}
+                    {previewVideos[idx] ? (
+                         <div className={`mb-4 relative rounded-lg overflow-hidden border border-white/10 group/media bg-black ${aspectRatio === "9:16" ? "aspect-[9/16]" : aspectRatio === "16:9" ? "aspect-video" : "aspect-square"}`}>
+                            <video src={previewVideos[idx]} controls className="w-full h-full object-cover" />
+                            <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/media:opacity-100 transition-opacity">
+                                <button onClick={() => handleDownload(previewVideos[idx], `scene-${idx+1}-video.mp4`)} className="p-1.5 bg-black/60 hover:bg-black/80 text-white rounded backdrop-blur"><Download className="w-3 h-3" /></button>
+                                <button onClick={() => setViewModalContent({type: 'video', url: previewVideos[idx]})} className="p-1.5 bg-black/60 hover:bg-black/80 text-white rounded backdrop-blur"><Maximize2 className="w-3 h-3" /></button>
+                            </div>
+                         </div>
+                    ) : previewImages[idx] ? (
                          <div className={`mb-4 relative rounded-lg overflow-hidden border border-white/10 group/media bg-black ${aspectRatio === "9:16" ? "aspect-[9/16]" : aspectRatio === "16:9" ? "aspect-video" : "aspect-square"}`}>
                             <img src={previewImages[idx]} alt="Scene Preview" className="w-full h-full object-cover" />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-2 opacity-0 group-hover/media:opacity-100 transition-opacity">
@@ -449,35 +491,54 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
                                 <button onClick={() => setViewModalContent({type: 'image', url: previewImages[idx]})} className="p-1.5 bg-black/60 hover:bg-black/80 text-white rounded backdrop-blur"><Maximize2 className="w-3 h-3" /></button>
                             </div>
                          </div>
-                    ) : (loadingImageIdx === idx) ? (
+                    ) : (loadingImageIdx === idx || loadingVideoIdx === idx) ? (
                         <div className={`mb-4 relative rounded-xl overflow-hidden border border-white/10 bg-[#050505] flex flex-col items-center justify-center gap-4 group ${aspectRatio === "9:16" ? "aspect-[9/16]" : aspectRatio === "16:9" ? "aspect-video" : "aspect-square"}`}>
                            <div className="absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.02)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.02)_1px,transparent_1px)] bg-[size:40px_40px]"></div>
                            <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(249,115,22,0.15)_0%,transparent_70%)]"></div>
                            <div className="relative z-10 flex flex-col items-center">
                               <Loader2 className="w-8 h-8 text-brand-500 animate-spin mb-2" />
-                              <span className="text-xs font-bold text-white tracking-widest uppercase">Rendering</span>
+                              <span className="text-xs font-bold text-white tracking-widest uppercase">
+                                 {loadingVideoIdx === idx ? 'Generating Video (Veo)' : 'Rendering Image'}
+                              </span>
                            </div>
                         </div>
                     ) : null}
 
                     <p className="text-slate-200 text-sm leading-relaxed mb-4">{scene.visual_description}</p>
                     
-                    <div className="bg-black/30 p-3 rounded border border-white/5 relative group/prompt">
-                        <div className="flex justify-between items-center mb-2 pb-2 border-b border-white/5">
-                            <div className="text-[10px] text-slate-600 uppercase font-bold flex items-center gap-2">
-                            <Image className="w-3 h-3"/> AI Image Prompt
-                            </div>
-                            <div className="flex gap-2">
+                    {/* Prompt Box */}
+                    <div className="space-y-2">
+                        <div className="bg-black/30 p-3 rounded border border-white/5 relative group/prompt">
+                            <div className="flex justify-between items-center mb-2 pb-2 border-b border-white/5">
+                                <div className="text-[10px] text-slate-600 uppercase font-bold flex items-center gap-2">
+                                <Image className="w-3 h-3"/> AI Image Prompt
+                                </div>
                                 <button 
                                     onClick={() => copyToClipboard(`prompt-text-${idx}`, scene.image_prompt)}
                                     className="p-1 hover:bg-white/10 rounded text-slate-500 hover:text-white transition-colors"
-                                    title="Copy Positive Prompt"
                                 >
                                     {copiedSection === `prompt-text-${idx}` ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3"/>}
                                 </button>
                             </div>
+                            <code className="text-xs text-brand-400 font-mono block leading-relaxed line-clamp-3 hover:line-clamp-none transition-all">{scene.image_prompt}</code>
                         </div>
-                        <code className="text-xs text-brand-400 font-mono block leading-relaxed">{scene.image_prompt}</code>
+
+                        {scene.video_prompt && (
+                            <div className="bg-black/30 p-3 rounded border border-white/5 relative group/prompt">
+                                <div className="flex justify-between items-center mb-2 pb-2 border-b border-white/5">
+                                    <div className="text-[10px] text-indigo-400 uppercase font-bold flex items-center gap-2">
+                                    <VideoIcon className="w-3 h-3"/> Veo Video Prompt
+                                    </div>
+                                    <button 
+                                        onClick={() => copyToClipboard(`video-prompt-${idx}`, scene.video_prompt)}
+                                        className="p-1 hover:bg-white/10 rounded text-slate-500 hover:text-white transition-colors"
+                                    >
+                                        {copiedSection === `video-prompt-${idx}` ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3"/>}
+                                    </button>
+                                </div>
+                                <code className="text-xs text-indigo-300 font-mono block leading-relaxed line-clamp-2 hover:line-clamp-none transition-all">{scene.video_prompt}</code>
+                            </div>
+                        )}
                     </div>
                 </div>
 

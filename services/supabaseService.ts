@@ -118,3 +118,15 @@ export const fetchHistory = async () => {
   }
   return data as SavedGeneration[];
 };
+
+export const deleteGeneration = async (id: string) => {
+  const { error } = await supabase
+    .from('ugc_generations')
+    .delete()
+    .eq('id', id);
+
+  if (error) {
+    console.error('Supabase Delete Error:', error);
+    throw error;
+  }
+};
