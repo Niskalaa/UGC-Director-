@@ -65,10 +65,10 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
   return (
     <div className="fixed inset-0 bg-white/20 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-      <div className="bg-white border border-slate-200 w-full max-w-md rounded-2xl p-6 shadow-2xl relative animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+      <div className="bg-white border border-slate-200 w-full max-w-md rounded-2xl p-6 shadow-2xl relative animate-in zoom-in-95 duration-200 max-h-[85vh] overflow-y-auto">
         <button 
           onClick={onClose}
-          className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 transition-colors"
+          className="absolute top-4 right-4 p-2 -mr-2 -mt-2 text-slate-400 hover:text-slate-800 transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
@@ -93,14 +93,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
              <div className="grid grid-cols-2 gap-3">
                 <button 
                     onClick={() => setActiveProvider('gemini')}
-                    className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${activeProvider === 'gemini' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' : 'bg-slate-50 border-slate-100 text-slate-500 hover:bg-slate-100'}`}
+                    className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all active:scale-95 ${activeProvider === 'gemini' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' : 'bg-slate-50 border-slate-100 text-slate-500 hover:bg-slate-100'}`}
                 >
                     <Zap className={`w-5 h-5 ${activeProvider === 'gemini' ? 'text-emerald-500' : 'text-slate-400'}`} />
                     <span className="text-xs font-bold">Google Gemini</span>
                 </button>
                 <button 
                     onClick={() => setActiveProvider('openrouter')}
-                    className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${activeProvider === 'openrouter' ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm' : 'bg-slate-50 border-slate-100 text-slate-500 hover:bg-slate-100'}`}
+                    className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all active:scale-95 ${activeProvider === 'openrouter' ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm' : 'bg-slate-50 border-slate-100 text-slate-500 hover:bg-slate-100'}`}
                 >
                     <Network className={`w-5 h-5 ${activeProvider === 'openrouter' ? 'text-indigo-500' : 'text-slate-400'}`} />
                     <span className="text-xs font-bold">OpenRouter</span>
@@ -201,7 +201,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
 
           <button 
             onClick={handleSave}
-            className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 mt-4 shadow-lg"
+            className="w-full bg-slate-900 text-white font-bold py-3.5 rounded-xl hover:bg-slate-800 transition-colors flex items-center justify-center gap-2 mt-4 shadow-lg active:scale-95"
           >
              {saved ? <Check className="w-4 h-4"/> : <Save className="w-4 h-4" />}
              {saved ? 'Settings Saved' : 'Save & Reload'}

@@ -2,8 +2,8 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { GeneratedAsset } from '../types';
 import { generateSpeech, getWavBlob, analyzeVoiceStyle, generateImagePreview, generateVideo } from '../services/geminiService';
-import { fetchElevenLabsVoices, generateElevenLabsSpeech, ElevenLabsVoice } from '../services/elevenLabsService';
-import { Copy, Check, Clapperboard, Play, Loader2, Mic, Download, Pause, Image, Settings2, Sparkles, Monitor, Tablet, Smartphone, Maximize2, X, Film, Wand2, Video as VideoIcon, Volume2 } from 'lucide-react';
+import { fetchElevenLabsVoices, generateElevenLabsSpeech, ElevenLabsVoice, ELEVENLABS_MODELS, ElevenLabsSettings } from '../services/elevenLabsService';
+import { Copy, Check, Clapperboard, Play, Loader2, Mic, Download, Pause, Image, Settings2, Sparkles, Monitor, Tablet, Smartphone, Maximize2, X, Film, Wand2, Video as VideoIcon, Volume2, SlidersHorizontal, Info } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 
 const GEMINI_VOICES = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
@@ -36,6 +36,14 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
   // ElevenLabs State
   const [elevenLabsVoices, setElevenLabsVoices] = useState<ElevenLabsVoice[]>([]);
   const [hasElevenLabsKey, setHasElevenLabsKey] = useState(false);
+  const [showElTuning, setShowElTuning] = useState(false);
+  const [elSettings, setElSettings] = useState<ElevenLabsSettings>({
+      model_id: 'eleven_multilingual_v2',
+      stability: 0.5,
+      similarity_boost: 0.75,
+      style: 0.0,
+      use_speaker_boost: true
+  });
   
   // Media Generation State
   const [previewImages, setPreviewImages] = useState<Record<number, string>>({});
@@ -124,6 +132,11 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
     setPlayingIdx(null);
   }
 
+  const handleElSettingChange = (field: keyof ElevenLabsSettings, value: any) => {
+      setElSettings(prev => ({...prev, [field]: value}));
+      setAudioUrls({}); // Clear cache since settings changed
+  };
+
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -175,7 +188,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
              url = URL.createObjectURL(blob);
         } else {
              // ElevenLabs
-             url = await generateElevenLabsSpeech(text, activeVoice);
+             url = await generateElevenLabsSpeech(text, activeVoice, elSettings);
         }
         setAudioUrls(prev => ({ ...prev, [idx]: url }));
       }
@@ -257,9 +270,9 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
   };
 
   if (!data) return (
-    <div className="h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-3xl bg-white/40">
+    <div className="h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-3xl bg-white/40 p-8">
       <Clapperboard className="w-12 h-12 mb-4 opacity-30 text-slate-500" />
-      <p className="font-medium">Waiting for director's input...</p>
+      <p className="font-medium text-center">Waiting for director's input...</p>
     </div>
   );
 
@@ -269,12 +282,114 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
     <div className="space-y-6 animate-in pb-12">
       <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
 
+      {/* ElevenLabs Tuning Modal */}
+      {showElTuning && (
+          <div className="fixed inset-0 z-[100] bg-white/50 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+             <div className="bg-white border border-slate-200 shadow-2xl rounded-2xl w-full max-w-sm overflow-hidden">
+                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                    <div className="flex items-center gap-2">
+                         <SlidersHorizontal className="w-4 h-4 text-orange-500" />
+                         <h3 className="font-bold text-slate-800">Voice Tuning</h3>
+                    </div>
+                    <button onClick={() => setShowElTuning(false)} className="p-1 hover:bg-slate-200 rounded-full text-slate-500"><X className="w-4 h-4"/></button>
+                </div>
+                <div className="p-6 space-y-6">
+                    {/* Model Select */}
+                    <div className="space-y-2">
+                        <label className="text-xs font-bold text-slate-500 uppercase">Model</label>
+                        <select 
+                            value={elSettings.model_id}
+                            onChange={(e) => handleElSettingChange('model_id', e.target.value)}
+                            className="w-full p-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 outline-none focus:border-orange-500"
+                        >
+                            {ELEVENLABS_MODELS.map(m => (
+                                <option key={m.id} value={m.id}>{m.name}</option>
+                            ))}
+                        </select>
+                    </div>
+
+                    {/* Stability */}
+                    <div className="space-y-2">
+                         <div className="flex justify-between text-xs">
+                             <span className="font-bold text-slate-600">Stability</span>
+                             <span className="text-slate-400">{Math.round(elSettings.stability * 100)}%</span>
+                         </div>
+                         <input 
+                            type="range" min="0" max="1" step="0.01"
+                            value={elSettings.stability}
+                            onChange={(e) => handleElSettingChange('stability', parseFloat(e.target.value))}
+                            className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                         />
+                         <div className="flex justify-between text-[10px] text-slate-400">
+                             <span>Variable</span>
+                             <span>Stable</span>
+                         </div>
+                    </div>
+
+                    {/* Similarity */}
+                    <div className="space-y-2">
+                         <div className="flex justify-between text-xs">
+                             <span className="font-bold text-slate-600">Similarity</span>
+                             <span className="text-slate-400">{Math.round(elSettings.similarity_boost * 100)}%</span>
+                         </div>
+                         <input 
+                            type="range" min="0" max="1" step="0.01"
+                            value={elSettings.similarity_boost}
+                            onChange={(e) => handleElSettingChange('similarity_boost', parseFloat(e.target.value))}
+                            className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                         />
+                         <div className="flex justify-between text-[10px] text-slate-400">
+                             <span>Low</span>
+                             <span>High</span>
+                         </div>
+                    </div>
+
+                    {/* Style */}
+                    <div className="space-y-2">
+                         <div className="flex justify-between text-xs">
+                             <span className="font-bold text-slate-600">Style Exaggeration</span>
+                             <span className="text-slate-400">{Math.round(elSettings.style * 100)}%</span>
+                         </div>
+                         <input 
+                            type="range" min="0" max="1" step="0.01"
+                            value={elSettings.style}
+                            onChange={(e) => handleElSettingChange('style', parseFloat(e.target.value))}
+                            className="w-full h-1.5 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                         />
+                         <div className="flex justify-between text-[10px] text-slate-400">
+                             <span>None</span>
+                             <span>High</span>
+                         </div>
+                    </div>
+
+                    {/* Speaker Boost */}
+                    <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+                        <label className="text-xs font-bold text-slate-600">Speaker Boost</label>
+                        <button 
+                           onClick={() => handleElSettingChange('use_speaker_boost', !elSettings.use_speaker_boost)}
+                           className={`w-10 h-5 rounded-full relative transition-colors ${elSettings.use_speaker_boost ? 'bg-orange-500' : 'bg-slate-300'}`}
+                        >
+                            <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${elSettings.use_speaker_boost ? 'left-6' : 'left-1'}`}></div>
+                        </button>
+                    </div>
+
+                    <button 
+                        onClick={() => setShowElTuning(false)}
+                        className="w-full py-3 bg-slate-900 text-white font-bold rounded-xl shadow-lg shadow-slate-900/10 active:scale-95 transition-all"
+                    >
+                        Apply Settings
+                    </button>
+                </div>
+             </div>
+          </div>
+      )}
+
       {/* Media Viewer Modal */}
       {viewModalContent && (
-        <div className="fixed inset-0 z-[100] bg-white/90 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="fixed inset-0 z-[100] bg-white/95 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
            <button 
               onClick={() => setViewModalContent(null)}
-              className="absolute top-6 right-6 p-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors shadow-sm"
+              className="absolute top-4 right-4 p-2 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors shadow-sm"
            >
               <X className="w-6 h-6" />
            </button>
@@ -287,7 +402,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
               <div className="mt-6 flex gap-4">
                  <button 
                     onClick={() => handleDownload(viewModalContent.url, `ugc-generated-${Date.now()}.${viewModalContent.type === 'image' ? 'jpg' : 'mp4'}`)}
-                    className="flex items-center gap-2 px-6 py-3 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-brand-500/30"
+                    className="flex items-center gap-2 px-6 py-3 bg-brand-600 hover:bg-brand-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-brand-500/30 active:scale-95"
                  >
                     <Download className="w-5 h-5" /> Download {viewModalContent.type === 'image' ? 'Image' : 'Video'}
                  </button>
@@ -297,11 +412,11 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
       )}
 
       {/* Title & Controls */}
-      <div className="glass-panel p-8 rounded-3xl border-l-4 border-brand-500 bg-white relative overflow-hidden shadow-sm">
+      <div className="glass-panel p-5 md:p-8 rounded-3xl border-l-4 border-brand-500 bg-white relative overflow-hidden shadow-sm">
         {/* Settings Trigger */}
         <button 
           onClick={() => setShowSettings(true)}
-          className="absolute top-6 right-6 p-2 rounded-lg bg-slate-50 text-slate-400 border border-slate-100 hover:bg-slate-100 transition-colors"
+          className="absolute top-4 right-4 md:top-6 md:right-6 p-2 rounded-lg bg-slate-50 text-slate-400 border border-slate-100 hover:bg-slate-100 transition-colors"
           title="Configure AI Keys"
         >
           <Settings2 className="w-5 h-5" />
@@ -310,112 +425,131 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
         <div className="relative z-10">
           <div className="flex justify-between items-start gap-4 pr-12">
             <div>
-               <h2 className="text-3xl font-black text-slate-900 mb-2">{data.concept_title}</h2>
-               <p className="text-slate-500 italic mb-4">"{data.hook_rationale}"</p>
+               <h2 className="text-2xl md:text-3xl font-black text-slate-900 mb-2">{data.concept_title}</h2>
+               <p className="text-slate-500 italic mb-4 text-sm md:text-base">"{data.hook_rationale}"</p>
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-4">
-            
-            {/* Voice Control Group */}
-            <div className="flex items-center gap-3 text-xs text-brand-700 bg-brand-50 px-4 py-2 rounded-full border border-brand-200">
-              <Mic className="w-3.5 h-3.5" />
-              
-              {/* Provider Toggle */}
-              <div className="flex items-center gap-1 bg-white rounded p-0.5 border border-slate-200 shadow-sm">
-                  <button 
-                     onClick={() => handleProviderChange('gemini')}
-                     className={`px-2 py-0.5 rounded transition-all font-medium ${ttsProvider === 'gemini' ? 'bg-brand-500 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                  >Gemini</button>
-                  <button 
-                     onClick={() => handleProviderChange('elevenlabs')}
-                     className={`px-2 py-0.5 rounded transition-all font-medium ${ttsProvider === 'elevenlabs' ? 'bg-orange-500/80 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-                  >ElevenLabs</button>
-              </div>
-
-              <span className="text-brand-300">|</span>
-
-              <div className="flex items-center gap-2">
-                <span className="text-brand-800/70 uppercase font-bold tracking-wider">Voice:</span>
-                <select 
-                  value={activeVoice}
-                  onChange={(e) => handleVoiceChange(e.target.value)}
-                  className="bg-transparent text-slate-800 font-bold border-none focus:ring-0 cursor-pointer p-0 text-xs appearance-none hover:text-brand-600 transition-colors max-w-[100px] truncate"
-                >
-                  {ttsProvider === 'gemini' ? (
-                      GEMINI_VOICES.map(v => (
-                        <option key={v} value={v} className="bg-white text-slate-800">{v}</option>
-                      ))
-                  ) : (
-                      elevenLabsVoices.length > 0 ? (
-                        elevenLabsVoices.map(v => (
-                            <option key={v.voice_id} value={v.voice_id} className="bg-white text-slate-800">{v.name} ({v.category})</option>
-                        ))
-                      ) : (
-                        <option className="bg-white text-slate-400">Loading/No Key...</option>
-                      )
-                  )}
-                </select>
-              </div>
-              
-              {/* Only show style controls for Gemini, ElevenLabs handles style inside the voice model usually */}
-              {ttsProvider === 'gemini' && (
-                  <>
-                    <span className="text-brand-300">|</span>
-                    <div className="flex items-center gap-2">
-                        <span className="text-brand-800/70 uppercase font-bold tracking-wider">Style:</span>
-                        <select 
-                        value={speechStyle}
-                        onChange={(e) => handleStyleChange(e.target.value)}
-                        className="bg-transparent text-slate-800 font-bold border-none focus:ring-0 cursor-pointer p-0 text-xs appearance-none hover:text-brand-600 transition-colors"
-                        >
-                        {SPEECH_STYLES.map(s => (
-                            <option key={s} value={s} className="bg-white text-slate-800">{s}</option>
-                        ))}
-                        </select>
-                    </div>
-                    <span className="text-brand-300">|</span>
-                    <div className="flex items-center gap-2 pl-2 border-l border-brand-200">
-                        <input 
-                            type="file" 
-                            ref={fileInputRef}
-                            accept="audio/*"
-                            onChange={handleFileUpload}
-                            className="hidden" 
-                        />
-                        <button 
-                            onClick={() => fileInputRef.current?.click()}
-                            disabled={isProcessingVoice}
-                            className={`flex items-center gap-1.5 hover:text-brand-600 transition-colors font-bold ${customVoiceTone ? 'text-emerald-600' : 'text-brand-600'}`}
-                            title={customVoiceTone ? `Active Clone Style: ${customVoiceTone}` : "Upload sample to clone style"}
-                        >
-                            {isProcessingVoice ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3"/>}
-                            {customVoiceTone ? 'Custom Active' : 'Clone Voice'}
-                        </button>
-                    </div>
-                  </>
-              )}
-            </div>
-
-            {/* Visual Settings Group */}
-            <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-full border border-slate-200">
-                {/* Aspect Ratio */}
-                <div className="flex items-center gap-1 pr-1">
-                    {[
-                        { val: "9:16", icon: Smartphone, label: "Story (9:16)" },
-                        { val: "16:9", icon: Monitor, label: "Cinema (16:9)" },
-                        { val: "1:1", icon: Tablet, label: "Square (1:1)" }
-                    ].map(r => (
-                        <button
-                            key={r.val}
-                            onClick={() => setAspectRatio(r.val as AspectRatio)}
-                            className={`p-1.5 rounded-full transition-all ${aspectRatio === r.val ? 'bg-white text-brand-600 shadow-sm border border-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
-                            title={r.label}
-                        >
-                            <r.icon className="w-3.5 h-3.5" />
-                        </button>
-                    ))}
+          {/* Horizontally Scrollable Controls for Mobile */}
+          <div className="mt-4 -mx-5 px-5 md:mx-0 md:px-0 overflow-x-auto no-scrollbar">
+            <div className="flex items-center gap-3 min-w-max pb-1">
+                
+                {/* Voice Control Group */}
+                <div className="flex items-center gap-3 text-xs text-brand-700 bg-brand-50 px-4 py-2 rounded-full border border-brand-200 whitespace-nowrap">
+                <Mic className="w-3.5 h-3.5" />
+                
+                {/* Provider Toggle */}
+                <div className="flex items-center gap-1 bg-white rounded p-0.5 border border-slate-200 shadow-sm">
+                    <button 
+                        onClick={() => handleProviderChange('gemini')}
+                        className={`px-2 py-0.5 rounded transition-all font-medium ${ttsProvider === 'gemini' ? 'bg-brand-500 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >Gemini</button>
+                    <button 
+                        onClick={() => handleProviderChange('elevenlabs')}
+                        className={`px-2 py-0.5 rounded transition-all font-medium ${ttsProvider === 'elevenlabs' ? 'bg-orange-500/80 text-white shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+                    >ElevenLabs</button>
                 </div>
+
+                <span className="text-brand-300">|</span>
+
+                <div className="flex items-center gap-2">
+                    <span className="text-brand-800/70 uppercase font-bold tracking-wider">Voice:</span>
+                    <select 
+                    value={activeVoice}
+                    onChange={(e) => handleVoiceChange(e.target.value)}
+                    className="bg-transparent text-slate-800 font-bold border-none focus:ring-0 cursor-pointer p-0 text-xs appearance-none hover:text-brand-600 transition-colors max-w-[100px] truncate"
+                    >
+                    {ttsProvider === 'gemini' ? (
+                        GEMINI_VOICES.map(v => (
+                            <option key={v} value={v} className="bg-white text-slate-800">{v}</option>
+                        ))
+                    ) : (
+                        elevenLabsVoices.length > 0 ? (
+                            elevenLabsVoices.map(v => (
+                                <option key={v.voice_id} value={v.voice_id} className="bg-white text-slate-800">{v.name} ({v.category})</option>
+                            ))
+                        ) : (
+                            <option className="bg-white text-slate-400">Loading/No Key...</option>
+                        )
+                    )}
+                    </select>
+                </div>
+                
+                {/* Only show style controls for Gemini, ElevenLabs handles style inside the voice model usually */}
+                {ttsProvider === 'gemini' && (
+                    <>
+                        <span className="text-brand-300">|</span>
+                        <div className="flex items-center gap-2">
+                            <span className="text-brand-800/70 uppercase font-bold tracking-wider">Style:</span>
+                            <select 
+                            value={speechStyle}
+                            onChange={(e) => handleStyleChange(e.target.value)}
+                            className="bg-transparent text-slate-800 font-bold border-none focus:ring-0 cursor-pointer p-0 text-xs appearance-none hover:text-brand-600 transition-colors"
+                            >
+                            {SPEECH_STYLES.map(s => (
+                                <option key={s} value={s} className="bg-white text-slate-800">{s}</option>
+                            ))}
+                            </select>
+                        </div>
+                        <span className="text-brand-300">|</span>
+                        <div className="flex items-center gap-2 pl-2 border-l border-brand-200">
+                            <input 
+                                type="file" 
+                                ref={fileInputRef}
+                                accept="audio/*"
+                                onChange={handleFileUpload}
+                                className="hidden" 
+                            />
+                            <button 
+                                onClick={() => fileInputRef.current?.click()}
+                                disabled={isProcessingVoice}
+                                className={`flex items-center gap-1.5 hover:text-brand-600 transition-colors font-bold ${customVoiceTone ? 'text-emerald-600' : 'text-brand-600'}`}
+                                title={customVoiceTone ? `Active Clone Style: ${customVoiceTone}` : "Upload sample to clone style"}
+                            >
+                                {isProcessingVoice ? <Loader2 className="w-3 h-3 animate-spin"/> : <Wand2 className="w-3 h-3"/>}
+                                {customVoiceTone ? 'Custom Active' : 'Clone Voice'}
+                            </button>
+                        </div>
+                    </>
+                )}
+
+                {/* ElevenLabs Tuning Button */}
+                {ttsProvider === 'elevenlabs' && (
+                    <>
+                        <span className="text-brand-300">|</span>
+                        <button 
+                            onClick={() => setShowElTuning(true)}
+                            className="flex items-center gap-1.5 hover:text-orange-600 transition-colors font-bold text-orange-500"
+                            title="Fine-tune voice model"
+                        >
+                            <SlidersHorizontal className="w-3.5 h-3.5"/>
+                            Tune
+                        </button>
+                    </>
+                )}
+                </div>
+
+                {/* Visual Settings Group */}
+                <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-full border border-slate-200">
+                    {/* Aspect Ratio */}
+                    <div className="flex items-center gap-1 pr-1">
+                        {[
+                            { val: "9:16", icon: Smartphone, label: "9:16" },
+                            { val: "16:9", icon: Monitor, label: "16:9" },
+                            { val: "1:1", icon: Tablet, label: "1:1" }
+                        ].map(r => (
+                            <button
+                                key={r.val}
+                                onClick={() => setAspectRatio(r.val as AspectRatio)}
+                                className={`p-1.5 rounded-full transition-all ${aspectRatio === r.val ? 'bg-white text-brand-600 shadow-sm border border-slate-200' : 'text-slate-400 hover:text-slate-600'}`}
+                                title={r.label}
+                            >
+                                <r.icon className="w-3.5 h-3.5" />
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
             </div>
           </div>
         </div>
@@ -497,7 +631,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
       ) : (
         <div className="space-y-4">
             {data.scenes!.map((scene, idx) => (
-            <div key={idx} className="glass-panel p-6 rounded-2xl border border-slate-200 bg-white hover:border-brand-500/30 transition-all shadow-sm hover:shadow-md group/card">
+            <div key={idx} className="glass-panel p-4 md:p-6 rounded-2xl border border-slate-200 bg-white hover:border-brand-500/30 transition-all shadow-sm hover:shadow-md group/card">
                 
                 {/* Scene Header */}
                 <div className="flex items-center justify-between mb-4">
@@ -510,7 +644,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
                         className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-[10px] text-slate-500 hover:text-slate-800 transition-colors border border-slate-100"
                     >
                         {copiedSection === `scene-${idx}` ? <Check className="w-3 h-3 text-emerald-500"/> : <Film className="w-3 h-3"/>}
-                        JSON
+                        <span className="hidden sm:inline">JSON</span>
                     </button>
                 </div>
                 
@@ -525,7 +659,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
                                 <button 
                                     onClick={() => handleGeneratePreview(scene.image_prompt, idx)}
                                     disabled={loadingImageIdx === idx}
-                                    className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] transition-colors bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 font-medium"
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] transition-colors bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 font-medium active:scale-95"
                                 >
                                     {loadingImageIdx === idx ? <Loader2 className="w-3 h-3 animate-spin"/> : <Image className="w-3 h-3"/>}
                                     Image
@@ -537,10 +671,10 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
                                 <button 
                                     onClick={() => handleGenerateVideo(scene.video_prompt || scene.visual_description, idx)}
                                     disabled={loadingVideoIdx === idx}
-                                    className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] transition-colors bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200 font-medium"
+                                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] transition-colors bg-indigo-50 hover:bg-indigo-100 text-indigo-600 border border-indigo-200 font-medium active:scale-95"
                                 >
                                     {loadingVideoIdx === idx ? <Loader2 className="w-3 h-3 animate-spin"/> : <VideoIcon className="w-3 h-3"/>}
-                                    Video (Veo)
+                                    Video
                                 </button>
                              )}
                         </div>
@@ -650,7 +784,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
                         <button 
                         onClick={() => handleTogglePlay(scene.audio_script, idx)} 
                         disabled={loadingIdx === idx}
-                        className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-sm font-bold transition-all ${
+                        className={`flex-1 flex items-center justify-center gap-2 py-3 md:py-2.5 rounded-lg text-sm font-bold transition-all active:scale-95 ${
                             playingIdx === idx 
                             ? 'bg-red-50 text-red-500 hover:bg-red-100 border border-red-200' 
                             : 'bg-brand-600 hover:bg-brand-500 text-white shadow-lg shadow-brand-500/20'
@@ -675,7 +809,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
                         {audioUrls[idx] && (
                         <button 
                             onClick={() => handleDownload(audioUrls[idx], `scene-${idx+1}-audio.mp3`)}
-                            className="p-2.5 rounded-lg bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors border border-slate-200"
+                            className="p-3 md:p-2.5 rounded-lg bg-white hover:bg-slate-100 text-slate-500 hover:text-slate-800 transition-colors border border-slate-200 active:scale-95"
                         >
                             <Download className="w-5 h-5" />
                         </button>

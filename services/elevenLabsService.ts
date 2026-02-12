@@ -6,6 +6,21 @@ export interface ElevenLabsVoice {
   preview_url: string;
 }
 
+export interface ElevenLabsSettings {
+  model_id: string;
+  stability: number;
+  similarity_boost: number;
+  style: number;
+  use_speaker_boost: boolean;
+}
+
+export const ELEVENLABS_MODELS = [
+  { id: 'eleven_multilingual_v2', name: 'Multilingual v2 (Best Quality)' },
+  { id: 'eleven_turbo_v2_5', name: 'Turbo v2.5 (Fastest)' },
+  { id: 'eleven_flash_v2_5', name: 'Flash v2.5 (Low Latency)' },
+  { id: 'eleven_monolingual_v1', name: 'English v1 (Standard)' }
+];
+
 const getElevenLabsKey = () => localStorage.getItem('ELEVENLABS_API_KEY') || "";
 
 export const fetchElevenLabsVoices = async (): Promise<ElevenLabsVoice[]> => {
@@ -34,9 +49,11 @@ export const fetchElevenLabsVoices = async (): Promise<ElevenLabsVoice[]> => {
   }
 };
 
-export const generateElevenLabsSpeech = async (text: string, voiceId: string): Promise<string> => {
+export const generateElevenLabsSpeech = async (text: string, voiceId: string, settings?: ElevenLabsSettings): Promise<string> => {
   const apiKey = getElevenLabsKey();
   if (!apiKey) throw new Error("ElevenLabs API Key is missing");
+
+  const modelId = settings?.model_id || "eleven_multilingual_v2";
 
   const response = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${voiceId}`, {
     method: 'POST',
@@ -46,10 +63,12 @@ export const generateElevenLabsSpeech = async (text: string, voiceId: string): P
     },
     body: JSON.stringify({
       text: text,
-      model_id: "eleven_multilingual_v2",
+      model_id: modelId,
       voice_settings: {
-        stability: 0.5,
-        similarity_boost: 0.75
+        stability: settings?.stability ?? 0.5,
+        similarity_boost: settings?.similarity_boost ?? 0.75,
+        style: settings?.style ?? 0.0,
+        use_speaker_boost: settings?.use_speaker_boost ?? true
       }
     })
   });
