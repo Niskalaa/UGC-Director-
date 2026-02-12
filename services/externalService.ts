@@ -3,6 +3,7 @@ import { FormData, GeneratedAsset } from "../types";
 
 // Service to handle interactions with OpenRouter API
 const OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions";
+const OPENROUTER_IMAGE_URL = "https://openrouter.ai/api/v1/images/generations";
 
 export const getStoredOpenRouterKey = () => localStorage.getItem('OPENROUTER_API_KEY') || "";
 
@@ -175,4 +176,43 @@ export const generateScenesOpenRouter = async (formData: FormData, strategy: Par
   ], model);
 
   return JSON.parse(cleanJson(content));
+};
+
+// 3. Generate Image via OpenRouter (Flux/Stable Diffusion)
+export const generateImageOpenRouter = async (prompt: string, aspectRatio: string): Promise<string> => {
+  const apiKey = getStoredOpenRouterKey();
+  if (!apiKey) throw new Error("OpenRouter API Key is missing for Image Gen");
+
+  // Default to Flux Schnell for speed/cost if available, or fallback to user preference
+  const model = "black-forest-labs/flux-1-schnell"; 
+
+  try {
+    const response = await fetch(OPENROUTER_IMAGE_URL, {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": window.location.origin,
+        "X-Title": "UGC Director AI"
+      },
+      body: JSON.stringify({
+        model: model,
+        prompt: prompt,
+        n: 1,
+        size: aspectRatio === "16:9" ? "1024x576" : aspectRatio === "9:16" ? "576x1024" : "1024x1024"
+      })
+    });
+
+    if (!response.ok) {
+        // Some models on OR use chat completions for images, but standard ones use v1/images
+        const err = await response.json();
+        throw new Error(err.error?.message || "OpenRouter Image API failed");
+    }
+
+    const data = await response.json();
+    return data.data[0].url || data.data[0].b64_json;
+  } catch (error: any) {
+    console.warn("OpenRouter Image Gen Error:", error);
+    throw new Error(`OpenRouter Image Gen Failed: ${error.message}`);
+  }
 };

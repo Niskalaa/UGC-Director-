@@ -1,8 +1,0 @@
-google-generativeai
-supabase
-openai
-boto3
-flask
-gunicorn
-python-dotenv
-requests

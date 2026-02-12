@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { FormData } from '../types';
-import { Sparkles, Type, Tag, Smartphone, FileText, Loader2, Image as ImageIcon, Globe, Settings2, Cpu, Zap, Layers, CheckCircle2, Clock, Network } from 'lucide-react';
+import { Sparkles, Type, Tag, Smartphone, FileText, Loader2, Image as ImageIcon, Globe, Settings2, Cpu, Zap, Layers, CheckCircle2, Clock, Network, Palette } from 'lucide-react';
 import { analyzeImageForBrief } from '../services/geminiService';
 
 interface InputFormProps {
@@ -16,7 +16,7 @@ const defaultData: FormData = {
   brand: { name: '', tone_hint_optional: '', country_market_optional: 'ID' },
   product: { type: '', material: '', price_tier_optional: 'mid', platform: ['tiktok'], objective: 'conversion', main_angle_optional: 'problem-solution' },
   scrape: { source_url_optional: '', raw_text_optional: '' },
-  constraints: { do_not_say_optional: [], must_include_optional: [], language: 'id', vo_duration_seconds: 30, scene_count: 5, ai_model: 'gemini-3-pro-preview' },
+  constraints: { do_not_say_optional: [], must_include_optional: [], language: 'id', vo_duration_seconds: 30, scene_count: 5, ai_model: 'gemini-3-pro-preview', image_generator_model: 'gemini-3-pro-image-preview' },
 };
 
 export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initialValues, activeProvider = 'gemini', openRouterModel }) => {
@@ -26,12 +26,12 @@ export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initi
 
   useEffect(() => {
     if (initialValues) {
-      // Ensure ai_model is set if loading from legacy history
       const safeData = {
           ...initialValues,
           constraints: {
               ...initialValues.constraints,
-              ai_model: initialValues.constraints.ai_model || 'gemini-3-pro-preview'
+              ai_model: initialValues.constraints.ai_model || 'gemini-3-pro-preview',
+              image_generator_model: initialValues.constraints.image_generator_model || 'gemini-3-pro-image-preview'
           }
       };
       setData(safeData);
@@ -59,7 +59,6 @@ export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initi
     });
   };
 
-  // Auto-adjust duration recommendation based on scene count
   const handleSceneCountChange = (count: number) => {
       handleChange('constraints', 'scene_count', count);
   };
@@ -197,71 +196,65 @@ export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initi
         <h3 className="text-slate-800 font-bold mb-4 flex items-center gap-2 text-base"><Settings2 className="w-5 h-5 text-blue-500"/> Format Control</h3>
         
         <div className="space-y-6">
-            {/* AI Model Selector */}
-            <div>
-                 <div className="flex justify-between text-sm mb-2">
-                    <span className="text-slate-500 flex items-center gap-2 font-medium"><Cpu className="w-4 h-4 text-blue-400"/> AI Model</span>
-                 </div>
-                 
-                 {activeProvider === 'openrouter' ? (
-                     <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between">
-                         <div className="flex items-center gap-3">
-                             <Network className="w-5 h-5 text-indigo-600" />
-                             <div>
-                                 <div className="text-xs font-bold text-indigo-800 uppercase tracking-wide">OpenRouter Active</div>
-                                 <div className="text-sm font-semibold text-indigo-700">{openRouterModel || 'Unknown Model'}</div>
-                             </div>
-                         </div>
-                         <div className="text-[10px] text-indigo-500 font-medium">Changed via Settings</div>
-                     </div>
-                 ) : (
-                    <div className="grid grid-cols-2 gap-3">
-                        <button 
-                            type="button"
-                            onClick={() => handleChange('constraints', 'ai_model', 'gemini-3-pro-preview')}
-                            className={`py-3 px-3 rounded-xl border text-left transition-all relative active:scale-95 ${
-                                data.constraints.ai_model === 'gemini-3-pro-preview' 
-                                ? 'bg-blue-50 border-blue-300 text-blue-700 shadow-sm' 
-                                : 'bg-white/50 border-slate-200 text-slate-500 hover:bg-white'
-                            }`}
-                        >
-                            <div className="font-bold text-xs sm:text-sm flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                                <span>Gemini 3 Pro</span>
-                                {data.constraints.ai_model === 'gemini-3-pro-preview' && <CheckCircle2 className="w-3 h-3 text-blue-500"/>}
-                            </div>
-                            <div className="text-[10px] opacity-70 mt-1 flex items-center gap-1">
-                                <Zap className="w-3 h-3" /> Deep Reasoning
-                            </div>
-                        </button>
-
-                        <button 
-                            type="button"
-                            onClick={() => handleChange('constraints', 'ai_model', 'gemini-3-flash-preview')}
-                            className={`py-3 px-3 rounded-xl border text-left transition-all relative active:scale-95 ${
-                                data.constraints.ai_model === 'gemini-3-flash-preview' 
-                                ? 'bg-emerald-50 border-emerald-300 text-emerald-700 shadow-sm' 
-                                : 'bg-white/50 border-slate-200 text-slate-500 hover:bg-white'
-                            }`}
-                        >
-                            <div className="font-bold text-xs sm:text-sm flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2">
-                                <span>Gemini 3 Flash</span>
-                                {data.constraints.ai_model === 'gemini-3-flash-preview' && <CheckCircle2 className="w-3 h-3 text-emerald-500"/>}
-                            </div>
-                            <div className="text-[10px] opacity-70 mt-1 flex items-center gap-1">
-                                <Cpu className="w-3 h-3" /> High Speed
-                            </div>
-                        </button>
+            
+            {/* Model & Image Model Config */}
+            <div className="grid md:grid-cols-2 gap-6">
+                
+                {/* Text Model */}
+                <div>
+                    <div className="flex justify-between text-sm mb-2">
+                        <span className="text-slate-500 flex items-center gap-2 font-medium"><Cpu className="w-4 h-4 text-blue-400"/> AI Script Model</span>
                     </div>
-                 )}
+                    {activeProvider === 'openrouter' ? (
+                        <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between h-[72px]">
+                            <div className="flex items-center gap-3">
+                                <Network className="w-5 h-5 text-indigo-600" />
+                                <div>
+                                    <div className="text-xs font-bold text-indigo-800 uppercase tracking-wide">OpenRouter</div>
+                                    <div className="text-sm font-semibold text-indigo-700 truncate max-w-[120px]">{openRouterModel?.split('/').pop()}</div>
+                                </div>
+                            </div>
+                        </div>
+                    ) : (
+                        <select 
+                            value={data.constraints.ai_model}
+                            onChange={(e) => handleChange('constraints', 'ai_model', e.target.value)}
+                            className="w-full h-[72px] bg-white/50 border border-slate-200 rounded-xl px-4 text-sm text-slate-700 focus:border-blue-500 focus:bg-white transition-all outline-none"
+                        >
+                            <option value="gemini-3-pro-preview">Gemini 3 Pro (High Quality)</option>
+                            <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast)</option>
+                        </select>
+                    )}
+                </div>
+
+                {/* Image Generator Model */}
+                <div>
+                    <div className="flex justify-between text-sm mb-2">
+                         <span className="text-slate-500 flex items-center gap-2 font-medium"><Palette className="w-4 h-4 text-purple-400"/> Image Generator</span>
+                    </div>
+                    <select 
+                        value={data.constraints.image_generator_model}
+                        onChange={(e) => handleChange('constraints', 'image_generator_model', e.target.value)}
+                        className="w-full h-[72px] bg-white/50 border border-slate-200 rounded-xl px-4 text-sm text-slate-700 focus:border-purple-500 focus:bg-white transition-all outline-none"
+                    >
+                        <option value="gemini-3-pro-image-preview">Gemini 3 Image (Best Quality)</option>
+                        <option value="gemini-2.5-flash-image">Gemini 2.5 Image (Faster)</option>
+                        <option value="imagen-3.0-generate-001">Imagen 3 (Photorealistic)</option>
+                        {activeProvider === 'openrouter' && (
+                             <option value="openrouter-flux">OpenRouter (Flux)</option>
+                        )}
+                    </select>
+                </div>
             </div>
 
-            {/* Scene Count Slider */}
-            <div>
-                <div className="flex justify-between text-sm mb-3">
-                    <span className="text-slate-500 flex items-center gap-2 font-medium"><Layers className="w-4 h-4 text-blue-400"/> Scene Count</span>
-                    <span className="text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded text-xs border border-blue-200">{data.constraints.scene_count || 5} Scenes</span>
-                </div>
-                <div className="relative h-6 flex items-center">
+            {/* Sliders Grid */}
+            <div className="grid md:grid-cols-2 gap-6">
+                {/* Scene Count Slider */}
+                <div>
+                    <div className="flex justify-between text-sm mb-3">
+                        <span className="text-slate-500 flex items-center gap-2 font-medium"><Layers className="w-4 h-4 text-blue-400"/> Scene Count</span>
+                        <span className="text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded text-xs border border-blue-200">{data.constraints.scene_count || 5} Scenes</span>
+                    </div>
                     <input 
                         type="range" 
                         min="3" 
@@ -272,19 +265,13 @@ export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initi
                         className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
                     />
                 </div>
-                <div className="flex justify-between text-[10px] text-slate-400 mt-1 font-mono">
-                    <span>3 (Short)</span>
-                    <span>10 (Long)</span>
-                </div>
-            </div>
 
-            {/* Duration Slider */}
-            <div>
-                <div className="flex justify-between text-sm mb-3">
-                    <span className="text-slate-500 flex items-center gap-2 font-medium"><Clock className="w-4 h-4 text-blue-400"/> Target Duration</span>
-                    <span className="text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded text-xs border border-blue-200">{data.constraints.vo_duration_seconds} Seconds</span>
-                </div>
-                 <div className="relative h-6 flex items-center">
+                {/* Duration Slider */}
+                <div>
+                    <div className="flex justify-between text-sm mb-3">
+                        <span className="text-slate-500 flex items-center gap-2 font-medium"><Clock className="w-4 h-4 text-blue-400"/> Duration</span>
+                        <span className="text-blue-700 font-bold bg-blue-50 px-2 py-0.5 rounded text-xs border border-blue-200">{data.constraints.vo_duration_seconds}s</span>
+                    </div>
                     <input 
                         type="range" 
                         min="15" 
@@ -294,10 +281,6 @@ export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initi
                         onChange={(e) => handleChange('constraints', 'vo_duration_seconds', parseInt(e.target.value))}
                         className="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-500"
                     />
-                </div>
-                <div className="flex justify-between text-[10px] text-slate-400 mt-1 font-mono">
-                    <span>15s</span>
-                    <span>90s</span>
                 </div>
             </div>
         </div>

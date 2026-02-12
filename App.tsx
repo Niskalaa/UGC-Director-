@@ -17,6 +17,7 @@ const App: React.FC = () => {
 
   const [result, setResult] = useState<GeneratedAsset | null>(null);
   const [formDataState, setFormDataState] = useState<FormData | null>(null);
+  const [currentGenerationId, setCurrentGenerationId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingStage, setLoadingStage] = useState<'idle' | 'analyzing' | 'drafting' | 'finalizing'>('idle');
   const [error, setError] = useState<string | null>(null);
@@ -73,6 +74,14 @@ const App: React.FC = () => {
     setSession(null);
     setResult(null);
     setHistory([]);
+    setCurrentGenerationId(null);
+  };
+
+  const handleUpdateGeneration = async (updatedAsset: GeneratedAsset) => {
+      setResult(updatedAsset);
+      if (currentGenerationId) {
+          await updateGeneration(currentGenerationId, updatedAsset);
+      }
   };
 
   const handleSubmit = async (formData: FormData) => {
@@ -82,6 +91,7 @@ const App: React.FC = () => {
     setResult(null);
     setSavedToDb(false);
     setFormDataState(formData);
+    setCurrentGenerationId(null);
 
     let draftId: string | null = null;
 
@@ -99,6 +109,7 @@ const App: React.FC = () => {
       saveGeneration(formData, placeholderResult).then(saved => {
         if (saved) {
            draftId = saved.id;
+           setCurrentGenerationId(saved.id);
            setSavedToDb(true);
         }
       });
@@ -151,7 +162,8 @@ const App: React.FC = () => {
           console.log("Draft updated with final result");
         });
       } else {
-        saveGeneration(formData, finalResult);
+        const saved = await saveGeneration(formData, finalResult);
+        if (saved) setCurrentGenerationId(saved.id);
       }
 
       if (window.innerWidth < 1024) {
@@ -182,6 +194,7 @@ const App: React.FC = () => {
   const loadHistoryItem = (item: SavedGeneration) => {
     setResult(item.output_plan);
     setFormDataState(item.input_brief);
+    setCurrentGenerationId(item.id);
     setShowHistory(false);
     window.scrollTo({ top: 0, behavior: 'smooth' });
     showNotificationMsg("Brief & Strategy Loaded Successfully");
@@ -369,6 +382,8 @@ const App: React.FC = () => {
              <OutputDisplay 
                 data={result} 
                 modelUsed={formDataState?.constraints.ai_model}
+                imageModelUsed={formDataState?.constraints.image_generator_model}
+                onUpdate={handleUpdateGeneration}
              />
           </div>
 

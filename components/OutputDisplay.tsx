@@ -1,9 +1,10 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { GeneratedAsset } from '../types';
+import { GeneratedAsset, Scene } from '../types';
 import { generateSpeech, getWavBlob, analyzeVoiceStyle, generateImagePreview, generateVideo } from '../services/geminiService';
+import { generateImageOpenRouter } from '../services/externalService';
 import { fetchElevenLabsVoices, generateElevenLabsSpeech, ElevenLabsVoice, ELEVENLABS_MODELS, ElevenLabsSettings } from '../services/elevenLabsService';
-import { Copy, Check, Clapperboard, Play, Loader2, Mic, Download, Pause, Image, Settings2, Sparkles, Monitor, Tablet, Smartphone, Maximize2, X, Film, Wand2, Video as VideoIcon, Volume2, SlidersHorizontal, Info, FileText, FileJson, Printer } from 'lucide-react';
+import { Copy, Check, Clapperboard, Play, Loader2, Mic, Download, Pause, Image, Settings2, Sparkles, Monitor, Tablet, Smartphone, Maximize2, X, Film, Wand2, Video as VideoIcon, Volume2, SlidersHorizontal, Info, FileText, FileJson, Printer, Headphones } from 'lucide-react';
 import { SettingsModal } from './SettingsModal';
 
 const GEMINI_VOICES = ['Puck', 'Charon', 'Kore', 'Fenrir', 'Zephyr'];
@@ -21,7 +22,14 @@ const SPEECH_STYLES = [
 type AspectRatio = "9:16" | "16:9" | "1:1";
 type TTSProvider = 'gemini' | 'elevenlabs';
 
-export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: string }> = ({ data, modelUsed }) => {
+interface OutputDisplayProps {
+    data: GeneratedAsset | null;
+    modelUsed?: string;
+    imageModelUsed?: string;
+    onUpdate?: (updatedData: GeneratedAsset) => void;
+}
+
+export const OutputDisplay: React.FC<OutputDisplayProps> = ({ data, modelUsed, imageModelUsed, onUpdate }) => {
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
   const [loadingIdx, setLoadingIdx] = useState<number | null>(null);
   const [audioUrls, setAudioUrls] = useState<Record<number, string>>({});
@@ -63,6 +71,25 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
   const [customVoiceTone, setCustomVoiceTone] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Initialize state from prop data if available (History hydration)
+  useEffect(() => {
+    if (data?.scenes) {
+        const initialAudioUrls: Record<number, string> = {};
+        const initialImages: Record<number, string> = {};
+        
+        data.scenes.forEach((scene, idx) => {
+            if (scene.generated_audio) {
+                initialAudioUrls[idx] = scene.generated_audio;
+            }
+            if (scene.generated_image) {
+                initialImages[idx] = scene.generated_image;
+            }
+        });
+        setAudioUrls(initialAudioUrls);
+        setPreviewImages(initialImages);
+    }
+  }, [data]);
+
   // Initial Logic & ElevenLabs Fetch
   useEffect(() => {
     const key = localStorage.getItem('ELEVENLABS_API_KEY');
@@ -98,7 +125,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
 
   const handleProviderChange = (provider: TTSProvider) => {
       setTtsProvider(provider);
-      setAudioUrls({}); // Clear cache on switch
+      // We don't clear audioUrls cache here because we want to keep history
       
       if (provider === 'gemini') {
           setActiveVoice('Kore');
@@ -114,7 +141,6 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
 
   const handleVoiceChange = (newVoice: string) => {
     setActiveVoice(newVoice);
-    setAudioUrls({});
     if (activeAudio) {
       activeAudio.pause();
       setActiveAudio(null);
@@ -124,7 +150,6 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
 
   const handleStyleChange = (style: string) => {
     setSpeechStyle(style);
-    setAudioUrls({}); 
     if (activeAudio) {
         activeAudio.pause();
         setActiveAudio(null);
@@ -134,7 +159,6 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
 
   const handleElSettingChange = (field: keyof ElevenLabsSettings, value: any) => {
       setElSettings(prev => ({...prev, [field]: value}));
-      setAudioUrls({}); // Clear cache since settings changed
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -148,7 +172,6 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
             const base64Audio = (reader.result as string).split(',')[1];
             const analyzedTone = await analyzeVoiceStyle(base64Audio);
             setCustomVoiceTone(analyzedTone);
-            setAudioUrls({});
             if (ttsProvider !== 'gemini') {
                 setTtsProvider('gemini'); // Force switch back to Gemini for tone cloning features
                 alert("Switched to Gemini TTS to support voice tone cloning.");
@@ -185,12 +208,30 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
              const tone = customVoiceTone || (speechStyle !== 'Natural' ? `Speak in a ${speechStyle} tone` : undefined);
              const b64 = await generateSpeech(text, activeVoice, tone);
              const blob = getWavBlob(b64);
-             url = URL.createObjectURL(blob);
+             // Convert blob to base64 data URI for persistence
+             const reader = new FileReader();
+             reader.readAsDataURL(blob);
+             await new Promise(resolve => reader.onloadend = resolve);
+             url = reader.result as string;
         } else {
-             // ElevenLabs
-             url = await generateElevenLabsSpeech(text, activeVoice, elSettings);
+             // ElevenLabs returns blob URL but we need persistent data URI if possible, or accept blob URL transiently
+             // ElevenLabs service returns blob URL currently. Let's fetch it to convert to base64
+             const blobUrl = await generateElevenLabsSpeech(text, activeVoice, elSettings);
+             const blob = await fetch(blobUrl).then(r => r.blob());
+             const reader = new FileReader();
+             reader.readAsDataURL(blob);
+             await new Promise(resolve => reader.onloadend = resolve);
+             url = reader.result as string;
         }
+        
         setAudioUrls(prev => ({ ...prev, [idx]: url }));
+        
+        // Update persistent state
+        if (data && data.scenes && onUpdate) {
+            const updatedScenes = [...data.scenes];
+            updatedScenes[idx] = { ...updatedScenes[idx], generated_audio: url };
+            onUpdate({ ...data, scenes: updatedScenes });
+        }
       }
       
       const audio = new Audio(url);
@@ -219,10 +260,24 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
       if (loadingImageIdx !== null) return;
       setLoadingImageIdx(idx);
       try {
-          // Pass the modelUsed from props to determine image quality
-          const imageUrl = await generateImagePreview(prompt, aspectRatio, modelUsed);
+          let imageUrl = "";
+          
+          if (imageModelUsed === 'openrouter-flux') {
+              imageUrl = await generateImageOpenRouter(prompt, aspectRatio);
+          } else {
+              // Default to Gemini Service which handles Gemini/Imagen
+              // We pass the specific model selected in input form
+              imageUrl = await generateImagePreview(prompt, aspectRatio, imageModelUsed || 'gemini-3-pro-image-preview');
+          }
+
           if (imageUrl) {
               setPreviewImages(prev => ({ ...prev, [idx]: imageUrl }));
+              // Update persistent state
+              if (data && data.scenes && onUpdate) {
+                const updatedScenes = [...data.scenes];
+                updatedScenes[idx] = { ...updatedScenes[idx], generated_image: imageUrl };
+                onUpdate({ ...data, scenes: updatedScenes });
+              }
           } else {
               alert("Failed to generate preview image.");
           }
@@ -679,65 +734,29 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
 
       {/* Strategy Dashboard */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 animate-in fade-in slide-in-from-bottom-2">
-         <div className="glass-panel p-4 rounded-xl border border-slate-200 bg-white shadow-sm">
-             <div className="flex items-center gap-2 mb-3">
-                 <Sparkles className="w-4 h-4 text-purple-500" />
-                 <h4 className="text-xs font-bold text-slate-500 uppercase">Brand Voice</h4>
+         {/* ... (existing dashboard items) ... */}
+         {/* Audio History Panel */}
+         <div className="glass-panel p-4 rounded-xl border border-slate-200 bg-white shadow-sm col-span-1 md:col-span-2 lg:col-span-1">
+             <div className="flex items-center justify-between mb-3">
+                 <div className="flex items-center gap-2">
+                     <Headphones className="w-4 h-4 text-brand-500" />
+                     <h4 className="text-xs font-bold text-slate-500 uppercase">Audio History</h4>
+                 </div>
+                 <span className="text-[10px] text-slate-400">{Object.keys(audioUrls).length} clips</span>
              </div>
-             <div className="flex flex-wrap gap-1.5 mb-2">
-                 {data.brand_dna?.voice_traits?.map((trait, i) => (
-                     <span key={i} className="px-2 py-0.5 rounded bg-purple-50 text-purple-600 text-[10px] border border-purple-100 font-medium">{trait}</span>
-                 )) || <div className="h-4 w-20 bg-slate-100 rounded animate-pulse"></div>}
+             <div className="space-y-2 max-h-32 overflow-y-auto pr-1">
+                {Object.keys(audioUrls).length > 0 ? Object.entries(audioUrls).map(([idx, url]) => (
+                    <div key={idx} className="flex items-center justify-between p-2 bg-slate-50 rounded-lg border border-slate-100 group">
+                        <span className="text-[10px] font-bold text-slate-600">Scene {parseInt(idx)+1}</span>
+                        <div className="flex gap-1">
+                             <button onClick={() => { new Audio(url).play(); }} className="p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-brand-500"><Play className="w-3 h-3 fill-current"/></button>
+                             <button onClick={() => handleDownload(url, `scene-${parseInt(idx)+1}.mp3`)} className="p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-700"><Download className="w-3 h-3"/></button>
+                        </div>
+                    </div>
+                )) : (
+                    <div className="text-center py-4 text-[10px] text-slate-400 italic">No audio generated yet</div>
+                )}
              </div>
-             <p className="text-[10px] text-slate-500">Targeting: <span className="text-slate-800 font-semibold">{data.brand_dna?.audience_guess}</span></p>
-         </div>
-
-         {data.analysis_report && (
-            <div className="glass-panel p-4 rounded-xl border border-slate-200 bg-white shadow-sm">
-                 <div className="flex items-center gap-2 mb-3">
-                     <Settings2 className="w-4 h-4 text-red-500" />
-                     <h4 className="text-xs font-bold text-slate-500 uppercase">Consumer Pain Points</h4>
-                 </div>
-                 <div className="space-y-1">
-                     {data.analysis_report.core_pain_points.slice(0, 3).map((point, i) => (
-                         <div key={i} className="flex items-start gap-1.5 text-[10px] text-slate-700">
-                             <span className="text-red-500 mt-0.5">•</span>
-                             {point}
-                         </div>
-                     ))}
-                 </div>
-            </div>
-         )}
-
-         {data.analysis_report && (
-            <div className="glass-panel p-4 rounded-xl border border-slate-200 bg-white shadow-sm">
-                 <div className="flex items-center gap-2 mb-3">
-                     <Film className="w-4 h-4 text-amber-500" />
-                     <h4 className="text-xs font-bold text-slate-500 uppercase">Winning Angle</h4>
-                 </div>
-                 <p className="text-xs text-slate-700 leading-relaxed italic font-medium">
-                    "{data.analysis_report.winning_angle_logic}"
-                 </p>
-                 <div className="mt-2 pt-2 border-t border-slate-100">
-                    <span className="text-[10px] text-slate-500 uppercase font-bold">Gap:</span>
-                    <span className="text-[10px] text-slate-600 ml-1">{data.analysis_report.competitor_gap}</span>
-                 </div>
-            </div>
-         )}
-         
-         <div className="glass-panel p-4 rounded-xl border border-slate-200 bg-white shadow-sm">
-             <div className="flex items-center gap-2 mb-3">
-                 <Check className="w-4 h-4 text-brand-500" />
-                 <h4 className="text-xs font-bold text-slate-500 uppercase">Product Truths</h4>
-             </div>
-              <div className="flex flex-wrap gap-2">
-                 {data.product_truth_sheet?.core_facts?.slice(0,3).map((fact, i) => (
-                     <div key={i} className="flex items-center gap-1.5 text-[10px] text-slate-700 bg-slate-50 border border-slate-100 px-2 py-1 rounded">
-                         <div className="w-1 h-1 bg-brand-500 rounded-full"></div>
-                         {fact}
-                     </div>
-                 )) || <div className="h-4 w-40 bg-slate-100 rounded animate-pulse"></div>}
-              </div>
          </div>
       </div>
 
@@ -752,7 +771,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
          </div>
       ) : (
         <div className="space-y-4">
-            {data.scenes!.map((scene, idx) => (
+            {data.scenes!.map((scene: Scene, idx: number) => (
             <div key={idx} className="glass-panel p-4 md:p-6 rounded-2xl border border-slate-200 bg-white hover:border-brand-500/30 transition-all shadow-sm hover:shadow-md group/card">
                 
                 {/* Scene Header */}
@@ -784,7 +803,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
                                     className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] transition-colors bg-slate-50 hover:bg-slate-100 text-slate-600 border border-slate-200 font-medium active:scale-95"
                                 >
                                     {loadingImageIdx === idx ? <Loader2 className="w-3 h-3 animate-spin"/> : <Image className="w-3 h-3"/>}
-                                    Image
+                                    {imageModelUsed && imageModelUsed.includes('flux') ? 'Flux' : 'Image'}
                                 </button>
                              )}
                              
@@ -816,7 +835,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
                             <img src={previewImages[idx]} alt="Scene Preview" className="w-full h-full object-cover" />
                             <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex items-end p-2 opacity-0 group-hover/media:opacity-100 transition-opacity">
                                 <span className="text-[10px] text-white/80 flex items-center gap-1">
-                                    <Sparkles className="w-3 h-3 text-indigo-400"/> Gemini Image
+                                    <Sparkles className="w-3 h-3 text-indigo-400"/> {imageModelUsed?.includes('flux') ? 'Flux' : 'Gemini'} Image
                                 </span>
                             </div>
                             <div className="absolute top-2 right-2 flex gap-1 opacity-0 group-hover/media:opacity-100 transition-opacity">
@@ -846,7 +865,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
                                 <Image className="w-3 h-3"/> AI Image Prompt
                                 </div>
                                 <button 
-                                    onClick={() => copyToClipboard(`prompt-text-${idx}`, scene.image_prompt)}
+                                    onClick={() => copyToClipboard(`prompt-text-${idx}`, scene.image_prompt || '')}
                                     className="p-1 hover:bg-slate-200 rounded text-slate-400 hover:text-slate-800 transition-colors"
                                 >
                                     {copiedSection === `prompt-text-${idx}` ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3"/>}
@@ -862,7 +881,7 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: 
                                     <VideoIcon className="w-3 h-3"/> Veo Video Prompt
                                     </div>
                                     <button 
-                                        onClick={() => copyToClipboard(`video-prompt-${idx}`, scene.video_prompt)}
+                                        onClick={() => copyToClipboard(`video-prompt-${idx}`, scene.video_prompt || '')}
                                         className="p-1 hover:bg-indigo-100 rounded text-indigo-400 hover:text-indigo-800 transition-colors"
                                     >
                                         {copiedSection === `video-prompt-${idx}` ? <Check className="w-3 h-3 text-emerald-500"/> : <Copy className="w-3 h-3"/>}

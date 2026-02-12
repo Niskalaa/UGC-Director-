@@ -27,6 +27,7 @@ export interface Constraints {
   vo_duration_seconds: number;
   scene_count?: number;
   ai_model?: string;
+  image_generator_model?: string; // New: Specific model for images
 }
 
 export interface FormData {
@@ -74,6 +75,8 @@ export interface Scene {
   image_prompt: string;
   image_negative_prompt?: string;
   video_prompt?: string;
+  generated_audio?: string; // New: Persist base64/url of generated audio
+  generated_image?: string; // New: Persist generated image
 }
 
 export interface VideoPromptPackage {
