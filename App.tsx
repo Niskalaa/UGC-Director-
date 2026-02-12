@@ -32,7 +32,7 @@ const App: React.FC = () => {
 
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
-  const [useOpenRouter, setUseOpenRouter] = useState(false);
+  const [activeProvider, setActiveProvider] = useState<string>('gemini'); // Default to gemini
 
   useEffect(() => {
     // Check active session
@@ -41,8 +41,16 @@ const App: React.FC = () => {
       setAuthChecking(false);
     });
 
-    // Check configuration
-    setUseOpenRouter(!!getStoredOpenRouterKey());
+    // Check configuration preferences
+    const storedProvider = localStorage.getItem('PREFERRED_PROVIDER');
+    const openRouterKey = getStoredOpenRouterKey();
+    
+    // Logic: Use stored provider, but fallback to gemini if openrouter is selected but no key exists
+    if (storedProvider === 'openrouter' && openRouterKey) {
+        setActiveProvider('openrouter');
+    } else {
+        setActiveProvider('gemini');
+    }
 
     // Listen for auth changes
     const {
@@ -102,8 +110,8 @@ const App: React.FC = () => {
       const sanitizePromise = rawText ? sanitizeInput(rawText) : Promise.resolve(null);
       
       // Step 1: Generate Strategy
-      // Choose Engine
-      const strategyPromise = useOpenRouter 
+      // Choose Engine based on Active Provider
+      const strategyPromise = activeProvider === 'openrouter'
           ? generateStrategyOpenRouter(formData, rawText) 
           : generateStrategyGemini(formData, rawText);
 
@@ -120,7 +128,7 @@ const App: React.FC = () => {
       // Step 2: Generate Scenes (Finalize)
       setLoadingStage('finalizing');
       
-      const scenesPromise = useOpenRouter
+      const scenesPromise = activeProvider === 'openrouter'
           ? generateScenesOpenRouter(formData, draftResult)
           : generateScenesGemini(formData, draftResult);
           
@@ -237,10 +245,15 @@ const App: React.FC = () => {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
-                {useOpenRouter && (
+                
+                {activeProvider === 'openrouter' ? (
                      <span className="flex items-center gap-1 text-[10px] bg-indigo-500/10 text-indigo-300 px-2 py-0.5 rounded uppercase tracking-wider font-bold border border-indigo-500/20">
                         <Network className="w-3 h-3" /> OpenRouter
                      </span>
+                ) : (
+                    <span className="flex items-center gap-1 text-[10px] bg-emerald-500/10 text-emerald-300 px-2 py-0.5 rounded uppercase tracking-wider font-bold border border-emerald-500/20">
+                        <Zap className="w-3 h-3" /> Gemini Pro
+                    </span>
                 )}
               </div>
             </div>
@@ -296,7 +309,7 @@ const App: React.FC = () => {
                     <div className="flex items-center gap-3 mb-4 text-brand-400">
                        <RefreshCw className="w-5 h-5 animate-spin" />
                        <span className="font-bold text-sm tracking-widest uppercase">
-                          {useOpenRouter ? 'Connecting OpenRouter' : 'Generating Assets'}
+                          {activeProvider === 'openrouter' ? 'Connecting OpenRouter' : 'Generating Assets'}
                        </span>
                     </div>
                     <div className="space-y-4">
@@ -320,14 +333,14 @@ const App: React.FC = () => {
                     <div className="mt-4 pt-3 border-t border-white/10">
                         <div className="flex items-center justify-between">
                             <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Intelligence Engine</span>
-                            <div className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono border ${useOpenRouter ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300' : 'bg-brand-500/10 border-brand-500/30 text-brand-300'}`}>
-                                {useOpenRouter ? <Network className="w-3 h-3" /> : <Cpu className="w-3 h-3" />}
-                                {useOpenRouter 
+                            <div className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono border ${activeProvider === 'openrouter' ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300' : 'bg-brand-500/10 border-brand-500/30 text-brand-300'}`}>
+                                {activeProvider === 'openrouter' ? <Network className="w-3 h-3" /> : <Cpu className="w-3 h-3" />}
+                                {activeProvider === 'openrouter' 
                                     ? getStoredOpenRouterModel().split('/').pop() 
                                     : (formDataState?.constraints.ai_model || 'gemini-3-pro-preview')}
                             </div>
                         </div>
-                        {!useOpenRouter && (
+                        {activeProvider === 'gemini' && (
                             <p className="text-[9px] text-slate-600 mt-1 text-right flex items-center justify-end gap-1">
                                 {(formDataState?.constraints.ai_model === 'gemini-3-flash-preview') ? 
                                    <><Cpu className="w-2.5 h-2.5" /> High Speed Mode</> :

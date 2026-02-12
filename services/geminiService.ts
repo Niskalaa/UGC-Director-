@@ -20,23 +20,36 @@ const getApiKey = (): string => {
   return process.env.API_KEY || "";
 };
 
-// Retry wrapper for API calls to handle 429 Quota Exceeded and 503 Service Unavailable
+// Retry wrapper for API calls to handle 429 Quota Exceeded and 403 Permission Denied
 async function retryOperation<T>(operation: () => Promise<T>, retries = 3, initialDelay = 2000): Promise<T> {
   let delay = initialDelay;
   for (let i = 0; i < retries; i++) {
     try {
       return await operation();
     } catch (error: any) {
-      const isQuota = error.status === 429 || error.message?.includes('429') || error.message?.includes('Quota');
-      const isServerOverload = error.status === 503 || error.message?.includes('503');
+      const msg = error.message || JSON.stringify(error);
+      const status = error.status || error.response?.status;
+      
+      // Handle Permission Denied (403) - Do not retry
+      if (status === 403 || msg.includes('403') || msg.includes('PERMISSION_DENIED') || msg.includes('permission')) {
+          throw new Error("Access Denied (403). Please verify your API Key in Settings or ensure the Google GenAI API is enabled for this project.");
+      }
+
+      // Handle Quota/Rate Limiting (429) & Server Errors (503)
+      const isQuota = status === 429 || msg.includes('429') || msg.includes('Quota') || msg.includes('RESOURCE_EXHAUSTED');
+      const isServerOverload = status === 503 || msg.includes('503') || msg.includes('Overloaded');
       
       if (isQuota || isServerOverload) {
-        console.warn(`API Busy/Quota (${error.status || 'Unknown'}). Retrying in ${delay}ms... (Attempt ${i + 1}/${retries})`);
-        if (i === retries - 1) throw new Error("Service is currently busy (Quota Exceeded). Please try again in a minute.");
+        if (i === retries - 1) {
+            if (isQuota) throw new Error("High traffic volume (429). The AI model is currently busy. Please try again in a minute or switch to 'Gemini 3 Flash' in settings.");
+            throw error;
+        }
+        
+        console.warn(`API Error (${status || 'Quota/Busy'}). Retrying in ${delay}ms... (Attempt ${i + 1}/${retries})`);
         await new Promise(resolve => setTimeout(resolve, delay));
         delay *= 2; // Exponential backoff
       } else {
-        throw error;
+        throw error; // Throw other errors immediately
       }
     }
   }
@@ -86,25 +99,35 @@ export const analyzeImageForBrief = async (base64Image: string, mimeType: string
         }
     };
 
+    const executeAnalysis = async (model: string) => {
+        return retryOperation(async () => {
+             const response = await ai.models.generateContent({
+                model: model,
+                contents: {
+                    parts: [
+                        { inlineData: { mimeType, data: base64Image } },
+                        { text: prompt }
+                    ]
+                },
+                config: {
+                    responseMimeType: "application/json",
+                    responseSchema: schema,
+                }
+            });
+            return JSON.parse(cleanJson(response.text));
+        }, 2); // Lower retry count for primary model to trigger fallback faster
+    };
+
     try {
-         const response = await ai.models.generateContent({
-            model: "gemini-3-pro-preview",
-            contents: {
-                parts: [
-                    { inlineData: { mimeType, data: base64Image } },
-                    { text: prompt }
-                ]
-            },
-            config: {
-                responseMimeType: "application/json",
-                responseSchema: schema,
-            }
-        });
-        
-        return JSON.parse(cleanJson(response.text));
+        return await executeAnalysis("gemini-3-pro-preview");
     } catch (e) {
-        console.error("Image analysis failed", e);
-        throw e;
+        console.warn("Image Analysis: Pro model failed, falling back to Flash...");
+        try {
+            return await executeAnalysis("gemini-3-flash-preview");
+        } catch (fallbackError) {
+             console.error("Image analysis fallback failed", fallbackError);
+             throw e; // Throw original error if fallback fails
+        }
     }
 };
 
@@ -207,16 +230,15 @@ export const generateStrategy = async (formData: FormData, contextText: string):
 
       if (!response.text) throw new Error("No strategy data returned.");
       return JSON.parse(cleanJson(response.text));
-    });
+    }, 2); // Use 2 retries for strategy generation to fail fast to fallback
   };
 
   try {
     return await executeGen(preferredModel, thinkingBudget);
   } catch (e: any) {
-    // Only fallback if the preferred model was Pro and it failed (e.g. Quota).
-    // If user selected Flash explicitly, we likely shouldn't fallback unless we want to try without thinking?
-    // For now, preserve existing fallback behavior if Pro fails.
-    if (preferredModel === "gemini-3-pro-preview" && (e.message?.includes('Quota') || e.message?.includes('busy'))) {
+    const msg = e.message || '';
+    // Only fallback if the preferred model was Pro and it failed due to Quota/Busy
+    if (preferredModel === "gemini-3-pro-preview" && (msg.includes('Quota') || msg.includes('429') || msg.includes('busy') || msg.includes('RESOURCE_EXHAUSTED'))) {
         console.warn("Strategy Generation: Pro model quota hit, falling back to Flash...");
         return await executeGen("gemini-3-flash-preview", 2048);
     }
@@ -314,13 +336,14 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
 
       if (!response.text) throw new Error("No scene data returned.");
       return JSON.parse(cleanJson(response.text));
-    });
+    }, 2);
   };
 
   try {
     return await executeGen(preferredModel, thinkingBudget);
   } catch (e: any) {
-    if (preferredModel === "gemini-3-pro-preview" && (e.message?.includes('Quota') || e.message?.includes('busy'))) {
+    const msg = e.message || '';
+    if (preferredModel === "gemini-3-pro-preview" && (msg.includes('Quota') || msg.includes('429') || msg.includes('busy') || msg.includes('RESOURCE_EXHAUSTED'))) {
         console.warn("Scene Generation: Pro model quota hit, falling back to Flash...");
         return await executeGen("gemini-3-flash-preview", 1024);
     }
@@ -330,30 +353,20 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
 
 // 4. Generate Video (Veo)
 export const generateVideo = async (prompt: string): Promise<string> => {
-    // Check for AI Studio environment API Key selection
-    if (typeof window !== 'undefined' && (window as any).aistudio) {
-        const aistudio = (window as any).aistudio;
-        try {
-             const hasKey = await aistudio.hasSelectedApiKey();
-             if (!hasKey) {
-                 await aistudio.openSelectKey();
-             }
-        } catch (e) {
-            console.warn("AI Studio key selection check failed", e);
-        }
-    }
-
     const apiKey = getApiKey();
     const ai = new GoogleGenAI({ apiKey });
 
-    let operation = await ai.models.generateVideos({
-        model: 'veo-3.1-fast-generate-preview',
-        prompt: prompt,
-        config: {
-            numberOfVideos: 1,
-            resolution: '720p',
-            aspectRatio: '9:16'
-        }
+    // Note: Veo generation might take longer, handled by polling loop below.
+    let operation = await retryOperation(async () => {
+        return await ai.models.generateVideos({
+            model: 'veo-3.1-fast-generate-preview',
+            prompt: prompt,
+            config: {
+                numberOfVideos: 1,
+                resolution: '720p',
+                aspectRatio: '9:16'
+            }
+        });
     });
 
     // Poll for completion

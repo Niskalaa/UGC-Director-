@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Key, ExternalLink, Save, Check, Zap, Cpu, Image as ImageIcon, Video, Clock, Gauge, Network } from 'lucide-react';
+import { X, Key, ExternalLink, Save, Check, Zap, Cpu, Network, LayoutGrid } from 'lucide-react';
 import { getStoredOpenRouterKey, setStoredOpenRouterKey, getStoredOpenRouterModel, setStoredOpenRouterModel } from '../services/externalService';
 
 interface SettingsModalProps {
@@ -21,7 +21,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
   const [openRouterKey, setOpenRouterKey] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
-  const [defaultVideoDuration, setDefaultVideoDuration] = useState('5s');
+  const [activeProvider, setActiveProvider] = useState<string>('gemini'); // 'gemini' | 'openrouter'
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
@@ -29,7 +29,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
       setOpenRouterKey(getStoredOpenRouterKey());
       setSelectedModel(getStoredOpenRouterModel());
       setGeminiKey(localStorage.getItem('GEMINI_API_KEY') || '');
-      setDefaultVideoDuration(localStorage.getItem('PREF_VIDEO_DURATION') || '5s');
+      setActiveProvider(localStorage.getItem('PREFERRED_PROVIDER') || 'gemini');
     }
   }, [isOpen]);
 
@@ -43,7 +43,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         localStorage.removeItem('GEMINI_API_KEY');
     }
 
-    localStorage.setItem('PREF_VIDEO_DURATION', defaultVideoDuration);
+    localStorage.setItem('PREFERRED_PROVIDER', activeProvider);
 
     setSaved(true);
     setTimeout(() => {
@@ -76,9 +76,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         </div>
 
         <div className="space-y-6">
+          
+          {/* Provider Selection */}
+          <div className="space-y-3 pb-6 border-b border-white/5">
+             <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
+                <LayoutGrid className="w-4 h-4 text-blue-400" /> Active AI Engine
+             </label>
+             <div className="grid grid-cols-2 gap-3">
+                <button 
+                    onClick={() => setActiveProvider('gemini')}
+                    className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${activeProvider === 'gemini' ? 'bg-emerald-500/20 border-emerald-500 text-white' : 'bg-black/40 border-white/10 text-slate-500 hover:bg-white/5'}`}
+                >
+                    <Zap className={`w-5 h-5 ${activeProvider === 'gemini' ? 'text-emerald-400' : 'text-slate-600'}`} />
+                    <span className="text-xs font-bold">Google Gemini</span>
+                </button>
+                <button 
+                    onClick={() => setActiveProvider('openrouter')}
+                    className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all ${activeProvider === 'openrouter' ? 'bg-indigo-500/20 border-indigo-500 text-white' : 'bg-black/40 border-white/10 text-slate-500 hover:bg-white/5'}`}
+                >
+                    <Network className={`w-5 h-5 ${activeProvider === 'openrouter' ? 'text-indigo-400' : 'text-slate-600'}`} />
+                    <span className="text-xs font-bold">OpenRouter</span>
+                </button>
+             </div>
+          </div>
             
           {/* Gemini Section */}
-          <div className="space-y-3 pb-6 border-b border-white/5">
+          <div className={`space-y-3 pb-6 border-b border-white/5 ${activeProvider !== 'gemini' ? 'opacity-50 grayscale' : ''}`}>
              <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
                     <Zap className="w-4 h-4 text-emerald-400" />
@@ -89,7 +112,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </a>
              </div>
              <p className="text-[11px] text-slate-500 leading-relaxed">
-                Default engine for Strategy & Scenes. Use your own key to bypass default quotas.
+                Required for Video (Veo), TTS, and Image Analysis. Uses fallback if empty.
              </p>
              <div className="relative">
                 <input 
@@ -97,13 +120,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   value={geminiKey}
                   onChange={(e) => setGeminiKey(e.target.value)}
                   placeholder="AIzaSy..."
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors placeholder-slate-700"
+                  disabled={activeProvider !== 'gemini'}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500 transition-colors placeholder-slate-700 disabled:cursor-not-allowed"
                 />
              </div>
           </div>
 
           {/* OpenRouter Section */}
-          <div className="space-y-3 pb-6 border-b border-white/5">
+          <div className={`space-y-3 pb-6 border-b border-white/5 ${activeProvider !== 'openrouter' ? 'opacity-50 grayscale' : ''}`}>
              <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
                     <Network className="w-4 h-4 text-indigo-400" />
@@ -114,7 +138,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </a>
              </div>
              <p className="text-[11px] text-slate-500 leading-relaxed">
-                Optional. Overrides Gemini for Strategy & Script generation using models like Claude or DeepSeek.
+                Replaces Gemini for Strategy & Scenes generation only.
              </p>
              <div className="relative">
                 <input 
@@ -122,7 +146,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   value={openRouterKey}
                   onChange={(e) => setOpenRouterKey(e.target.value)}
                   placeholder="sk-or-..."
-                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors placeholder-slate-700"
+                  disabled={activeProvider !== 'openrouter'}
+                  className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors placeholder-slate-700 disabled:cursor-not-allowed"
                 />
              </div>
              
@@ -134,7 +159,8 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 <select 
                     value={selectedModel} 
                     onChange={(e) => setSelectedModel(e.target.value)}
-                    className="bg-zinc-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-indigo-500 max-w-[180px]"
+                    disabled={activeProvider !== 'openrouter'}
+                    className="bg-zinc-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-indigo-500 max-w-[180px] disabled:opacity-50"
                 >
                     {OPENROUTER_MODELS.map(m => (
                         <option key={m.id} value={m.id}>{m.name}</option>
