@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { FormData } from '../types';
-import { Sparkles, Type, Tag, Smartphone, FileText, Loader2, Image as ImageIcon, Globe, Settings2, Cpu, Zap, Layers, CheckCircle2, Clock, Network, Palette } from 'lucide-react';
+import { Sparkles, Type, Tag, Smartphone, FileText, Loader2, Image as ImageIcon, Globe, Settings2, Cpu, Zap, Layers, CheckCircle2, Clock, Network, Palette, Camera, Sun, Paintbrush, Split, Smile } from 'lucide-react';
 import { analyzeImageForBrief } from '../services/geminiService';
 
 interface InputFormProps {
@@ -16,10 +16,11 @@ const defaultData: FormData = {
   brand: { name: '', tone_hint_optional: '', country_market_optional: 'ID' },
   product: { type: '', material: '', price_tier_optional: 'mid', platform: ['tiktok'], objective: 'conversion', main_angle_optional: 'problem-solution' },
   scrape: { source_url_optional: '', raw_text_optional: '' },
-  constraints: { do_not_say_optional: [], must_include_optional: [], language: 'id', vo_duration_seconds: 30, scene_count: 5, ai_model: 'gemini-3-pro-preview', image_generator_model: 'gemini-3-pro-image-preview' },
+  constraints: { do_not_say_optional: [], must_include_optional: [], language: 'id', vo_duration_seconds: 30, scene_count: 5, ai_model: 'gemini-3-pro-preview', image_generator_model: 'gemini-3-pro-image-preview', variations_count: 1 },
+  visual_settings: { camera_angle: 'Eye-level', lighting: 'Natural/Soft', art_style: 'Realistic/UGC' }
 };
 
-export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initialValues, activeProvider = 'gemini', openRouterModel }) => {
+export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initialValues }) => {
   const [data, setData] = useState<FormData>(defaultData);
   const [isAnalyzingImage, setIsAnalyzingImage] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -30,22 +31,16 @@ export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initi
           ...initialValues,
           constraints: {
               ...initialValues.constraints,
-              ai_model: initialValues.constraints.ai_model || 'gemini-3-pro-preview',
-              image_generator_model: initialValues.constraints.image_generator_model || 'gemini-3-pro-image-preview'
-          }
+              // Default to Gemini if coming from old state, as we removed text-OpenRouter
+              ai_model: 'gemini-3-pro-preview', 
+              image_generator_model: initialValues.constraints.image_generator_model || 'gemini-3-pro-image-preview',
+              variations_count: initialValues.constraints.variations_count || 1
+          },
+          visual_settings: initialValues.visual_settings || defaultData.visual_settings
       };
       setData(safeData);
     }
   }, [initialValues]);
-
-  // Sync OpenRouter model to constraints if provider changes
-  useEffect(() => {
-    if (activeProvider === 'openrouter' && openRouterModel) {
-        handleChange('constraints', 'ai_model', openRouterModel);
-    } else if (activeProvider === 'gemini' && !data.constraints.ai_model.startsWith('gemini')) {
-        handleChange('constraints', 'ai_model', 'gemini-3-pro-preview');
-    }
-  }, [activeProvider, openRouterModel]);
 
   const handleChange = (section: keyof FormData, field: string, value: any) => {
     setData((prev) => ({ ...prev, [section]: { ...prev[section], [field]: value } }));
@@ -191,6 +186,59 @@ export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initi
         </div>
       </div>
 
+      {/* Visual Director Settings */}
+      <div className="glass-panel p-4 md:p-5 rounded-2xl border-l-4 border-amber-500">
+         <h3 className="text-slate-800 font-bold mb-4 flex items-center gap-2 text-base"><Camera className="w-5 h-5 text-amber-500"/> Visual Director</h3>
+         <div className="grid md:grid-cols-3 gap-4">
+            <div>
+               <label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block flex items-center gap-1"><Sun className="w-3 h-3"/> Lighting</label>
+               <select 
+                  className="glass-input w-full p-2.5 rounded-xl text-sm bg-white" 
+                  value={data.visual_settings.lighting} 
+                  onChange={(e) => handleChange('visual_settings', 'lighting', e.target.value)}
+               >
+                  <option value="Natural/Soft">Natural / Soft</option>
+                  <option value="Golden Hour">Golden Hour</option>
+                  <option value="Studio/High-key">Studio (Bright)</option>
+                  <option value="Moody/Cinematic">Moody / Cinematic</option>
+                  <option value="Neon/Cyberpunk">Neon / Cyberpunk</option>
+                  <option value="Ring light">Ring Light (Influencer)</option>
+               </select>
+            </div>
+            <div>
+               <label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block flex items-center gap-1"><Camera className="w-3 h-3"/> Camera Angle</label>
+               <select 
+                  className="glass-input w-full p-2.5 rounded-xl text-sm bg-white" 
+                  value={data.visual_settings.camera_angle} 
+                  onChange={(e) => handleChange('visual_settings', 'camera_angle', e.target.value)}
+               >
+                  <option value="Eye-level">Eye-Level (Standard)</option>
+                  <option value="POV">POV (First Person)</option>
+                  <option value="Low angle">Low Angle (Hero)</option>
+                  <option value="High angle">High Angle</option>
+                  <option value="Macro">Macro (Close-up)</option>
+                  <option value="Drone/Aerial">Drone / Aerial</option>
+                  <option value="Dutch angle">Dutch Angle (Dynamic)</option>
+               </select>
+            </div>
+            <div>
+               <label className="text-xs font-semibold text-slate-500 ml-1 mb-1 block flex items-center gap-1"><Paintbrush className="w-3 h-3"/> Art Style</label>
+               <select 
+                  className="glass-input w-full p-2.5 rounded-xl text-sm bg-white" 
+                  value={data.visual_settings.art_style} 
+                  onChange={(e) => handleChange('visual_settings', 'art_style', e.target.value)}
+               >
+                  <option value="Realistic/UGC">Realistic / UGC</option>
+                  <option value="Cinematic">Cinematic TVC</option>
+                  <option value="Vintage/Retro">Vintage / Retro</option>
+                  <option value="Minimalist">Minimalist</option>
+                  <option value="Vibrant/Pop">Vibrant / Pop Art</option>
+                  <option value="Editorial">Editorial / Fashion</option>
+               </select>
+            </div>
+         </div>
+      </div>
+
       {/* Format Settings (Scenes & Duration) */}
       <div className="glass-panel p-4 md:p-5 rounded-2xl border-l-4 border-blue-500">
         <h3 className="text-slate-800 font-bold mb-4 flex items-center gap-2 text-base"><Settings2 className="w-5 h-5 text-blue-500"/> Format Control</h3>
@@ -200,49 +248,43 @@ export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initi
             {/* Model & Image Model Config */}
             <div className="grid md:grid-cols-2 gap-6">
                 
-                {/* Text Model */}
+                {/* Text Model - Limited to Gemini for Logic */}
                 <div>
                     <div className="flex justify-between text-sm mb-2">
-                        <span className="text-slate-500 flex items-center gap-2 font-medium"><Cpu className="w-4 h-4 text-blue-400"/> AI Script Model</span>
+                        <span className="text-slate-500 flex items-center gap-2 font-medium"><Cpu className="w-4 h-4 text-blue-400"/> AI Script Brain</span>
                     </div>
-                    {activeProvider === 'openrouter' ? (
-                        <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-xl flex items-center justify-between h-[72px]">
-                            <div className="flex items-center gap-3">
-                                <Network className="w-5 h-5 text-indigo-600" />
-                                <div>
-                                    <div className="text-xs font-bold text-indigo-800 uppercase tracking-wide">OpenRouter</div>
-                                    <div className="text-sm font-semibold text-indigo-700 truncate max-w-[120px]">{openRouterModel?.split('/').pop()}</div>
-                                </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <select 
-                            value={data.constraints.ai_model}
-                            onChange={(e) => handleChange('constraints', 'ai_model', e.target.value)}
-                            className="w-full h-[72px] bg-white/50 border border-slate-200 rounded-xl px-4 text-sm text-slate-700 focus:border-blue-500 focus:bg-white transition-all outline-none"
-                        >
-                            <option value="gemini-3-pro-preview">Gemini 3 Pro (High Quality)</option>
-                            <option value="gemini-3-flash-preview">Gemini 3 Flash (Fast)</option>
-                        </select>
-                    )}
+                    <select 
+                        value={data.constraints.ai_model}
+                        onChange={(e) => handleChange('constraints', 'ai_model', e.target.value)}
+                        className="w-full h-[72px] bg-white/50 border border-slate-200 rounded-xl px-4 text-sm text-slate-700 focus:border-blue-500 focus:bg-white transition-all outline-none"
+                    >
+                        <option value="gemini-3-pro-preview">Gemini 3 Pro (Smartest)</option>
+                        <option value="gemini-3-flash-preview">Gemini 3 Flash (Fastest)</option>
+                    </select>
                 </div>
 
-                {/* Image Generator Model */}
+                {/* Image/Video Generator Model - Integrated External Services */}
                 <div>
                     <div className="flex justify-between text-sm mb-2">
-                         <span className="text-slate-500 flex items-center gap-2 font-medium"><Palette className="w-4 h-4 text-purple-400"/> Image Generator</span>
+                         <span className="text-slate-500 flex items-center gap-2 font-medium"><Palette className="w-4 h-4 text-purple-400"/> Media Generator</span>
                     </div>
                     <select 
                         value={data.constraints.image_generator_model}
                         onChange={(e) => handleChange('constraints', 'image_generator_model', e.target.value)}
                         className="w-full h-[72px] bg-white/50 border border-slate-200 rounded-xl px-4 text-sm text-slate-700 focus:border-purple-500 focus:bg-white transition-all outline-none"
                     >
-                        <option value="gemini-3-pro-image-preview">Gemini 3 Image (Best Quality)</option>
-                        <option value="gemini-2.5-flash-image">Gemini 2.5 Image (Faster)</option>
-                        <option value="imagen-3.0-generate-001">Imagen 3 (Photorealistic)</option>
-                        {activeProvider === 'openrouter' && (
-                             <option value="openrouter-flux">OpenRouter (Flux)</option>
-                        )}
+                        <optgroup label="Google (Default)">
+                            <option value="gemini-3-pro-image-preview">Gemini 3 Image (Best Quality)</option>
+                            <option value="gemini-2.5-flash-image">Gemini 2.5 Image (Fast)</option>
+                            <option value="imagen-3.0-generate-001">Imagen 3 (Photorealistic)</option>
+                        </optgroup>
+                        <optgroup label="OpenRouter (Requires Key)">
+                            <option value="openrouter-flux">Flux 1 Schnell (OpenRouter)</option>
+                        </optgroup>
+                        <optgroup label="Hugging Face (Requires Token)">
+                            <option value="hf-flux-dev">FLUX.1-dev (HuggingFace)</option>
+                            <option value="hf-sdxl">SDXL Base 1.0 (HuggingFace)</option>
+                        </optgroup>
                     </select>
                 </div>
             </div>
@@ -283,13 +325,34 @@ export const InputForm: React.FC<InputFormProps> = ({ onSubmit, isLoading, initi
                     />
                 </div>
             </div>
+
+            {/* A/B Testing Variations */}
+            <div>
+                 <div className="flex justify-between text-sm mb-3">
+                    <span className="text-slate-500 flex items-center gap-2 font-medium"><Split className="w-4 h-4 text-emerald-500"/> Creative Variations (A/B Test)</span>
+                    <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded text-xs border border-emerald-200">{data.constraints.variations_count} Variations</span>
+                </div>
+                <div className="flex gap-2">
+                    {[1, 2, 3].map(count => (
+                        <button
+                            key={count}
+                            type="button"
+                            onClick={() => handleChange('constraints', 'variations_count', count)}
+                            className={`flex-1 py-3 rounded-lg border text-sm font-bold transition-all ${data.constraints.variations_count === count ? 'bg-emerald-50 border-emerald-400 text-emerald-700 shadow-sm' : 'bg-slate-50 border-slate-200 text-slate-500 hover:bg-white'}`}
+                        >
+                            {count} {count === 1 ? 'Script' : 'Scripts'}
+                        </button>
+                    ))}
+                </div>
+            </div>
+
         </div>
       </div>
 
       {/* Context */}
       <div className="glass-panel p-4 md:p-5 rounded-2xl border-l-4 border-emerald-500">
         <h3 className="text-slate-800 font-bold mb-4 flex items-center gap-2 text-base"><FileText className="w-5 h-5 text-emerald-500"/> Context (Optional)</h3>
-        <textarea className="glass-input w-full p-3.5 rounded-xl h-24 placeholder-slate-400 text-base" value={data.scrape.raw_text_optional} onChange={(e) => handleChange('scrape', 'raw_text_optional', e.target.value)} placeholder="Paste raw product details, facts, or existing copy here..." />
+        <textarea className="glass-input w-full p-3.5 rounded-xl h-24 placeholder-slate-400 text-base" value={data.scrape.raw_text_optional} onChange={(e) => handleChange('scrape', 'raw_text_optional', e.target.value)} placeholder="Paste product details, facts, or competitor copy here..." />
       </div>
 
       <button disabled={isLoading} className="w-full bg-brand-600 hover:bg-brand-500 text-white font-bold py-4 rounded-xl shadow-lg shadow-brand-500/20 hover:shadow-brand-500/40 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:shadow-none active:scale-[0.98]">

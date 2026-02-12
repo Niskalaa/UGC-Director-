@@ -7,6 +7,50 @@ const supabaseAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYm
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
+/*
+  ### SUPABASE SQL SCHEMA
+  Run this in your Supabase SQL Editor to create the required table:
+
+  create table public.ugc_generations (
+    id uuid not null default gen_random_uuid (),
+    created_at timestamp with time zone not null default timezone ('utc'::text, now()),
+    user_id uuid null default auth.uid (),
+    brand_name text null,
+    product_type text null,
+    input_brief jsonb null,
+    output_plan jsonb null,
+    constraint ugc_generations_pkey primary key (id),
+    constraint ugc_generations_user_id_fkey foreign key (user_id) references auth.users (id)
+  );
+
+  -- Enable RLS
+  alter table public.ugc_generations enable row level security;
+
+  -- Policy: Allow users to select their own data
+  create policy "Users can view own generations"
+  on public.ugc_generations for select
+  to authenticated
+  using (auth.uid() = user_id);
+
+  -- Policy: Allow users to insert their own data
+  create policy "Users can insert own generations"
+  on public.ugc_generations for insert
+  to authenticated
+  with check (auth.uid() = user_id);
+
+  -- Policy: Allow users to delete their own data
+  create policy "Users can delete own generations"
+  on public.ugc_generations for delete
+  to authenticated
+  using (auth.uid() = user_id);
+  
+  -- Policy: Allow users to update their own data
+  create policy "Users can update own generations"
+  on public.ugc_generations for update
+  to authenticated
+  using (auth.uid() = user_id);
+*/
+
 export interface SavedGeneration {
   id: string;
   created_at: string;
@@ -63,8 +107,6 @@ export const saveGeneration = async (input: FormData, output: GeneratedAsset) =>
   // Try to get current user, but proceed even if anon
   const { data: { user } } = await supabase.auth.getUser();
   
-  // Note: user_id is crucial for RLS policies. 
-  // If the DB column 'user_id' is missing, this will fail. Ensure the DB schema is correct.
   const { data, error } = await supabase
     .from('ugc_generations')
     .insert([

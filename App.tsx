@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import { InputForm } from './components/InputForm';
 import { OutputDisplay } from './components/OutputDisplay';
 import { AuthScreen } from './components/AuthScreen';
-import { FormData, GeneratedAsset } from './types';
+import { FormData, GeneratedAsset, ScriptVariation } from './types';
 import { sanitizeInput, generateStrategy as generateStrategyGemini, generateScenes as generateScenesGemini } from './services/geminiService';
 import { generateStrategyOpenRouter, generateScenesOpenRouter, getStoredOpenRouterKey, getStoredOpenRouterModel } from './services/externalService';
 import { saveGeneration, updateGeneration, fetchHistory, deleteGeneration, SavedGeneration, supabase, signOut } from './services/supabaseService';
@@ -94,6 +94,7 @@ const App: React.FC = () => {
     setCurrentGenerationId(null);
 
     let draftId: string | null = null;
+    const variationsCount = formData.constraints.variations_count || 1;
 
     try {
       // --- IMMEDIATE SAVE: Create a draft record so history is updated instantly ---
@@ -102,7 +103,8 @@ const App: React.FC = () => {
         hook_rationale: "AI Director is analyzing your brief.",
         brand_dna: { voice_traits: [], cta_style: "Loading...", audience_guess: "Loading..." },
         product_truth_sheet: { core_facts: [], safe_benefit_phrases: [], forbidden_claims: [], required_disclaimer: "" },
-        scenes: [] 
+        scenes: [],
+        variations: []
       };
 
       // Fire and forget
@@ -133,24 +135,54 @@ const App: React.FC = () => {
       // Update UI with Strategy immediately
       let draftResult: GeneratedAsset = {
           ...strategyData as any,
+          variations: []
       };
       setResult(draftResult);
 
-      // Step 2: Generate Scenes (Finalize)
+      // Step 2: Generate Scenes (Loop for Variations)
       setLoadingStage('finalizing');
       
-      const scenesPromise = activeProvider === 'openrouter'
-          ? generateScenesOpenRouter(formData, draftResult)
-          : generateScenesGemini(formData, draftResult);
-          
-      const scenesData = await scenesPromise;
+      const generatedVariations: ScriptVariation[] = [];
+
+      for (let i = 0; i < variationsCount; i++) {
+        // Create distinct instruction for each variation
+        let variationHint = "";
+        let variationName = `Variation ${String.fromCharCode(65 + i)}`;
+        
+        if (i === 0) variationHint = "Create the primary, most direct interpretation of the winning angle.";
+        if (i === 1) variationHint = "Create an alternative version. Try a bolder, more controversial hook or a different visual pacing style.";
+        if (i === 2) variationHint = "Create a third distinct version. Focus heavily on 'Show, Don't Tell' with a completely different opening scene.";
+
+        // Call the generator
+        const scenesPromise = activeProvider === 'openrouter'
+            ? generateScenesOpenRouter(formData, draftResult) // OpenRouter might not support variationHint yet, but passing generic
+            : generateScenesGemini(formData, draftResult, variationHint);
+            
+        const sceneData = await scenesPromise;
+        
+        if (sceneData.scenes) {
+             generatedVariations.push({
+                 id: `var-${i}`,
+                 name: variationName,
+                 hook_type: i === 0 ? "Direct" : i === 1 ? "Bold/Disruptive" : "Visual-First",
+                 scenes: sceneData.scenes,
+                 caption: sceneData.caption,
+                 cta_button: sceneData.cta_button
+             });
+        }
+      }
       
       // Get sanitization result (non-blocking)
       const sanReport = await sanitizePromise;
 
       const finalResult: GeneratedAsset = {
           ...draftResult,
-          ...scenesData as any,
+          variations: generatedVariations,
+          // Backward compatibility: put the first variation in the main scenes bucket
+          scenes: generatedVariations[0]?.scenes || [], 
+          compliance_check: generatedVariations[0]?.scenes ? "Checked" : "Pending",
+          caption: generatedVariations[0]?.caption,
+          cta_button: generatedVariations[0]?.cta_button,
           sanitization_report: sanReport || undefined
       };
       

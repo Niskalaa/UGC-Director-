@@ -1,43 +1,32 @@
 
 import React, { useState, useEffect } from 'react';
-import { X, Key, ExternalLink, Save, Check, Zap, Cpu, Network, LayoutGrid, Mic } from 'lucide-react';
-import { getStoredOpenRouterKey, setStoredOpenRouterKey, getStoredOpenRouterModel, setStoredOpenRouterModel } from '../services/externalService';
+import { X, Key, ExternalLink, Save, Check, Zap, Cpu, Network, LayoutGrid, Mic, Smile } from 'lucide-react';
+import { getStoredOpenRouterKey, setStoredOpenRouterKey, getStoredHuggingFaceKey, setStoredHuggingFaceKey } from '../services/externalService';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const OPENROUTER_MODELS = [
-    { id: "deepseek/deepseek-chat", name: "DeepSeek V3" },
-    { id: "deepseek/deepseek-r1", name: "DeepSeek R1 (Reasoning)" },
-    { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet" },
-    { id: "google/gemini-2.0-flash-001", name: "Gemini 2.0 Flash" },
-    { id: "openai/gpt-4o", name: "GPT-4o" },
-    { id: "meta-llama/llama-3.1-70b-instruct", name: "Llama 3.1 70B" }
-];
-
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
   const [openRouterKey, setOpenRouterKey] = useState('');
+  const [huggingFaceKey, setHuggingFaceKey] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
   const [elevenLabsKey, setElevenLabsKey] = useState('');
-  const [selectedModel, setSelectedModel] = useState('');
-  const [activeProvider, setActiveProvider] = useState<string>('gemini'); // 'gemini' | 'openrouter'
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
       setOpenRouterKey(getStoredOpenRouterKey());
-      setSelectedModel(getStoredOpenRouterModel());
+      setHuggingFaceKey(getStoredHuggingFaceKey());
       setGeminiKey(localStorage.getItem('GEMINI_API_KEY') || '');
       setElevenLabsKey(localStorage.getItem('ELEVENLABS_API_KEY') || '');
-      setActiveProvider(localStorage.getItem('PREFERRED_PROVIDER') || 'gemini');
     }
   }, [isOpen]);
 
   const handleSave = () => {
     setStoredOpenRouterKey(openRouterKey);
-    setStoredOpenRouterModel(selectedModel);
+    setStoredHuggingFaceKey(huggingFaceKey);
     
     if (geminiKey.trim()) {
         localStorage.setItem('GEMINI_API_KEY', geminiKey.trim());
@@ -50,8 +39,6 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
     } else {
         localStorage.removeItem('ELEVENLABS_API_KEY');
     }
-
-    localStorage.setItem('PREFERRED_PROVIDER', activeProvider);
 
     setSaved(true);
     setTimeout(() => {
@@ -84,32 +71,9 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         </div>
 
         <div className="space-y-6">
-          
-          {/* Provider Selection */}
-          <div className="space-y-3 pb-6 border-b border-slate-100">
-             <label className="text-sm font-bold text-slate-700 flex items-center gap-2">
-                <LayoutGrid className="w-4 h-4 text-blue-500" /> Active AI Engine
-             </label>
-             <div className="grid grid-cols-2 gap-3">
-                <button 
-                    onClick={() => setActiveProvider('gemini')}
-                    className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all active:scale-95 ${activeProvider === 'gemini' ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' : 'bg-slate-50 border-slate-100 text-slate-500 hover:bg-slate-100'}`}
-                >
-                    <Zap className={`w-5 h-5 ${activeProvider === 'gemini' ? 'text-emerald-500' : 'text-slate-400'}`} />
-                    <span className="text-xs font-bold">Google Gemini</span>
-                </button>
-                <button 
-                    onClick={() => setActiveProvider('openrouter')}
-                    className={`p-3 rounded-xl border flex flex-col items-center gap-2 transition-all active:scale-95 ${activeProvider === 'openrouter' ? 'bg-indigo-50 border-indigo-200 text-indigo-700 shadow-sm' : 'bg-slate-50 border-slate-100 text-slate-500 hover:bg-slate-100'}`}
-                >
-                    <Network className={`w-5 h-5 ${activeProvider === 'openrouter' ? 'text-indigo-500' : 'text-slate-400'}`} />
-                    <span className="text-xs font-bold">OpenRouter</span>
-                </button>
-             </div>
-          </div>
             
           {/* Gemini Section */}
-          <div className={`space-y-3 pb-6 border-b border-slate-100 ${activeProvider !== 'gemini' ? 'opacity-50 grayscale' : ''}`}>
+          <div className="space-y-3 pb-6 border-b border-slate-100">
              <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
                     <Zap className="w-4 h-4 text-emerald-500" />
@@ -120,7 +84,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </a>
              </div>
              <p className="text-[11px] text-slate-500 leading-relaxed">
-                Required for Video (Veo), TTS, and Image Analysis. Uses fallback if empty.
+                Primary brain for Script Logic, Analysis, and Veo Video.
              </p>
              <div className="relative">
                 <input 
@@ -128,14 +92,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                   value={geminiKey}
                   onChange={(e) => setGeminiKey(e.target.value)}
                   placeholder="AIzaSy..."
-                  disabled={activeProvider !== 'gemini'}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 focus:outline-none focus:border-emerald-500 focus:bg-white transition-colors placeholder-slate-400 disabled:cursor-not-allowed"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 focus:outline-none focus:border-emerald-500 focus:bg-white transition-colors placeholder-slate-400"
                 />
              </div>
           </div>
 
-          {/* OpenRouter Section */}
-          <div className={`space-y-3 pb-6 border-b border-slate-100 ${activeProvider !== 'openrouter' ? 'opacity-50 grayscale' : ''}`}>
+          {/* OpenRouter Section (Media Only) */}
+          <div className="space-y-3 pb-6 border-b border-slate-100">
              <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
                     <Network className="w-4 h-4 text-indigo-500" />
@@ -145,32 +108,42 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                    Get Key <ExternalLink className="w-3 h-3" />
                 </a>
              </div>
+             <p className="text-[11px] text-slate-500 leading-relaxed">
+                Used for Image Generation (FLUX/Stable Diffusion) in output.
+             </p>
              <div className="relative">
                 <input 
                   type="password" 
                   value={openRouterKey}
                   onChange={(e) => setOpenRouterKey(e.target.value)}
                   placeholder="sk-or-..."
-                  disabled={activeProvider !== 'openrouter'}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 focus:outline-none focus:border-indigo-500 focus:bg-white transition-colors placeholder-slate-400 disabled:cursor-not-allowed"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 focus:outline-none focus:border-indigo-500 focus:bg-white transition-colors placeholder-slate-400"
                 />
              </div>
-             
-             {/* Model Selector */}
-             <div className="flex items-center justify-between pt-2">
-                <div className="flex items-center gap-2 text-sm text-slate-500">
-                    <Cpu className="w-4 h-4 text-slate-400" /> Preferred Model
+          </div>
+
+          {/* Hugging Face Section (New) */}
+          <div className="space-y-3 pb-6 border-b border-slate-100">
+             <div className="flex justify-between items-center">
+                <div className="flex items-center gap-2">
+                    <Smile className="w-4 h-4 text-yellow-500" />
+                    <label className="text-sm font-bold text-slate-700">Hugging Face Token</label>
                 </div>
-                <select 
-                    value={selectedModel} 
-                    onChange={(e) => setSelectedModel(e.target.value)}
-                    disabled={activeProvider !== 'openrouter'}
-                    className="bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 outline-none focus:border-indigo-500 max-w-[180px] disabled:opacity-50"
-                >
-                    {OPENROUTER_MODELS.map(m => (
-                        <option key={m.id} value={m.id} className="bg-white text-slate-700">{m.name}</option>
-                    ))}
-                </select>
+                <a href="https://huggingface.co/settings/tokens" target="_blank" rel="noreferrer" className="text-[10px] text-brand-600 hover:underline flex items-center gap-1">
+                   Get Token <ExternalLink className="w-3 h-3" />
+                </a>
+             </div>
+             <p className="text-[11px] text-slate-500 leading-relaxed">
+                Used for FLUX.1-dev, SDXL, and open-source Video models.
+             </p>
+             <div className="relative">
+                <input 
+                  type="password" 
+                  value={huggingFaceKey}
+                  onChange={(e) => setHuggingFaceKey(e.target.value)}
+                  placeholder="hf_..."
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-sm text-slate-900 focus:outline-none focus:border-yellow-500 focus:bg-white transition-colors placeholder-slate-400"
+                />
              </div>
           </div>
 
@@ -186,7 +159,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </a>
              </div>
              <p className="text-[11px] text-slate-500 leading-relaxed">
-                Optional. If provided, enables high-quality AI voices for script reading.
+                Optional. High-quality AI voices.
              </p>
              <div className="relative">
                 <input 

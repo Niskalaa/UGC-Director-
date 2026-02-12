@@ -32,7 +32,7 @@ async function retryOperation<T>(operation: () => Promise<T>, retries = 3, initi
       
       // Handle Permission Denied (403) - Do not retry
       if (status === 403 || msg.includes('403') || msg.includes('PERMISSION_DENIED') || msg.includes('permission')) {
-          throw new Error("Access Denied (403). Please verify your API Key in Settings or ensure the Google GenAI API is enabled for this project.");
+          throw new Error("Access Denied (403). Please verify your API Key in Settings or switch to a free model (Flash).");
       }
 
       // Handle Quota/Rate Limiting (429) & Server Errors (503)
@@ -76,14 +76,20 @@ export const sanitizeInput = async (rawText: string): Promise<ScrapeSanitized | 
    }
 };
 
-// Analyze Image to Auto-fill Brief
+// Analyze Image to Auto-fill Brief (Deep Analysis)
 export const analyzeImageForBrief = async (base64Image: string, mimeType: string): Promise<any> => {
     const ai = new GoogleGenAI({ apiKey: getApiKey() });
     
     const prompt = `
-        Analyze this product image and extract key marketing details for a UGC ad brief.
-        Identify the brand (if visible), product type, key materials/ingredients, and estimate the price tier and potential marketing angle.
-        Also provide a short description of what is seen to be used as context.
+        DEEP ANALYSIS PROTOCOL:
+        Analyze this product image with the eye of a Creative Director.
+        1. **Brand Identity**: Identify the brand name and logo style.
+        2. **Product DNA**: What specifically is this? (e.g., 'Retinol Serum', 'Wireless Noise Cancelling Headphones').
+        3. **Key Selling Points**: Read the label. Extract active ingredients, key features, or specs.
+        4. **Target Audience**: Who is this for? (e.g., 'Gen Z skincare enthusiasts', 'Corporate professionals').
+        5. **Visual Context**: Describe the setting, lighting, and vibe.
+        
+        Return a structured JSON object filling the details accurately.
     `;
 
     const schema = {
@@ -92,11 +98,12 @@ export const analyzeImageForBrief = async (base64Image: string, mimeType: string
             brand_name: { type: Type.STRING },
             brand_tone: { type: Type.STRING },
             product_type: { type: Type.STRING },
-            product_material: { type: Type.STRING },
+            product_material: { type: Type.STRING, description: "Key ingredients or materials" },
             price_tier: { type: Type.STRING, enum: ["budget", "mid", "premium"] },
             marketing_angle: { type: Type.STRING, enum: ["problem-solution", "routine", "review", "aesthetic", "comparison"] },
-            raw_context: { type: Type.STRING }
-        }
+            raw_context: { type: Type.STRING, description: "A summary of the visual context and findings" }
+        },
+        required: ["brand_name", "product_type", "product_material", "marketing_angle"]
     };
 
     const executeAnalysis = async (model: string) => {
@@ -115,32 +122,31 @@ export const analyzeImageForBrief = async (base64Image: string, mimeType: string
                 }
             });
             return JSON.parse(cleanJson(response.text));
-        }, 2); // Lower retry count for primary model to trigger fallback faster
+        }, 2);
     };
 
     try {
         return await executeAnalysis("gemini-3-pro-preview");
     } catch (e) {
-        console.warn("Image Analysis: Pro model failed, falling back to Flash...");
+        console.warn("Image Analysis: Pro model failed, falling back to Flash...", e);
         try {
             return await executeAnalysis("gemini-3-flash-preview");
         } catch (fallbackError) {
              console.error("Image analysis fallback failed", fallbackError);
-             throw e; // Throw original error if fallback fails
+             throw e;
         }
     }
 };
 
-// 2. Generate Strategy (Stage 1) - DEEP ANALYSIS UPGRADE WITH FALLBACK
+// 2. Generate Strategy (Stage 1)
 export const generateStrategy = async (formData: FormData, contextText: string): Promise<Partial<GeneratedAsset>> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const outputLanguage = formData.constraints.language === 'en' ? 'English' : 'Indonesian (Bahasa Indonesia)';
   
-  // Determine Model and Budget
   const preferredModel = formData.constraints.ai_model || "gemini-3-pro-preview";
   let thinkingBudget = 0;
-  if (preferredModel === "gemini-3-pro-preview") thinkingBudget = 32768; // Max thinking for Pro
-  else if (preferredModel === "gemini-3-flash-preview") thinkingBudget = 2048; // Moderate thinking for Flash
+  if (preferredModel === "gemini-3-pro-preview") thinkingBudget = 32768; 
+  else if (preferredModel === "gemini-3-flash-preview") thinkingBudget = 2048; 
 
   const schema = {
     type: Type.OBJECT,
@@ -184,7 +190,7 @@ export const generateStrategy = async (formData: FormData, contextText: string):
   };
 
   const prompt = `
-    ROLE: You are a World-Class Direct Response Copywriter and Creative Director for UGC Ads (TikTok/Reels).
+    ROLE: You are a World-Class Direct Response Copywriter and Creative Director for UGC Ads.
     OBJECTIVE: Perform a deep psychological analysis of the product and audience, then develop a viral ad strategy.
 
     INPUT DATA:
@@ -197,18 +203,15 @@ export const generateStrategy = async (formData: FormData, contextText: string):
 
     DEEP DIVE METHODOLOGY:
     1. **Audience Persona**: Who specifically is this for? What keeps them up at night?
-    2. **Psychological Triggers**: Identify the emotional levers (e.g., Status, Fear of Missing Out, Convenience, Identity).
-    3. **Competitor Gap**: What is the market ignoring that this product solves?
-    4. **The Winning Angle**: Based on the above, select the single most powerful angle (e.g., "Us vs Them", "The Secret Hack", "Shocking Truth").
+    2. **Psychological Triggers**: Identify the emotional levers.
+    3. **Competitor Gap**: What is the market ignoring?
+    4. **The Winning Angle**: Select the single most powerful angle.
 
     OUTPUT REQUIREMENTS:
     - **Language**: Strictly ${outputLanguage}.
-    - **Tone**: Authentic, Native to TikTok/Reels (Not "Salesy", but "Persuasive").
-    - **Analysis Report**: Fill the 'analysis_report' schema with your deep findings.
-    - **Brand DNA**: Define the voice (e.g., "Bestie to Bestie", "Expert", "Chaos").
+    - **Analysis Report**: Fill the schema.
   `;
 
-  // Helper to execute generation with specified model
   const executeGen = async (modelName: string, budget: number) => {
     return retryOperation(async () => {
       const config: any = {
@@ -217,7 +220,6 @@ export const generateStrategy = async (formData: FormData, contextText: string):
           thinkingConfig: { thinkingBudget: budget }
       };
 
-      // Do not set maxOutputTokens when using the large thinking budget on Pro
       if (modelName !== "gemini-3-pro-preview") {
           config.maxOutputTokens = 8192;
       }
@@ -230,14 +232,13 @@ export const generateStrategy = async (formData: FormData, contextText: string):
 
       if (!response.text) throw new Error("No strategy data returned.");
       return JSON.parse(cleanJson(response.text));
-    }, 2); // Use 2 retries for strategy generation to fail fast to fallback
+    }, 2);
   };
 
   try {
     return await executeGen(preferredModel, thinkingBudget);
   } catch (e: any) {
     const msg = e.message || '';
-    // Only fallback if the preferred model was Pro and it failed due to Quota/Busy
     if (preferredModel === "gemini-3-pro-preview" && (msg.includes('Quota') || msg.includes('429') || msg.includes('busy') || msg.includes('RESOURCE_EXHAUSTED'))) {
         console.warn("Strategy Generation: Pro model quota hit, falling back to Flash...");
         return await executeGen("gemini-3-flash-preview", 2048);
@@ -246,13 +247,13 @@ export const generateStrategy = async (formData: FormData, contextText: string):
   }
 };
 
-// 3. Generate Scenes (Stage 2) - PRODUCTION READY UPGRADE WITH FALLBACK
-export const generateScenes = async (formData: FormData, strategy: Partial<GeneratedAsset>): Promise<Partial<GeneratedAsset>> => {
+// 3. Generate Scenes (Stage 2) - UPDATED FOR STRUCTURED MEDIA PROMPTS
+export const generateScenes = async (formData: FormData, strategy: Partial<GeneratedAsset>, variationHint?: string): Promise<Partial<GeneratedAsset>> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const outputLanguage = formData.constraints.language === 'en' ? 'English' : 'Indonesian (Bahasa Indonesia)';
   const targetSceneCount = formData.constraints.scene_count || 5;
+  const visualSettings = formData.visual_settings;
 
-  // Determine Model and Budget
   const preferredModel = formData.constraints.ai_model || "gemini-3-pro-preview";
   let thinkingBudget = 0;
   if (preferredModel === "gemini-3-pro-preview") thinkingBudget = 32768;
@@ -271,11 +272,27 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
             visual_description: { type: Type.STRING },
             audio_script: { type: Type.STRING },
             on_screen_text: { type: Type.STRING },
-            image_prompt: { type: Type.STRING },
-            image_negative_prompt: { type: Type.STRING },
-            video_prompt: { type: Type.STRING },
+            // Structured Media Prompts
+            media_prompts: {
+                type: Type.OBJECT,
+                properties: {
+                    image_prompt: { type: Type.STRING },
+                    image_negative: { type: Type.STRING },
+                    video_prompt: { type: Type.STRING },
+                    video_negative: { type: Type.STRING },
+                    video_params: {
+                        type: Type.OBJECT,
+                        properties: {
+                            duration: { type: Type.STRING },
+                            fps: { type: Type.NUMBER },
+                            aspect_ratio: { type: Type.STRING }
+                        }
+                    }
+                },
+                required: ["image_prompt", "image_negative", "video_prompt", "video_negative"]
+            }
           },
-          required: ["seconds", "visual_description", "audio_script", "on_screen_text", "image_prompt", "video_prompt"]
+          required: ["seconds", "visual_description", "audio_script", "on_screen_text", "media_prompts"]
         }
       },
       caption: { type: Type.STRING },
@@ -286,8 +303,9 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
 
   const prompt = `
     ROLE: You are an Elite UGC Scriptwriter & Visual Director.
-    TASK: Write a production-ready, frame-by-frame script based on the strategy below.
-    
+    TASK: Write a production-ready, frame-by-frame script.
+    ${variationHint ? `\nVARIATION INSTRUCTION: ${variationHint} \n` : ""}
+
     STRATEGY CONTEXT:
     Concept: ${strategy.concept_title}
     Winning Angle: ${strategy.analysis_report?.winning_angle_logic}
@@ -299,23 +317,24 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
     Scene Count: Exactly ${targetSceneCount} scenes.
     Language: ${outputLanguage}
 
-    EXECUTION GUIDELINES (THE "METHOD"):
-    1. **The Hook (Scene 1)**: Must be a pattern interrupt. Visuals must start in motion. Audio must grab attention in 0.5s.
-    2. **The Retain**: Deliver value immediately. No fluff.
-    3. **The Solution**: Show, don't just tell.
-    4. **The CTA**: Clear instruction on what to do next.
+    VISUAL DIRECTION (STRICT):
+    - Lighting: ${visualSettings.lighting}
+    - Camera Angle: ${visualSettings.camera_angle}
+    - Art Style: ${visualSettings.art_style}
 
-    MEDIA PROMPT ENGINEERING:
-    - **Image Prompt**: Photorealistic for Flux/Midjourney. Lighting (Golden hour, Ring light), Camera (iPhone 15 Pro, Macro), Aesthetic (UGC, Authentic).
-    - **Video Prompt**: A concise, motion-focused prompt for Veo/Sora. Describe the movement (e.g., "Camera pans left", "Product rotates", "Hand squeezes tube"). Keep it under 40 words.
-    - **Negative Prompts**: Generate a specific negative prompt for each scene.
+    MEDIA PROMPT ENGINEERING (CRITICAL):
+    For each scene, generate a 'media_prompts' object containing specific prompts for AI generators.
+    1. **image_prompt**: Highly detailed, photorealistic, incorporating visual settings. Focus on lighting, texture, and composition. (e.g. for Flux/Midjourney).
+    2. **image_negative**: "Blurry, low quality, distorted, watermark, text, ugly, deformed".
+    3. **video_prompt**: Focused on MOTION. Describe the movement clearly (e.g., "Camera pans left", "Slow motion droplet falling"). (e.g. for Veo/Sora/CogVideo).
+    4. **video_negative**: "Static, shaky, morphing, distorted, bad physics".
+    5. **video_params**: Suggest duration (e.g., "3s"), FPS (24 or 30), and aspect ratio (9:16).
 
     OUTPUT:
-    - Audio Script must be colloquial (spoken word), including fillers like "um", "so yeah" if it fits the persona.
-    - Visual Description must be actionable for a video editor.
+    - Audio Script: Colloquial, natural spoken word.
+    - Visual Description: Actionable for an editor.
   `;
 
-  // Helper to execute generation with specified model
   const executeGen = async (modelName: string, budget: number) => {
     return retryOperation(async () => {
       const config: any = {
@@ -351,12 +370,11 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
   }
 };
 
-// 4. Generate Video (Veo)
+// 4. Generate Video (Veo) - UPDATED to use prompt from structured data if available
 export const generateVideo = async (prompt: string): Promise<string> => {
     const apiKey = getApiKey();
     const ai = new GoogleGenAI({ apiKey });
 
-    // Note: Veo generation might take longer, handled by polling loop below.
     let operation = await retryOperation(async () => {
         return await ai.models.generateVideos({
             model: 'veo-3.1-fast-generate-preview',
@@ -369,9 +387,8 @@ export const generateVideo = async (prompt: string): Promise<string> => {
         });
     });
 
-    // Poll for completion
     while (!operation.done) {
-        await new Promise(resolve => setTimeout(resolve, 5000)); // 5s delay
+        await new Promise(resolve => setTimeout(resolve, 5000));
         operation = await ai.operations.getVideosOperation({ operation: operation });
     }
     
@@ -382,7 +399,6 @@ export const generateVideo = async (prompt: string): Promise<string> => {
     const videoUri = operation.response?.generatedVideos?.[0]?.video?.uri;
     if (!videoUri) throw new Error("No video URI returned.");
 
-    // Fetch the actual video blob
     const response = await fetch(`${videoUri}&key=${apiKey}`);
     if (!response.ok) throw new Error("Failed to download video.");
     
@@ -390,11 +406,9 @@ export const generateVideo = async (prompt: string): Promise<string> => {
     return URL.createObjectURL(blob);
 };
 
-
-// Analyze Audio for Voice Cloning
+// Audio utils (unchanged)
 export const analyzeVoiceStyle = async (audioBase64: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  
   const prompt = "Listen to this voice sample. Describe the speaker's tone, pacing, gender, and emotional quality in a short, descriptive phrase that could be used to instruct a voice actor (e.g., 'Energetic, fast-paced young American male with a friendly rasp'). Keep it under 15 words.";
 
   return retryOperation(async () => {
@@ -411,15 +425,12 @@ export const analyzeVoiceStyle = async (audioBase64: string): Promise<string> =>
   });
 };
 
-
-// Helper to write string to DataView
 const writeString = (view: DataView, offset: number, string: string) => {
   for (let i = 0; i < string.length; i++) {
     view.setUint8(offset + i, string.charCodeAt(i));
   }
 };
 
-// Convert raw PCM to WAV with header
 const pcmToWav = (base64String: string, sampleRate: number = 24000): ArrayBuffer => {
   const binaryString = atob(base64String);
   const len = binaryString.length;
@@ -429,34 +440,19 @@ const pcmToWav = (base64String: string, sampleRate: number = 24000): ArrayBuffer
   const buffer = new ArrayBuffer(44 + bytes.length);
   const view = new DataView(buffer);
 
-  // RIFF identifier
   writeString(view, 0, 'RIFF');
-  // RIFF chunk length
   view.setUint32(4, 36 + bytes.length, true);
-  // RIFF type
   writeString(view, 8, 'WAVE');
-  // format chunk identifier
   writeString(view, 12, 'fmt ');
-  // format chunk length
   view.setUint32(16, 16, true);
-  // sample format (raw)
   view.setUint16(20, 1, true);
-  // channel count
-  view.setUint16(22, 1, true); // Mono
-  // sample rate
+  view.setUint16(22, 1, true); 
   view.setUint32(24, sampleRate, true);
-  // byte rate (sample rate * block align)
-  view.setUint32(28, sampleRate * 2, true); // 16-bit mono = 2 bytes/sample
-  // block align (channel count * bytes per sample)
+  view.setUint32(28, sampleRate * 2, true);
   view.setUint16(32, 2, true);
-  // bits per sample
   view.setUint16(34, 16, true);
-  // data chunk identifier
   writeString(view, 36, 'data');
-  // data chunk length
   view.setUint32(40, bytes.length, true);
-
-  // write the PCM samples
   new Uint8Array(buffer, 44).set(bytes);
 
   return buffer;
@@ -465,8 +461,6 @@ const pcmToWav = (base64String: string, sampleRate: number = 24000): ArrayBuffer
 export const generateSpeech = async (text: string, voiceName: string = 'Kore', toneInstruction?: string): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   
-  // Inject tone instruction into the text to guide the model's delivery.
-  // We use parenthetical direction which Gemini TTS understands well.
   const textToSay = toneInstruction 
     ? `(${toneInstruction}) ${text}` 
     : text;
@@ -489,26 +483,18 @@ export const getWavBlob = (base64PCM: string): Blob => {
   return new Blob([wavBuffer], { type: 'audio/wav' });
 };
 
-// Generate Image Preview for a Scene
-// Automatically selects optimal image model based on the text source model used.
-export const generateImagePreview = async (prompt: string, aspectRatio: string = "9:16", sourceModel: string = "gemini-3-pro-preview"): Promise<string> => {
+// Generate Image Preview (Gemini/Imagen)
+export const generateImagePreview = async (
+  prompt: string, 
+  aspectRatio: string = "9:16", 
+  model: string = "gemini-2.5-flash-image"
+): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
-  
-  // Intelligence Logic:
-  // If the user used a Pro/High-Intelligence text model (Gemini Pro, GPT-4, Claude Opus), 
-  // we assume they want High-Quality images -> Gemini 3 Pro Image.
-  // Otherwise (Flash, Turbo), use standard efficient model -> Gemini 2.5 Flash Image.
-  const isProSource = sourceModel.includes('pro') || sourceModel.includes('gpt-4') || sourceModel.includes('claude-3.5') || sourceModel.includes('opus');
-  
-  // Use Gemini 3 Pro Image for high quality, otherwise 2.5 Flash
-  const imageModel = isProSource ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
 
-  console.log(`Generating image with ${imageModel} (Source: ${sourceModel})`);
-
-  try {
-    return await retryOperation(async () => {
-        const response = await ai.models.generateContent({
-        model: imageModel,
+  const executeGeminiImage = async (modelName: string) => {
+    return retryOperation(async () => {
+      const response = await ai.models.generateContent({
+        model: modelName,
         contents: [{
             parts: [{ text: prompt }],
         }],
@@ -517,39 +503,54 @@ export const generateImagePreview = async (prompt: string, aspectRatio: string =
                 aspectRatio: aspectRatio as any, 
             }
         }
-        });
-        
-        if (response.candidates?.[0]?.content?.parts) {
-            for (const part of response.candidates[0].content.parts) {
-                if (part.inlineData) {
-                    return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-                }
-            }
-        }
-        throw new Error("No image data in Gemini response");
+      });
+      
+      if (response.candidates?.[0]?.content?.parts) {
+          for (const part of response.candidates[0].content.parts) {
+              if (part.inlineData) {
+                  return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+              }
+          }
+      }
+      throw new Error("No image data in Gemini response");
     }, 1);
-  } catch (e) {
-    console.warn(`Primary Image Gen (${imageModel}) failed, falling back to Imagen 4.0...`, e);
+  };
+
+  const executeImagen = async (modelName: string) => {
+    return retryOperation(async () => {
+         const response = await ai.models.generateImages({
+            model: modelName,
+            prompt: prompt,
+            config: {
+                numberOfImages: 1,
+                aspectRatio: aspectRatio as any,
+                outputMimeType: 'image/jpeg'
+            }
+         });
+         const b64 = response.generatedImages?.[0]?.image?.imageBytes;
+         if (b64) return `data:image/jpeg;base64,${b64}`;
+         throw new Error("No image data in Imagen response");
+    }, 1);
+  };
+
+  try {
+      if (model.includes('imagen')) {
+          return await executeImagen(model);
+      } else {
+          return await executeGeminiImage(model);
+      }
+  } catch (e: any) {
+    console.warn(`Primary Image Gen (${model}) failed.`, e);
     
-    // Fallback to Imagen 4.0 (Upgrade from 3.0)
-    try {
-        return await retryOperation(async () => {
-             const response = await ai.models.generateImages({
-                model: 'imagen-4.0-generate-001',
-                prompt: prompt,
-                config: {
-                    numberOfImages: 1,
-                    aspectRatio: aspectRatio as any,
-                    outputMimeType: 'image/jpeg'
-                }
-             });
-             const b64 = response.generatedImages?.[0]?.image?.imageBytes;
-             if (b64) return `data:image/jpeg;base64,${b64}`;
-             throw new Error("No image data in Imagen response");
-        }, 1);
-    } catch (imagenError) {
-        console.error("Imagen fallback failed", imagenError);
-        return "";
+    if (model !== 'gemini-2.5-flash-image') {
+        console.log("Falling back to gemini-2.5-flash-image...");
+        try {
+            return await executeGeminiImage('gemini-2.5-flash-image');
+        } catch (fallbackError) {
+             console.error("Fallback failed", fallbackError);
+             throw e;
+        }
     }
+    throw e;
   }
 };
