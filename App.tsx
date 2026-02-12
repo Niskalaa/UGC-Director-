@@ -299,7 +299,13 @@ const App: React.FC = () => {
               <div className="absolute -inset-1 bg-gradient-to-r from-brand-200 to-purple-200 rounded-[2rem] opacity-50 blur-lg transition duration-500"></div>
               <div className="relative bg-white/50 rounded-[1.75rem] p-1 border border-white/50">
                  <div className="bg-white/40 rounded-[1.5rem] p-3 md:p-5 overflow-hidden">
-                    <InputForm onSubmit={handleSubmit} isLoading={loading} initialValues={formDataState} />
+                    <InputForm 
+                      onSubmit={handleSubmit} 
+                      isLoading={loading} 
+                      initialValues={formDataState}
+                      activeProvider={activeProvider}
+                      openRouterModel={getStoredOpenRouterModel()}
+                    />
                  </div>
               </div>
             </div>
@@ -360,7 +366,10 @@ const App: React.FC = () => {
 
           {/* Output Section */}
           <div className="lg:col-span-8 xl:col-span-9 min-h-[500px]" id="output-section">
-             <OutputDisplay data={result} />
+             <OutputDisplay 
+                data={result} 
+                modelUsed={formDataState?.constraints.ai_model}
+             />
           </div>
 
         </main>

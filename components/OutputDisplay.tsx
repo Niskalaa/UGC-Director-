@@ -21,7 +21,7 @@ const SPEECH_STYLES = [
 type AspectRatio = "9:16" | "16:9" | "1:1";
 type TTSProvider = 'gemini' | 'elevenlabs';
 
-export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data }) => {
+export const OutputDisplay: React.FC<{ data: GeneratedAsset | null, modelUsed?: string }> = ({ data, modelUsed }) => {
   const [playingIdx, setPlayingIdx] = useState<number | null>(null);
   const [loadingIdx, setLoadingIdx] = useState<number | null>(null);
   const [audioUrls, setAudioUrls] = useState<Record<number, string>>({});
@@ -219,7 +219,8 @@ export const OutputDisplay: React.FC<{ data: GeneratedAsset | null }> = ({ data 
       if (loadingImageIdx !== null) return;
       setLoadingImageIdx(idx);
       try {
-          const imageUrl = await generateImagePreview(prompt, aspectRatio);
+          // Pass the modelUsed from props to determine image quality
+          const imageUrl = await generateImagePreview(prompt, aspectRatio, modelUsed);
           if (imageUrl) {
               setPreviewImages(prev => ({ ...prev, [idx]: imageUrl }));
           } else {

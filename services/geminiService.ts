@@ -490,14 +490,25 @@ export const getWavBlob = (base64PCM: string): Blob => {
 };
 
 // Generate Image Preview for a Scene
-export const generateImagePreview = async (prompt: string, aspectRatio: string = "9:16"): Promise<string> => {
+// Automatically selects optimal image model based on the text source model used.
+export const generateImagePreview = async (prompt: string, aspectRatio: string = "9:16", sourceModel: string = "gemini-3-pro-preview"): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   
-  // Try Gemini 2.5 Flash Image first (Nano Banana) with array wrapped contents
+  // Intelligence Logic:
+  // If the user used a Pro/High-Intelligence text model (Gemini Pro, GPT-4, Claude Opus), 
+  // we assume they want High-Quality images -> Gemini 3 Pro Image.
+  // Otherwise (Flash, Turbo), use standard efficient model -> Gemini 2.5 Flash Image.
+  const isProSource = sourceModel.includes('pro') || sourceModel.includes('gpt-4') || sourceModel.includes('claude-3.5') || sourceModel.includes('opus');
+  
+  // Use Gemini 3 Pro Image for high quality, otherwise 2.5 Flash
+  const imageModel = isProSource ? 'gemini-3-pro-image-preview' : 'gemini-2.5-flash-image';
+
+  console.log(`Generating image with ${imageModel} (Source: ${sourceModel})`);
+
   try {
     return await retryOperation(async () => {
         const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash-image',
+        model: imageModel,
         contents: [{
             parts: [{ text: prompt }],
         }],
@@ -518,13 +529,13 @@ export const generateImagePreview = async (prompt: string, aspectRatio: string =
         throw new Error("No image data in Gemini response");
     }, 1);
   } catch (e) {
-    console.warn("Gemini 2.5 Image Gen failed, falling back to Imagen 3.0...", e);
+    console.warn(`Primary Image Gen (${imageModel}) failed, falling back to Imagen 4.0...`, e);
     
-    // Fallback to Imagen 3.0 (which is often more reliable for pure image gen if available)
+    // Fallback to Imagen 4.0 (Upgrade from 3.0)
     try {
         return await retryOperation(async () => {
              const response = await ai.models.generateImages({
-                model: 'imagen-3.0-generate-001',
+                model: 'imagen-4.0-generate-001',
                 prompt: prompt,
                 config: {
                     numberOfImages: 1,
