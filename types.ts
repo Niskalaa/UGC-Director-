@@ -57,6 +57,14 @@ export interface ProductTruthSheet {
   required_disclaimer: string;
 }
 
+export interface AnalysisReport {
+  audience_persona: string;
+  core_pain_points: string[];
+  emotional_triggers: string[];
+  competitor_gap: string;
+  winning_angle_logic: string;
+}
+
 export interface Scene {
   seconds: string;
   visual_description: string;
@@ -75,6 +83,7 @@ export interface GeneratedAsset {
   hook_rationale: string;
   brand_dna: BrandDNA;
   product_truth_sheet: ProductTruthSheet;
+  analysis_report?: AnalysisReport;
   // Optional during loading phase
   scenes?: Scene[];
   compliance_check?: string;

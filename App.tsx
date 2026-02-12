@@ -1,11 +1,13 @@
+
 import React, { useState, useEffect } from 'react';
 import { InputForm } from './components/InputForm';
 import { OutputDisplay } from './components/OutputDisplay';
 import { AuthScreen } from './components/AuthScreen';
 import { FormData, GeneratedAsset } from './types';
-import { sanitizeInput, generateStrategy, generateScenes } from './services/geminiService';
+import { sanitizeInput, generateStrategy as generateStrategyGemini, generateScenes as generateScenesGemini } from './services/geminiService';
+import { generateStrategyOpenRouter, generateScenesOpenRouter, getStoredOpenRouterKey, getStoredOpenRouterModel } from './services/externalService';
 import { saveGeneration, updateGeneration, fetchHistory, SavedGeneration, supabase, signOut } from './services/supabaseService';
-import { Zap, Rocket, Check, Terminal, Info, Database, History as HistoryIcon, X, ChevronRight, Clock, RefreshCw, Settings2, LogOut, User } from 'lucide-react';
+import { Zap, Check, Info, History as HistoryIcon, X, ChevronRight, Clock, RefreshCw, Settings2, LogOut, User, Network } from 'lucide-react';
 import { SettingsModal } from './components/SettingsModal';
 import { Session } from '@supabase/supabase-js';
 
@@ -27,6 +29,7 @@ const App: React.FC = () => {
 
   // Settings State
   const [showSettings, setShowSettings] = useState(false);
+  const [useOpenRouter, setUseOpenRouter] = useState(false);
 
   useEffect(() => {
     // Check active session
@@ -34,6 +37,9 @@ const App: React.FC = () => {
       setSession(session);
       setAuthChecking(false);
     });
+
+    // Check configuration
+    setUseOpenRouter(!!getStoredOpenRouterKey());
 
     // Listen for auth changes
     const {
@@ -44,7 +50,7 @@ const App: React.FC = () => {
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [showSettings]); // Re-check when settings close
 
   const handleLogout = async () => {
     await signOut();
@@ -73,7 +79,7 @@ const App: React.FC = () => {
         scenes: [] 
       };
 
-      // Fire and forget (don't await to block UI, but capture ID)
+      // Fire and forget
       saveGeneration(formData, placeholderResult).then(saved => {
         if (saved) {
            draftId = saved.id;
@@ -81,22 +87,23 @@ const App: React.FC = () => {
         }
       });
 
-      // --- PARALLEL PROCESSING: Speed Boost ---
-      // We don't wait for sanitization to start strategy. Strategy is robust enough to handle raw text.
-      // Sanitization runs in background for the report.
+      // --- PROCESSING ---
       const rawText = formData.scrape.raw_text_optional || "";
       
+      // Sanitization always uses Gemini (Fast/Cheap)
       const sanitizePromise = rawText ? sanitizeInput(rawText) : Promise.resolve(null);
       
-      // Step 1: Generate Strategy (Starts immediately)
-      // Note: We pass rawText directly. The API filters safety anyway.
-      const strategyPromise = generateStrategy(formData, rawText);
+      // Step 1: Generate Strategy
+      // Choose Engine
+      const strategyPromise = useOpenRouter 
+          ? generateStrategyOpenRouter(formData, rawText) 
+          : generateStrategyGemini(formData, rawText);
 
       // Wait for Strategy (Critical Path)
       const strategyData = await strategyPromise;
       setLoadingStage('drafting');
 
-      // Update UI with Strategy immediately while Scenes generate
+      // Update UI with Strategy immediately
       let draftResult: GeneratedAsset = {
           ...strategyData as any,
       };
@@ -104,7 +111,12 @@ const App: React.FC = () => {
 
       // Step 2: Generate Scenes (Finalize)
       setLoadingStage('finalizing');
-      const scenesData = await generateScenes(formData, draftResult);
+      
+      const scenesPromise = useOpenRouter
+          ? generateScenesOpenRouter(formData, draftResult)
+          : generateScenesGemini(formData, draftResult);
+          
+      const scenesData = await scenesPromise;
       
       // Get sanitization result (non-blocking)
       const sanReport = await sanitizePromise;
@@ -123,11 +135,9 @@ const App: React.FC = () => {
           console.log("Draft updated with final result");
         });
       } else {
-        // Fallback if draft save failed or hasn't finished (race condition handled by saveGeneration usually)
         saveGeneration(formData, finalResult);
       }
 
-      // Auto scroll to results on mobile
       if (window.innerWidth < 1024) {
         setTimeout(() => {
           document.getElementById('output-section')?.scrollIntoView({ behavior: 'smooth' });
@@ -189,11 +199,16 @@ const App: React.FC = () => {
                 UGC<span className="text-brand-500">Director</span>
               </h1>
               <div className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] bg-white/10 text-slate-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold">Beta v2.3 Turbo</span>
+                <span className="text-[10px] bg-white/10 text-slate-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold">Beta v2.4</span>
                 <span className="flex h-2 w-2 relative">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
+                {useOpenRouter && (
+                     <span className="flex items-center gap-1 text-[10px] bg-indigo-500/10 text-indigo-300 px-2 py-0.5 rounded uppercase tracking-wider font-bold border border-indigo-500/20">
+                        <Network className="w-3 h-3" /> OpenRouter
+                     </span>
+                )}
               </div>
             </div>
           </div>
@@ -247,7 +262,9 @@ const App: React.FC = () => {
                  <div className="w-full max-w-sm lg:max-w-none glass-panel p-6 rounded-2xl border border-brand-500/30 shadow-2xl relative overflow-hidden">
                     <div className="flex items-center gap-3 mb-4 text-brand-400">
                        <RefreshCw className="w-5 h-5 animate-spin" />
-                       <span className="font-bold text-sm tracking-widest uppercase">Generating Assets</span>
+                       <span className="font-bold text-sm tracking-widest uppercase">
+                          {useOpenRouter ? 'Connecting OpenRouter' : 'Generating Assets'}
+                       </span>
                     </div>
                     <div className="space-y-4">
                         <div className={`flex items-center gap-3 text-xs transition-all ${loadingStage !== 'analyzing' ? 'text-emerald-500 opacity-50' : 'text-white font-bold'}`}>
@@ -257,7 +274,7 @@ const App: React.FC = () => {
                         </div>
                         <div className={`flex items-center gap-3 text-xs transition-all ${loadingStage === 'drafting' ? 'text-white font-bold' : (result ? 'text-emerald-500 opacity-50' : 'text-slate-700')}`}>
                              <div className={`w-2 h-2 rounded-full ${loadingStage === 'drafting' ? 'bg-white animate-pulse' : 'bg-current'}`}></div>
-                             Drafting Strategy & Hooks
+                             Drafting Strategy
                              {result && loadingStage !== 'drafting' && <Check className="w-3 h-3 ml-auto" />}
                         </div>
                         <div className={`flex items-center gap-3 text-xs transition-all ${loadingStage === 'finalizing' ? 'text-white font-bold' : 'text-slate-700'}`}>
@@ -265,6 +282,13 @@ const App: React.FC = () => {
                              Finalizing Scenes & Scripts
                         </div>
                     </div>
+                    {useOpenRouter && (
+                         <div className="mt-4 pt-3 border-t border-white/10">
+                             <p className="text-[10px] text-indigo-400 flex items-center gap-1">
+                                 <Network className="w-3 h-3" /> Using {getStoredOpenRouterModel().split('/')[1]}
+                             </p>
+                         </div>
+                    )}
                  </div>
               </div>
             )}

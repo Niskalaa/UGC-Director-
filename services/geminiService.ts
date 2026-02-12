@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type, Modality } from "@google/genai";
 import { FormData, GeneratedAsset, ScrapeSanitized } from "../types";
 
@@ -19,15 +20,18 @@ const getApiKey = (): string => {
   return process.env.API_KEY || "";
 };
 
-// Retry wrapper for API calls to handle 429 Quota Exceeded
+// Retry wrapper for API calls to handle 429 Quota Exceeded and 503 Service Unavailable
 async function retryOperation<T>(operation: () => Promise<T>, retries = 3, initialDelay = 2000): Promise<T> {
   let delay = initialDelay;
   for (let i = 0; i < retries; i++) {
     try {
       return await operation();
     } catch (error: any) {
-      if (error.status === 429 || error.message?.includes('429')) {
-        console.warn(`Quota exceeded (429). Retrying in ${delay}ms... (Attempt ${i + 1}/${retries})`);
+      const isQuota = error.status === 429 || error.message?.includes('429') || error.message?.includes('Quota');
+      const isServerOverload = error.status === 503 || error.message?.includes('503');
+      
+      if (isQuota || isServerOverload) {
+        console.warn(`API Busy/Quota (${error.status || 'Unknown'}). Retrying in ${delay}ms... (Attempt ${i + 1}/${retries})`);
         if (i === retries - 1) throw new Error("Service is currently busy (Quota Exceeded). Please try again in a minute.");
         await new Promise(resolve => setTimeout(resolve, delay));
         delay *= 2; // Exponential backoff
@@ -59,7 +63,7 @@ export const sanitizeInput = async (rawText: string): Promise<ScrapeSanitized | 
    }
 };
 
-// 2. Generate Strategy (Stage 1)
+// 2. Generate Strategy (Stage 1) - DEEP ANALYSIS UPGRADE WITH FALLBACK
 export const generateStrategy = async (formData: FormData, contextText: string): Promise<Partial<GeneratedAsset>> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const outputLanguage = formData.constraints.language === 'en' ? 'English' : 'Indonesian (Bahasa Indonesia)';
@@ -69,6 +73,17 @@ export const generateStrategy = async (formData: FormData, contextText: string):
     properties: {
       concept_title: { type: Type.STRING },
       hook_rationale: { type: Type.STRING },
+      analysis_report: {
+        type: Type.OBJECT,
+        properties: {
+            audience_persona: { type: Type.STRING },
+            core_pain_points: { type: Type.ARRAY, items: { type: Type.STRING } },
+            emotional_triggers: { type: Type.ARRAY, items: { type: Type.STRING } },
+            competitor_gap: { type: Type.STRING },
+            winning_angle_logic: { type: Type.STRING },
+        },
+        required: ["audience_persona", "core_pain_points", "emotional_triggers", "competitor_gap", "winning_angle_logic"]
+      },
       brand_dna: {
          type: Type.OBJECT,
          properties: {
@@ -91,45 +106,67 @@ export const generateStrategy = async (formData: FormData, contextText: string):
           required: ["core_facts", "required_disclaimer"]
       }
     },
-    required: ["concept_title", "hook_rationale", "brand_dna", "product_truth_sheet"]
+    required: ["concept_title", "hook_rationale", "brand_dna", "product_truth_sheet", "analysis_report"]
   };
 
   const prompt = `
-    ROLE: You are an elite UGC Creative Director.
-    TASK: Analyze the brand and product to create a high-level production strategy.
-    
+    ROLE: You are a World-Class Direct Response Copywriter and Creative Director for UGC Ads (TikTok/Reels).
+    OBJECTIVE: Perform a deep psychological analysis of the product and audience, then develop a viral ad strategy.
+
     INPUT DATA:
     Brand: ${formData.brand.name}
     Tone: ${formData.brand.tone_hint_optional}
     Product: ${formData.product.type} (${formData.product.material})
+    Objective: ${formData.product.objective}
+    Target Platform: ${formData.product.platform.join(', ')}
     Context: ${contextText}
 
-    REQUIREMENTS:
-    1. Define the "Brand DNA" (voice, audience).
-    2. Create a "Product Truth Sheet" (facts, compliance).
-    3. Develop a catchy Concept Title and Hook Rationale.
+    DEEP DIVE METHODOLOGY:
+    1. **Audience Persona**: Who specifically is this for? What keeps them up at night?
+    2. **Psychological Triggers**: Identify the emotional levers (e.g., Status, Fear of Missing Out, Convenience, Identity).
+    3. **Competitor Gap**: What is the market ignoring that this product solves?
+    4. **The Winning Angle**: Based on the above, select the single most powerful angle (e.g., "Us vs Them", "The Secret Hack", "Shocking Truth").
 
-    IMPORTANT:
-    - The output language must be strictly in ${outputLanguage}.
-    - Ensure all analysis, rationales, and facts are written in ${outputLanguage}.
+    OUTPUT REQUIREMENTS:
+    - **Language**: Strictly ${outputLanguage}.
+    - **Tone**: Authentic, Native to TikTok/Reels (Not "Salesy", but "Persuasive").
+    - **Analysis Report**: Fill the 'analysis_report' schema with your deep findings.
+    - **Brand DNA**: Define the voice (e.g., "Bestie to Bestie", "Expert", "Chaos").
   `;
 
-  return retryOperation(async () => {
-    const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-        responseMimeType: "application/json",
-        responseSchema: schema,
-        }
-    });
+  // Helper to execute generation with specified model
+  const executeGen = async (modelName: string, thinkingBudget: number) => {
+    return retryOperation(async () => {
+      const response = await ai.models.generateContent({
+          model: modelName,
+          contents: prompt,
+          config: {
+              responseMimeType: "application/json",
+              responseSchema: schema,
+              maxOutputTokens: 8192,
+              thinkingConfig: { thinkingBudget }
+          }
+      });
 
-    if (!response.text) throw new Error("No strategy data returned.");
-    return JSON.parse(cleanJson(response.text));
-  });
+      if (!response.text) throw new Error("No strategy data returned.");
+      return JSON.parse(cleanJson(response.text));
+    });
+  };
+
+  try {
+    // Try Primary Model (Pro)
+    return await executeGen("gemini-3-pro-preview", 4096);
+  } catch (e: any) {
+    // If quota exceeded or busy, fallback to Flash
+    if (e.message?.includes('Quota') || e.message?.includes('busy')) {
+        console.warn("Strategy Generation: Pro model quota hit, falling back to Flash...");
+        return await executeGen("gemini-3-flash-preview", 2048);
+    }
+    throw e;
+  }
 };
 
-// 3. Generate Scenes (Stage 2)
+// 3. Generate Scenes (Stage 2) - PRODUCTION READY UPGRADE WITH FALLBACK
 export const generateScenes = async (formData: FormData, strategy: Partial<GeneratedAsset>): Promise<Partial<GeneratedAsset>> => {
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const outputLanguage = formData.constraints.language === 'en' ? 'English' : 'Indonesian (Bahasa Indonesia)';
@@ -161,46 +198,66 @@ export const generateScenes = async (formData: FormData, strategy: Partial<Gener
   };
 
   const prompt = `
-    ROLE: You are an elite UGC Scriptwriter and AI Prompt Engineer.
-    TASK: Write the detailed scenes and high-fidelity image prompts for the strategy defined below.
+    ROLE: You are an Elite UGC Scriptwriter & Visual Director.
+    TASK: Write a production-ready, frame-by-frame script based on the strategy below.
     
-    STRATEGY:
+    STRATEGY CONTEXT:
     Concept: ${strategy.concept_title}
-    Hook Logic: ${strategy.hook_rationale}
-    Audience: ${strategy.brand_dna?.audience_guess}
-    Tone: ${strategy.brand_dna?.voice_traits?.join(', ')}
+    Winning Angle: ${strategy.analysis_report?.winning_angle_logic}
+    Persona: ${strategy.analysis_report?.audience_persona}
+    Hook: ${strategy.hook_rationale}
 
     CONSTRAINTS:
-    Platform: ${formData.product.platform.join(', ')}
     Duration: ${formData.constraints.vo_duration_seconds}s
-    Must Include: ${formData.constraints.must_include_optional.join(', ')}
-    Do Not Say: ${formData.constraints.do_not_say_optional.join(', ')}
+    Scene Count: Exactly ${targetSceneCount} scenes.
+    Language: ${outputLanguage}
 
-    OUTPUT REQUIREMENTS:
-    1. **Language**: All Scripts, Visual Descriptions, Captions in ${outputLanguage}.
-    2. **Image Prompts (English)**: 
-       - Write HIGHLY DETAILED, PHOTOREALISTIC prompts suitable for Flux/Midjourney.
-       - Include: Lighting (e.g. 'natural golden hour window light', 'ring light'), Camera (e.g. 'shot on iPhone 15 Pro', '4k', 'macro lens'), and Style (e.g. 'authentic UGC', 'amateur footage', 'snapchat quality', 'tiktok aesthetic').
-       - AVOID: 'Professional studio lighting' if it's supposed to look like a user review.
-    3. **Negative Prompts**:
-       - Generate a string of keywords to avoid: 'cartoon, illustration, 3d render, painting, drawing, blur, distortion, low resolution, watermark, text overlay'.
-    
-    Generate exactly ${targetSceneCount} scenes.
+    EXECUTION GUIDELINES (THE "METHOD"):
+    1. **The Hook (Scene 1)**: Must be a pattern interrupt. Visuals must start in motion. Audio must grab attention in 0.5s.
+    2. **The Retain**: Deliver value immediately. No fluff.
+    3. **The Solution**: Show, don't just tell.
+    4. **The CTA**: Clear instruction on what to do next.
+
+    IMAGE PROMPT ENGINEERING:
+    - Write photorealistic prompts for Flux/Midjourney.
+    - Lighting: Specify "Natural window light", "Ring light", "Golden hour".
+    - Camera: "Shot on iPhone 15 Pro", "Macro lens", "Handheld POV".
+    - Aesthetic: "UGC", "Authentic", "Unpolished", "Viral TikTok style".
+    - **Negative Prompts**: Generate a specific negative prompt for each scene to avoid common AI artifacts.
+
+    OUTPUT:
+    - Audio Script must be colloquial (spoken word), including fillers like "um", "so yeah" if it fits the persona.
+    - Visual Description must be actionable for a video editor.
   `;
 
-  return retryOperation(async () => {
-    const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-        responseMimeType: "application/json",
-        responseSchema: schema,
-        }
-    });
+  // Helper to execute generation with specified model
+  const executeGen = async (modelName: string, thinkingBudget: number) => {
+    return retryOperation(async () => {
+      const response = await ai.models.generateContent({
+          model: modelName, // Upgraded to Pro for better creative writing
+          contents: prompt,
+          config: {
+              responseMimeType: "application/json",
+              responseSchema: schema,
+              maxOutputTokens: 8192,
+              thinkingConfig: { thinkingBudget } 
+          }
+      });
 
-    if (!response.text) throw new Error("No scene data returned.");
-    return JSON.parse(cleanJson(response.text));
-  });
+      if (!response.text) throw new Error("No scene data returned.");
+      return JSON.parse(cleanJson(response.text));
+    });
+  };
+
+  try {
+    return await executeGen("gemini-3-pro-preview", 2048);
+  } catch (e: any) {
+    if (e.message?.includes('Quota') || e.message?.includes('busy')) {
+        console.warn("Scene Generation: Pro model quota hit, falling back to Flash...");
+        return await executeGen("gemini-3-flash-preview", 1024);
+    }
+    throw e;
+  }
 };
 
 // Analyze Audio for Voice Cloning

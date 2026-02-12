@@ -1,32 +1,41 @@
+
 import React, { useState, useEffect } from 'react';
-import { X, Key, ExternalLink, Save, Check, Zap, Sparkles, Image as ImageIcon, Video, Clock, Gauge } from 'lucide-react';
-import { getStoredReplicateKey, setStoredReplicateKey } from '../services/externalService';
+import { X, Key, ExternalLink, Save, Check, Zap, Cpu, Image as ImageIcon, Video, Clock, Gauge, Network } from 'lucide-react';
+import { getStoredOpenRouterKey, setStoredOpenRouterKey, getStoredOpenRouterModel, setStoredOpenRouterModel } from '../services/externalService';
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
+const OPENROUTER_MODELS = [
+    { id: "deepseek/deepseek-chat", name: "DeepSeek V3" },
+    { id: "deepseek/deepseek-r1", name: "DeepSeek R1 (Reasoning)" },
+    { id: "anthropic/claude-3.5-sonnet", name: "Claude 3.5 Sonnet" },
+    { id: "google/gemini-2.0-flash-001", name: "Gemini 2.0 Flash" },
+    { id: "openai/gpt-4o", name: "GPT-4o" },
+    { id: "meta-llama/llama-3.1-70b-instruct", name: "Llama 3.1 70B" }
+];
+
 export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose }) => {
-  const [replicateKey, setReplicateKey] = useState('');
+  const [openRouterKey, setOpenRouterKey] = useState('');
   const [geminiKey, setGeminiKey] = useState('');
-  const [defaultImageModel, setDefaultImageModel] = useState('flux');
+  const [selectedModel, setSelectedModel] = useState('');
   const [defaultVideoDuration, setDefaultVideoDuration] = useState('5s');
-  const [defaultVideoFps, setDefaultVideoFps] = useState('30');
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     if (isOpen) {
-      setReplicateKey(getStoredReplicateKey());
+      setOpenRouterKey(getStoredOpenRouterKey());
+      setSelectedModel(getStoredOpenRouterModel());
       setGeminiKey(localStorage.getItem('GEMINI_API_KEY') || '');
-      setDefaultImageModel(localStorage.getItem('PREF_IMAGE_MODEL') || 'flux');
       setDefaultVideoDuration(localStorage.getItem('PREF_VIDEO_DURATION') || '5s');
-      setDefaultVideoFps(localStorage.getItem('PREF_VIDEO_FPS') || '30');
     }
   }, [isOpen]);
 
   const handleSave = () => {
-    setStoredReplicateKey(replicateKey);
+    setStoredOpenRouterKey(openRouterKey);
+    setStoredOpenRouterModel(selectedModel);
     
     if (geminiKey.trim()) {
         localStorage.setItem('GEMINI_API_KEY', geminiKey.trim());
@@ -34,17 +43,12 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
         localStorage.removeItem('GEMINI_API_KEY');
     }
 
-    localStorage.setItem('PREF_IMAGE_MODEL', defaultImageModel);
     localStorage.setItem('PREF_VIDEO_DURATION', defaultVideoDuration);
-    localStorage.setItem('PREF_VIDEO_FPS', defaultVideoFps);
 
     setSaved(true);
     setTimeout(() => {
       setSaved(false);
       onClose();
-      // Reload page to apply changes if necessary, or just close. 
-      // Components read from localStorage on mount usually.
-      // Ideally we should use a Context for this, but simple localStorage read in components works for now.
       window.location.reload(); 
     }, 800);
   };
@@ -67,7 +71,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
           </div>
           <div>
             <h2 className="text-xl font-bold text-white">System Settings</h2>
-            <p className="text-xs text-slate-400">API Keys & Generation Defaults</p>
+            <p className="text-xs text-slate-400">API Keys & Model Configuration</p>
           </div>
         </div>
 
@@ -85,7 +89,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
                 </a>
              </div>
              <p className="text-[11px] text-slate-500 leading-relaxed">
-                Optional. Use your own key if the default quota is exhausted.
+                Default engine for Strategy & Scenes. Use your own key to bypass default quotas.
              </p>
              <div className="relative">
                 <input 
@@ -98,78 +102,43 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({ isOpen, onClose })
              </div>
           </div>
 
-          {/* Replicate Section */}
+          {/* OpenRouter Section */}
           <div className="space-y-3 pb-6 border-b border-white/5">
              <div className="flex justify-between items-center">
                 <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-indigo-400" />
-                    <label className="text-sm font-bold text-slate-200">Replicate API Token</label>
+                    <Network className="w-4 h-4 text-indigo-400" />
+                    <label className="text-sm font-bold text-slate-200">OpenRouter API</label>
                 </div>
-                <a href="https://replicate.com/account/api-tokens" target="_blank" rel="noreferrer" className="text-[10px] text-brand-400 hover:underline flex items-center gap-1">
-                   Get Token <ExternalLink className="w-3 h-3" />
+                <a href="https://openrouter.ai/keys" target="_blank" rel="noreferrer" className="text-[10px] text-brand-400 hover:underline flex items-center gap-1">
+                   Get Key <ExternalLink className="w-3 h-3" />
                 </a>
              </div>
              <p className="text-[11px] text-slate-500 leading-relaxed">
-                Required for <strong>Flux</strong> images and <strong>Minimax</strong> video.
+                Optional. Overrides Gemini for Strategy & Script generation using models like Claude or DeepSeek.
              </p>
              <div className="relative">
                 <input 
                   type="password" 
-                  value={replicateKey}
-                  onChange={(e) => setReplicateKey(e.target.value)}
-                  placeholder="r8_..."
+                  value={openRouterKey}
+                  onChange={(e) => setOpenRouterKey(e.target.value)}
+                  placeholder="sk-or-..."
                   className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-colors placeholder-slate-700"
                 />
              </div>
-          </div>
-
-          {/* Defaults Section */}
-          <div className="space-y-4">
-             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Generation Defaults</h3>
              
-             {/* Image Model Pref */}
-             <div className="flex items-center justify-between">
+             {/* Model Selector */}
+             <div className="flex items-center justify-between pt-2">
                 <div className="flex items-center gap-2 text-sm text-slate-300">
-                    <ImageIcon className="w-4 h-4 text-slate-500" /> Image Model
+                    <Cpu className="w-4 h-4 text-slate-500" /> Preferred Model
                 </div>
                 <select 
-                    value={defaultImageModel} 
-                    onChange={(e) => setDefaultImageModel(e.target.value)}
-                    className="bg-zinc-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500"
+                    value={selectedModel} 
+                    onChange={(e) => setSelectedModel(e.target.value)}
+                    className="bg-zinc-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-indigo-500 max-w-[180px]"
                 >
-                    <option value="flux">Flux Schnell (Replicate)</option>
-                    <option value="gemini">Gemini Imagen</option>
-                </select>
-             </div>
-
-             {/* Video Duration */}
-             <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm text-slate-300">
-                    <Clock className="w-4 h-4 text-slate-500" /> Video Duration
-                </div>
-                <select 
-                    value={defaultVideoDuration} 
-                    onChange={(e) => setDefaultVideoDuration(e.target.value)}
-                    className="bg-zinc-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500"
-                >
-                    <option value="5s">5 Seconds</option>
-                    <option value="10s">10 Seconds</option>
-                </select>
-             </div>
-
-             {/* Video FPS */}
-             <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm text-slate-300">
-                    <Gauge className="w-4 h-4 text-slate-500" /> Video FPS
-                </div>
-                <select 
-                    value={defaultVideoFps} 
-                    onChange={(e) => setDefaultVideoFps(e.target.value)}
-                    className="bg-zinc-900 border border-white/10 rounded-lg px-2 py-1.5 text-xs text-white outline-none focus:border-brand-500"
-                >
-                    <option value="24">24 FPS</option>
-                    <option value="30">30 FPS</option>
-                    <option value="60">60 FPS</option>
+                    {OPENROUTER_MODELS.map(m => (
+                        <option key={m.id} value={m.id}>{m.name}</option>
+                    ))}
                 </select>
              </div>
           </div>

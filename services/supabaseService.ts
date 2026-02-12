@@ -1,3 +1,4 @@
+
 import { createClient } from '@supabase/supabase-js';
 import { FormData, GeneratedAsset } from '../types';
 
@@ -62,6 +63,7 @@ export const saveGeneration = async (input: FormData, output: GeneratedAsset) =>
   // Try to get current user, but proceed even if anon
   const { data: { user } } = await supabase.auth.getUser();
   
+  // Note: user_id column removed from insert payload due to schema mismatch (PGRST204)
   const { data, error } = await supabase
     .from('ugc_generations')
     .insert([
@@ -70,7 +72,7 @@ export const saveGeneration = async (input: FormData, output: GeneratedAsset) =>
         product_type: input.product.type,
         input_brief: input,
         output_plan: output,
-        user_id: user?.id || null
+        // user_id: user?.id || null 
       },
     ])
     .select();
@@ -103,11 +105,10 @@ export const fetchHistory = async () => {
     .order('created_at', { ascending: false })
     .limit(20);
 
-  // If we had strict RLS, we would need user. But for this demo, we might fetch global or user specific.
-  // Assuming the table allows reading own rows or public rows.
-  if (user) {
-    query = query.eq('user_id', user.id);
-  }
+  // Note: user_id filtering disabled due to schema mismatch (PGRST204)
+  // if (user) {
+  //   query = query.eq('user_id', user.id);
+  // }
 
   const { data, error } = await query;
 
