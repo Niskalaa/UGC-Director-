@@ -10,6 +10,7 @@ import { saveGeneration, updateGeneration, fetchHistory, deleteGeneration, Saved
 import { Zap, Check, Info, History as HistoryIcon, X, ChevronRight, Clock, RefreshCw, Settings2, LogOut, User, Network, Trash2, CheckCircle2, Cpu } from 'lucide-react';
 import { SettingsModal } from './components/SettingsModal';
 import { Session } from '@supabase/supabase-js';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 
 const App: React.FC = () => {
   const [session, setSession] = useState<Session | null>(null);
@@ -458,6 +459,7 @@ const App: React.FC = () => {
          <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-[70] md:hidden" onClick={() => setShowHistory(false)}></div>
       )}
 
+      <SpeedInsights />
     </div>
   );
 };
