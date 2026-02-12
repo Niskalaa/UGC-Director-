@@ -33,7 +33,18 @@ export default async function handler(req, res) {
     if (e1) throw e1;
 
     // 2) orchestrate via Gemini
-    const plan = await orchestrate({ type, brief });
+    let plan;
+try {
+  plan = await orchestrate({ type, brief });
+} catch (e) {
+  console.error("Orchestrate failed, fallback to direct brief:", e?.message || e);
+
+  // fallback plan sederhana (tanpa Gemini)
+  plan = {
+    image: { prompt: brief, negative: "" },
+    video: { prompt: brief, negative: "" }
+  };
+}
 
     const outputs = {};
 
