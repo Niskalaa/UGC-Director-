@@ -1,3 +1,4 @@
+
 import React, { ReactNode, ErrorInfo, Component } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App';
@@ -33,20 +34,20 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
           display: 'flex', 
           alignItems: 'center', 
           justifyContent: 'center', 
-          backgroundColor: '#050505', 
+          backgroundColor: '#f8fafc', 
           color: '#ef4444', 
           padding: '20px',
           fontFamily: 'Inter, sans-serif'
         }}>
-          <div style={{ maxWidth: '600px', width: '100%' }}>
-             <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem' }}>System Failure</h2>
+          <div style={{ maxWidth: '600px', width: '100%', backgroundColor: 'white', padding: '2rem', borderRadius: '1rem', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
+             <h2 style={{ fontSize: '1.5rem', fontWeight: 'bold', marginBottom: '1rem', color: '#0f172a' }}>System Failure</h2>
              <div style={{ 
-               backgroundColor: 'rgba(239, 68, 68, 0.1)', 
-               border: '1px solid rgba(239, 68, 68, 0.2)', 
+               backgroundColor: '#fef2f2', 
+               border: '1px solid #fee2e2', 
                padding: '1.5rem', 
                borderRadius: '0.75rem',
                fontSize: '0.875rem',
-               color: '#fca5a5',
+               color: '#b91c1c',
                whiteSpace: 'pre-wrap',
                overflow: 'auto'
              }}>
@@ -62,7 +63,8 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
                  fontWeight: 'bold',
                  borderRadius: '0.5rem',
                  border: 'none',
-                 cursor: 'pointer'
+                 cursor: 'pointer',
+                 width: '100%'
                }}
              >
                Reboot System
@@ -91,8 +93,8 @@ if (container) {
   } catch (err) {
     console.error("System: Critical Mount Error", err);
     container.innerHTML = `
-      <div style="color:#ef4444; text-align:center; padding:50px; font-family: sans-serif;">
-        <h3>System Failure</h3>
+      <div style="color:#ef4444; text-align:center; padding:50px; font-family: sans-serif; background: #f8fafc; height: 100vh;">
+        <h3 style="color: #0f172a;">System Failure</h3>
         <p>${err instanceof Error ? err.message : String(err)}</p>
       </div>
     `;

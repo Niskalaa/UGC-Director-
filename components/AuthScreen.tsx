@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { signInWithGoogle, signInWithEmail, signUpWithEmail } from '../services/supabaseService';
 import { Zap, Mail, Lock, Loader2, ArrowRight, AlertCircle, CheckCircle2 } from 'lucide-react';
@@ -50,35 +51,35 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-black">
+    <div className="min-h-screen flex items-center justify-center p-4 relative overflow-hidden bg-[#f8fafc]">
        {/* Background Effects */}
-       <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-brand-600/20 rounded-full blur-[120px] pointer-events-none"></div>
-       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-600/20 rounded-full blur-[120px] pointer-events-none"></div>
+       <div className="absolute top-[-20%] left-[-10%] w-[50%] h-[50%] bg-brand-500/10 rounded-full blur-[120px] pointer-events-none"></div>
+       <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-purple-500/10 rounded-full blur-[120px] pointer-events-none"></div>
 
        <div className="w-full max-w-md relative z-10 animate-in zoom-in-95 duration-500">
          
          {/* Header */}
          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-600 shadow-[0_0_30px_rgba(249,115,22,0.4)] mb-4">
+            <div className="inline-flex items-center justify-center p-3 rounded-2xl bg-gradient-to-br from-brand-500 to-brand-600 shadow-lg shadow-brand-500/30 mb-4">
                 <Zap className="w-8 h-8 text-white fill-white" />
             </div>
-            <h1 className="text-3xl font-black text-white tracking-tight">
+            <h1 className="text-3xl font-black text-slate-900 tracking-tight">
                 UGC<span className="text-brand-500">Director</span>
             </h1>
-            <p className="text-slate-400 mt-2 text-sm">Sign in to access AI Director tools</p>
+            <p className="text-slate-500 mt-2 text-sm">Sign in to access AI Director tools</p>
          </div>
 
          {/* Auth Card */}
-         <div className="glass-panel p-8 rounded-3xl border border-white/10 shadow-2xl backdrop-blur-xl">
+         <div className="glass-panel p-8 rounded-3xl border border-white/50 shadow-2xl backdrop-blur-xl bg-white/70">
             
             {/* Google Button */}
             <button 
                 onClick={handleGoogleLogin}
                 disabled={loading}
-                className="w-full bg-white text-black font-bold py-3.5 rounded-xl hover:bg-slate-200 transition-all flex items-center justify-center gap-3 mb-6 relative group overflow-hidden"
+                className="w-full bg-white text-slate-700 border border-slate-200 font-bold py-3.5 rounded-xl hover:bg-slate-50 transition-all flex items-center justify-center gap-3 mb-6 relative group overflow-hidden shadow-sm"
             >
                 {loading ? (
-                    <Loader2 className="w-5 h-5 animate-spin" />
+                    <Loader2 className="w-5 h-5 animate-spin text-slate-500" />
                 ) : (
                     <>
                     <svg className="w-5 h-5" viewBox="0 0 24 24">
@@ -93,52 +94,52 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
             </button>
 
             <div className="relative flex py-2 items-center mb-6">
-                <div className="flex-grow border-t border-white/10"></div>
-                <span className="flex-shrink-0 mx-4 text-xs text-slate-500 uppercase tracking-widest font-semibold">Or with Email</span>
-                <div className="flex-grow border-t border-white/10"></div>
+                <div className="flex-grow border-t border-slate-200"></div>
+                <span className="flex-shrink-0 mx-4 text-xs text-slate-400 uppercase tracking-widest font-semibold">Or with Email</span>
+                <div className="flex-grow border-t border-slate-200"></div>
             </div>
 
             {/* Email Form */}
             <form onSubmit={handleEmailAuth} className="space-y-4">
                 <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-300 ml-1">Email Address</label>
+                    <label className="text-xs font-bold text-slate-600 ml-1">Email Address</label>
                     <div className="relative">
-                        <Mail className="absolute left-4 top-3.5 w-4 h-4 text-slate-500" />
+                        <Mail className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
                         <input 
                             type="email" 
                             required
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
                             placeholder="creator@example.com"
-                            className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm text-white focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/50 transition-all placeholder-slate-600"
+                            className="w-full bg-white border border-slate-200 rounded-xl py-3 pl-11 pr-4 text-sm text-slate-900 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/50 transition-all placeholder-slate-400 shadow-sm"
                         />
                     </div>
                 </div>
 
                 <div className="space-y-1.5">
-                    <label className="text-xs font-bold text-slate-300 ml-1">Password</label>
+                    <label className="text-xs font-bold text-slate-600 ml-1">Password</label>
                     <div className="relative">
-                        <Lock className="absolute left-4 top-3.5 w-4 h-4 text-slate-500" />
+                        <Lock className="absolute left-4 top-3.5 w-4 h-4 text-slate-400" />
                         <input 
                             type="password" 
                             required
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                             placeholder="••••••••"
-                            className="w-full bg-black/40 border border-white/10 rounded-xl py-3 pl-11 pr-4 text-sm text-white focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/50 transition-all placeholder-slate-600"
+                            className="w-full bg-white border border-slate-200 rounded-xl py-3 pl-11 pr-4 text-sm text-slate-900 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500/50 transition-all placeholder-slate-400 shadow-sm"
                         />
                     </div>
                 </div>
 
                 {error && (
-                    <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/20 p-3 rounded-lg text-xs text-red-200">
+                    <div className="flex items-start gap-2 bg-red-50 border border-red-200 p-3 rounded-lg text-xs text-red-600">
                         <AlertCircle className="w-4 h-4 text-red-500 shrink-0" />
                         {error}
                     </div>
                 )}
                 
                 {message && (
-                    <div className="flex items-start gap-2 bg-emerald-500/10 border border-emerald-500/20 p-3 rounded-lg text-xs text-emerald-200">
+                    <div className="flex items-start gap-2 bg-emerald-50 border border-emerald-200 p-3 rounded-lg text-xs text-emerald-600">
                         <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
                         {message}
                     </div>
@@ -158,16 +159,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onAuthSuccess }) => {
                 <button 
                     type="button"
                     onClick={() => { setIsLogin(!isLogin); setError(null); setMessage(null); }}
-                    className="text-xs text-slate-400 hover:text-white transition-colors"
+                    className="text-xs text-slate-500 hover:text-slate-900 transition-colors"
                 >
                     {isLogin ? "Don't have an account? " : "Already have an account? "}
-                    <span className="text-brand-500 font-bold hover:underline">{isLogin ? "Sign up" : "Log in"}</span>
+                    <span className="text-brand-600 font-bold hover:underline">{isLogin ? "Sign up" : "Log in"}</span>
                 </button>
             </div>
          </div>
          
          <div className="mt-6 text-center">
-            <p className="text-[10px] text-slate-600">
+            <p className="text-[10px] text-slate-500">
                 By continuing, you agree to our Terms of Service. <br/>
                 Gemini API Key integrated automatically for authenticated users.
             </p>

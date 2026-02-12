@@ -61,21 +61,47 @@
     <style>
       body {
         font-family: 'Inter', sans-serif;
-        background-color: #000000;
-        color: #f8fafc;
+        background-color: #f8fafc; /* Flat White/Slate-50 */
+        color: #0f172a; /* Slate-900 */
         -webkit-font-smoothing: antialiased;
+        /* Subtle Orange Gradient Mesh on White */
         background-image: 
-          radial-gradient(at 0% 0%, rgba(249, 115, 22, 0.15) 0px, transparent 50%),
-          radial-gradient(at 100% 100%, rgba(249, 115, 22, 0.1) 0px, transparent 50%);
+          radial-gradient(at 0% 0%, rgba(249, 115, 22, 0.08) 0px, transparent 50%),
+          radial-gradient(at 100% 100%, rgba(249, 115, 22, 0.05) 0px, transparent 50%);
         background-attachment: fixed;
       }
-      .glass-panel { background: rgba(24, 24, 27, 0.6); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 1px solid rgba(255, 255, 255, 0.08); }
-      .glass-input { background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.1); backdrop-filter: blur(4px); }
-      .glass-input:focus { background: rgba(0, 0, 0, 0.6); border-color: #f97316; }
+      
+      /* Light Mode Glassmorphism */
+      .glass-panel { 
+        background: rgba(255, 255, 255, 0.75); 
+        backdrop-filter: blur(16px); 
+        -webkit-backdrop-filter: blur(16px); 
+        border: 1px solid rgba(249, 115, 22, 0.15); 
+        box-shadow: 0 10px 30px -10px rgba(249, 115, 22, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+      }
+      
+      .glass-input { 
+        background: rgba(255, 255, 255, 0.6); 
+        border: 1px solid rgba(203, 213, 225, 0.8); /* Slate-300 */
+        backdrop-filter: blur(4px); 
+        color: #0f172a;
+        transition: all 0.2s ease;
+      }
+      
+      .glass-input:focus { 
+        background: rgba(255, 255, 255, 0.95); 
+        border-color: #f97316; 
+        box-shadow: 0 0 0 2px rgba(249, 115, 22, 0.1);
+        outline: none;
+      }
+      
+      .glass-input::placeholder {
+        color: #94a3b8; /* Slate-400 */
+      }
       
       /* Utilities for shimmer effect */
       .bg-shimmer {
-        background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.05) 50%, transparent 100%);
+        background: linear-gradient(90deg, transparent 0%, rgba(249, 115, 22, 0.1) 50%, transparent 100%);
         background-size: 200% 100%;
       }
     </style>

@@ -203,7 +203,7 @@ const App: React.FC = () => {
 
   if (authChecking) {
      return (
-        <div className="min-h-screen bg-black flex items-center justify-center">
+        <div className="min-h-screen bg-[#f8fafc] flex items-center justify-center">
             <RefreshCw className="w-8 h-8 text-brand-500 animate-spin" />
         </div>
      );
@@ -214,13 +214,13 @@ const App: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen pb-20 animate-in overflow-x-hidden relative">
+    <div className="min-h-screen pb-20 animate-in overflow-x-hidden relative text-slate-900">
       <SettingsModal isOpen={showSettings} onClose={() => setShowSettings(false)} />
 
       {/* Notification Toast */}
       {notification && (
         <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[100] animate-in fade-in slide-in-from-top-4">
-             <div className="bg-emerald-500/10 backdrop-blur-md border border-emerald-500/20 text-emerald-400 px-6 py-3 rounded-full shadow-2xl flex items-center gap-2">
+             <div className="bg-white/80 backdrop-blur-md border border-emerald-500/20 text-emerald-600 px-6 py-3 rounded-full shadow-xl flex items-center gap-2">
                  <CheckCircle2 className="w-4 h-4" />
                  <span className="text-sm font-bold">{notification}</span>
              </div>
@@ -232,26 +232,26 @@ const App: React.FC = () => {
         {/* Header */}
         <header className="flex items-center justify-between mb-8 md:mb-12 relative z-20">
           <div className="flex items-center gap-4">
-            <div className="bg-gradient-to-br from-brand-500 to-brand-600 p-2.5 rounded-xl shadow-[0_0_20px_rgba(249,115,22,0.3)]">
+            <div className="bg-gradient-to-br from-brand-500 to-brand-600 p-2.5 rounded-xl shadow-lg shadow-brand-500/30">
               <Zap className="w-6 h-6 text-white fill-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-black text-white tracking-tight leading-none">
+              <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-none">
                 UGC<span className="text-brand-500">Director</span>
               </h1>
               <div className="flex items-center gap-2 mt-1">
-                <span className="text-[10px] bg-white/10 text-slate-400 px-2 py-0.5 rounded uppercase tracking-wider font-bold">Beta v2.4</span>
+                <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded uppercase tracking-wider font-bold border border-slate-200">Beta v2.4</span>
                 <span className="flex h-2 w-2 relative">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
                 
                 {activeProvider === 'openrouter' ? (
-                     <span className="flex items-center gap-1 text-[10px] bg-indigo-500/10 text-indigo-300 px-2 py-0.5 rounded uppercase tracking-wider font-bold border border-indigo-500/20">
+                     <span className="flex items-center gap-1 text-[10px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded uppercase tracking-wider font-bold border border-indigo-200">
                         <Network className="w-3 h-3" /> OpenRouter
                      </span>
                 ) : (
-                    <span className="flex items-center gap-1 text-[10px] bg-emerald-500/10 text-emerald-300 px-2 py-0.5 rounded uppercase tracking-wider font-bold border border-emerald-500/20">
+                    <span className="flex items-center gap-1 text-[10px] bg-emerald-50 text-emerald-600 px-2 py-0.5 rounded uppercase tracking-wider font-bold border border-emerald-200">
                         <Zap className="w-3 h-3" /> Gemini Pro
                     </span>
                 )}
@@ -259,14 +259,14 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center gap-3">
-             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10 mr-2">
+             <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white border border-slate-200 shadow-sm mr-2">
                 <User className="w-3 h-3 text-slate-400" />
-                <span className="text-xs text-slate-300 truncate max-w-[150px]">{session.user.email}</span>
+                <span className="text-xs text-slate-600 truncate max-w-[150px]">{session.user.email}</span>
              </div>
 
             <button 
                 onClick={() => setShowSettings(true)}
-                className="flex items-center gap-2 p-2 rounded-lg bg-white/5 border border-white/10 text-slate-300 hover:bg-white/10 transition-all hover:text-white"
+                className="flex items-center gap-2 p-2 rounded-lg bg-white border border-slate-200 text-slate-500 hover:bg-slate-50 transition-all hover:text-brand-600 shadow-sm"
                 title="API Settings"
             >
                 <Settings2 className="w-5 h-5" />
@@ -274,14 +274,14 @@ const App: React.FC = () => {
             </button>
             <button 
                 onClick={handleToggleHistory}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all ${showHistory ? 'bg-brand-600 border-brand-500 text-white' : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10'}`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition-all shadow-sm ${showHistory ? 'bg-brand-600 border-brand-500 text-white' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50 hover:text-brand-600'}`}
             >
                 <HistoryIcon className="w-4 h-4" />
                 <span className="hidden md:inline font-bold text-xs uppercase tracking-wider">History</span>
             </button>
             <button 
                 onClick={handleLogout}
-                className="p-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-all"
+                className="p-2 rounded-lg bg-white border border-red-100 text-red-400 hover:bg-red-50 hover:text-red-500 transition-all shadow-sm"
                 title="Sign Out"
             >
                 <LogOut className="w-5 h-5" />
@@ -294,9 +294,9 @@ const App: React.FC = () => {
           {/* Input Section */}
           <div className="lg:col-span-4 xl:col-span-3 space-y-6">
             <div className="relative group">
-              <div className="absolute -inset-0.5 bg-gradient-to-r from-brand-600 to-purple-600 rounded-[2rem] opacity-30 group-hover:opacity-50 blur transition duration-500"></div>
-              <div className="relative bg-[#0a0a0a] rounded-[1.75rem] p-1 border border-white/10">
-                 <div className="bg-[#0f0f0f] rounded-[1.5rem] p-4 md:p-5 overflow-hidden">
+              <div className="absolute -inset-1 bg-gradient-to-r from-brand-200 to-purple-200 rounded-[2rem] opacity-50 blur-lg transition duration-500"></div>
+              <div className="relative bg-white/50 rounded-[1.75rem] p-1 border border-white/50">
+                 <div className="bg-white/40 rounded-[1.5rem] p-4 md:p-5 overflow-hidden">
                     <InputForm onSubmit={handleSubmit} isLoading={loading} initialValues={formDataState} />
                  </div>
               </div>
@@ -304,36 +304,36 @@ const App: React.FC = () => {
 
             {/* Granular Loading Status Panel */}
             {loading && (
-              <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center lg:relative lg:inset-auto lg:bg-transparent lg:backdrop-blur-none lg:z-auto">
-                 <div className="w-full max-w-sm lg:max-w-none glass-panel p-6 rounded-2xl border border-brand-500/30 shadow-2xl relative overflow-hidden">
-                    <div className="flex items-center gap-3 mb-4 text-brand-400">
+              <div className="fixed inset-0 bg-white/80 backdrop-blur-sm z-50 flex items-center justify-center lg:relative lg:inset-auto lg:bg-transparent lg:backdrop-blur-none lg:z-auto">
+                 <div className="w-full max-w-sm lg:max-w-none glass-panel p-6 rounded-2xl border border-brand-500/30 shadow-2xl relative overflow-hidden bg-white">
+                    <div className="flex items-center gap-3 mb-4 text-brand-600">
                        <RefreshCw className="w-5 h-5 animate-spin" />
                        <span className="font-bold text-sm tracking-widest uppercase">
                           {activeProvider === 'openrouter' ? 'Connecting OpenRouter' : 'Generating Assets'}
                        </span>
                     </div>
                     <div className="space-y-4">
-                        <div className={`flex items-center gap-3 text-xs transition-all ${loadingStage !== 'analyzing' ? 'text-emerald-500 opacity-50' : 'text-white font-bold'}`}>
-                             <div className={`w-2 h-2 rounded-full ${loadingStage === 'analyzing' ? 'bg-white animate-pulse' : 'bg-current'}`}></div>
+                        <div className={`flex items-center gap-3 text-xs transition-all ${loadingStage !== 'analyzing' ? 'text-emerald-500 opacity-50' : 'text-slate-900 font-bold'}`}>
+                             <div className={`w-2 h-2 rounded-full ${loadingStage === 'analyzing' ? 'bg-brand-500 animate-pulse' : 'bg-current'}`}></div>
                              Analyzing Brand DNA & Safety
                              {loadingStage !== 'analyzing' && <Check className="w-3 h-3 ml-auto" />}
                         </div>
-                        <div className={`flex items-center gap-3 text-xs transition-all ${loadingStage === 'drafting' ? 'text-white font-bold' : (result ? 'text-emerald-500 opacity-50' : 'text-slate-700')}`}>
-                             <div className={`w-2 h-2 rounded-full ${loadingStage === 'drafting' ? 'bg-white animate-pulse' : 'bg-current'}`}></div>
+                        <div className={`flex items-center gap-3 text-xs transition-all ${loadingStage === 'drafting' ? 'text-slate-900 font-bold' : (result ? 'text-emerald-500 opacity-50' : 'text-slate-400')}`}>
+                             <div className={`w-2 h-2 rounded-full ${loadingStage === 'drafting' ? 'bg-brand-500 animate-pulse' : 'bg-current'}`}></div>
                              Drafting Strategy
                              {result && loadingStage !== 'drafting' && <Check className="w-3 h-3 ml-auto" />}
                         </div>
-                        <div className={`flex items-center gap-3 text-xs transition-all ${loadingStage === 'finalizing' ? 'text-white font-bold' : 'text-slate-700'}`}>
-                             <div className={`w-2 h-2 rounded-full ${loadingStage === 'finalizing' ? 'bg-white animate-pulse' : 'bg-current'}`}></div>
+                        <div className={`flex items-center gap-3 text-xs transition-all ${loadingStage === 'finalizing' ? 'text-slate-900 font-bold' : 'text-slate-400'}`}>
+                             <div className={`w-2 h-2 rounded-full ${loadingStage === 'finalizing' ? 'bg-brand-500 animate-pulse' : 'bg-current'}`}></div>
                              Finalizing Scenes & Scripts
                         </div>
                     </div>
                     
                     {/* Model Indicator Footer */}
-                    <div className="mt-4 pt-3 border-t border-white/10">
+                    <div className="mt-4 pt-3 border-t border-slate-100">
                         <div className="flex items-center justify-between">
                             <span className="text-[10px] text-slate-500 uppercase font-bold tracking-wider">Intelligence Engine</span>
-                            <div className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono border ${activeProvider === 'openrouter' ? 'bg-indigo-500/10 border-indigo-500/30 text-indigo-300' : 'bg-brand-500/10 border-brand-500/30 text-brand-300'}`}>
+                            <div className={`flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono border ${activeProvider === 'openrouter' ? 'bg-indigo-50 text-indigo-600 border-indigo-200' : 'bg-brand-50 text-brand-600 border-brand-200'}`}>
                                 {activeProvider === 'openrouter' ? <Network className="w-3 h-3" /> : <Cpu className="w-3 h-3" />}
                                 {activeProvider === 'openrouter' 
                                     ? getStoredOpenRouterModel().split('/').pop() 
@@ -341,7 +341,7 @@ const App: React.FC = () => {
                             </div>
                         </div>
                         {activeProvider === 'gemini' && (
-                            <p className="text-[9px] text-slate-600 mt-1 text-right flex items-center justify-end gap-1">
+                            <p className="text-[9px] text-slate-500 mt-1 text-right flex items-center justify-end gap-1">
                                 {(formDataState?.constraints.ai_model === 'gemini-3-flash-preview') ? 
                                    <><Cpu className="w-2.5 h-2.5" /> High Speed Mode</> :
                                    <><Zap className="w-2.5 h-2.5" /> Thinking Mode Active</>
@@ -354,11 +354,11 @@ const App: React.FC = () => {
             )}
 
             {error && (
-               <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl flex items-start gap-3 animate-in fade-in slide-in-from-bottom-2">
+               <div className="bg-red-50 border border-red-200 p-4 rounded-2xl flex items-start gap-3 animate-in fade-in slide-in-from-bottom-2 shadow-sm">
                   <Info className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                   <div>
-                     <h3 className="text-red-400 font-bold text-sm">Generation Failed</h3>
-                     <p className="text-xs text-red-200/70 mt-1">{error}</p>
+                     <h3 className="text-red-700 font-bold text-sm">Generation Failed</h3>
+                     <p className="text-xs text-red-600 mt-1">{error}</p>
                   </div>
                </div>
             )}
@@ -374,27 +374,27 @@ const App: React.FC = () => {
 
       {/* History Sidebar */}
       <div 
-        className={`fixed inset-y-0 right-0 w-full md:w-[400px] bg-[#0c0c0c] border-l border-white/10 shadow-2xl transform transition-transform duration-300 ease-in-out z-50 ${showHistory ? 'translate-x-0' : 'translate-x-full'}`}
+        className={`fixed inset-y-0 right-0 w-full md:w-[400px] bg-white border-l border-slate-200 shadow-2xl transform transition-transform duration-300 ease-in-out z-50 ${showHistory ? 'translate-x-0' : 'translate-x-full'}`}
       >
          <div className="flex flex-col h-full">
-            <div className="p-6 border-b border-white/5 flex items-center justify-between bg-[#0a0a0a]">
-               <h2 className="text-lg font-bold text-white flex items-center gap-2">
+            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white/50 backdrop-blur">
+               <h2 className="text-lg font-bold text-slate-900 flex items-center gap-2">
                   <HistoryIcon className="w-5 h-5 text-brand-500" />
                   Saved Prompts
                </h2>
-               <button onClick={() => setShowHistory(false)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+               <button onClick={() => setShowHistory(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
                   <X className="w-5 h-5 text-slate-400" />
                </button>
             </div>
             
-            <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 bg-slate-50/50">
                {loadingHistory ? (
                    <div className="flex items-center justify-center h-40 text-slate-500 gap-2">
                       <div className="w-4 h-4 border-2 border-brand-500/30 border-t-brand-500 rounded-full animate-spin"></div>
                       <span className="text-xs">Loading history...</span>
                    </div>
                ) : history.length === 0 ? (
-                   <div className="text-center p-8 text-slate-600">
+                   <div className="text-center p-8 text-slate-400">
                       <HistoryIcon className="w-10 h-10 mx-auto mb-3 opacity-20" />
                       <p className="text-sm">No saved generations found.</p>
                    </div>
@@ -403,19 +403,19 @@ const App: React.FC = () => {
                       <div 
                         key={item.id} 
                         onClick={() => loadHistoryItem(item)}
-                        className="group bg-white/5 hover:bg-white/10 border border-white/5 hover:border-brand-500/30 p-4 rounded-xl cursor-pointer transition-all relative"
+                        className="group bg-white hover:bg-white border border-slate-200 hover:border-brand-500/50 p-4 rounded-xl cursor-pointer transition-all relative shadow-sm hover:shadow-md"
                       >
                          <div className="flex justify-between items-start mb-2 pr-6">
-                            <span className="text-xs font-bold text-brand-400 bg-brand-900/20 px-2 py-0.5 rounded">{item.brand_name}</span>
-                            <span className="text-[10px] text-slate-500 flex items-center gap-1">
+                            <span className="text-xs font-bold text-brand-600 bg-brand-50 px-2 py-0.5 rounded border border-brand-100">{item.brand_name}</span>
+                            <span className="text-[10px] text-slate-400 flex items-center gap-1">
                                <Clock className="w-3 h-3" />
                                {new Date(item.created_at).toLocaleDateString()}
                             </span>
                          </div>
-                         <h3 className="text-sm font-bold text-slate-200 mb-1 line-clamp-2">{item.output_plan.concept_title}</h3>
+                         <h3 className="text-sm font-bold text-slate-800 mb-1 line-clamp-2">{item.output_plan.concept_title}</h3>
                          <div className="flex items-center justify-between text-xs text-slate-500 mt-2">
                              <span>{item.product_type}</span>
-                             <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-brand-400 transition-opacity">
+                             <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 text-brand-500 transition-opacity">
                                 Open <ChevronRight className="w-3 h-3" />
                              </div>
                          </div>
@@ -423,7 +423,7 @@ const App: React.FC = () => {
                          {/* Delete Button */}
                          <button 
                             onClick={(e) => handleDeleteHistoryItem(e, item.id)}
-                            className="absolute top-2 right-2 p-1.5 text-slate-600 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
+                            className="absolute top-2 right-2 p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100"
                             title="Delete"
                          >
                             <Trash2 className="w-4 h-4" />
@@ -437,7 +437,7 @@ const App: React.FC = () => {
       
       {/* Backdrop for history */}
       {showHistory && (
-         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 md:hidden" onClick={() => setShowHistory(false)}></div>
+         <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 md:hidden" onClick={() => setShowHistory(false)}></div>
       )}
 
     </div>
