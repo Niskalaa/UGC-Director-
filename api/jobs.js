@@ -1,7 +1,13 @@
 // api/jobs.js
-// FULL PATCH: Gemini-orchestrate fallback + OpenRouter Images API via api.openrouter.ai + HF video JSON handling + job failed status
+// ✅ Updated: Gemini-orchestrate fallback + OpenRouter Images API (api.openrouter.ai) + HF router.huggingface.co
+// ✅ Added: fetch fallback via undici (fix "fetch failed" on some runtimes)
+// ✅ Added: retry/backoff + mark job failed on error
 import { createClient } from "@supabase/supabase-js";
 import { orchestrate } from "../internal/orchestrate.js";
+import { fetch as undiciFetch } from "undici";
+
+// Use global fetch if available, otherwise undici
+const fetchFn = globalThis.fetch || undiciFetch;
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -11,7 +17,7 @@ const supabase = createClient(
 const DEFAULT_NEG =
   "blurry, lowres, watermark, text artifacts, distorted face, extra fingers, extra limbs, bad anatomy, ai look, overprocessed";
 
-const OR_BASE = "https://api.openrouter.ai/v1"; // IMPORTANT: use api.openrouter.ai (not openrouter.ai)
+const OR_BASE = "https://api.openrouter.ai/v1"; // IMPORTANT: api.openrouter.ai (not openrouter.ai)
 const OR_REFERRER = process.env.OPENROUTER_REFERRER || "https://xklaa.vercel.app";
 const OR_APP_NAME = process.env.OPENROUTER_APP_NAME || "UGC-Director";
 
@@ -92,7 +98,7 @@ export default async function handler(req, res) {
         .eq("id", job.id);
     }
 
-    // 4) Video via Hugging Face (may timeout depending on model/plan)
+    // 4) Video via Hugging Face Router
     if (type === "video" || type === "both") {
       const p = plan?.video?.prompt;
       if (!p) throw new Error("Orchestrator missing video.prompt");
@@ -164,11 +170,12 @@ async function withRetry(fn, { attempts = 3, baseDelayMs = 1500 } = {}) {
 
       const retryable =
         msg.includes("429") ||
-        msg.includes("rate") ||
+        msg.toLowerCase().includes("rate") ||
         msg.includes("503") ||
         msg.includes("RESOURCE_EXHAUSTED") ||
-        msg.includes("temporarily") ||
-        msg.includes("loading");
+        msg.toLowerCase().includes("temporarily") ||
+        msg.toLowerCase().includes("loading") ||
+        msg.toLowerCase().includes("fetch failed");
 
       if (!retryable || i === attempts - 1) break;
 
@@ -201,7 +208,7 @@ async function generateImageOpenRouter(prompt, negative) {
     size: "1024x1024"
   };
 
-  const r = await fetch(`${OR_BASE}/images/generations`, {
+  const r = await fetchFn(`${OR_BASE}/images/generations`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
@@ -228,7 +235,7 @@ async function generateImageOpenRouter(prompt, negative) {
   if (b64) return { buffer: Buffer.from(b64, "base64"), contentType: "image/png" };
 
   if (url) {
-    const imgRes = await fetch(url);
+    const imgRes = await fetchFn(url);
     if (!imgRes.ok) throw new Error(`Failed to download image url: ${imgRes.status} ${await imgRes.text()}`);
     const ab = await imgRes.arrayBuffer();
     const ct = imgRes.headers.get("content-type") || "image/png";
@@ -239,7 +246,8 @@ async function generateImageOpenRouter(prompt, negative) {
 }
 
 /**
- * Hugging Face text-to-video
+ * Hugging Face text-to-video (NEW endpoint)
+ * HF says api-inference.huggingface.co is deprecated -> use router.huggingface.co
  * Env:
  * - HF_TOKEN
  * Optional:
@@ -251,7 +259,7 @@ async function generateVideoHF(prompt, negative) {
   const model = process.env.HF_VIDEO_MODEL || "THUDM/CogVideoX-2b";
   const fullPrompt = negative ? `${prompt}\n\nNegative: ${negative}` : prompt;
 
-  const r = await fetch(`https://api-inference.huggingface.co/models/${model}`, {
+  const r = await fetchFn(`https://router.huggingface.co/models/${model}`, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${process.env.HF_TOKEN}`,
