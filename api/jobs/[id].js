@@ -3,10 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { BedrockRuntimeClient, GetAsyncInvokeCommand } from "@aws-sdk/client-bedrock-runtime";
 import { S3Client, ListObjectsV2Command, GetObjectCommand } from "@aws-sdk/client-s3";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 const bedrock = new BedrockRuntimeClient({
   region: process.env.AWS_REGION || "us-west-2"
@@ -32,55 +29,90 @@ export default async function handler(req, res) {
     if (e1) throw e1;
     if (!job) return res.status(404).json({ error: "job not found" });
 
-    // already done
-    if (job.status === "done" && job.output_url) {
+    // kalau sudah done, return output lengkap
+    if (job.status === "done") {
       return res.status(200).json({
         id: job.id,
         status: "done",
-        output_url: job.output_url,
-        image_url: job.output_url?.includes("/image/") ? job.output_url : undefined,
-        video_url: job.output_url?.includes("/video/") ? job.output_url : undefined
+        image_url: job.image_url || null,
+        video_url: job.video_url || null
       });
     }
 
-    // no async id => probably image still processing or failed
-    const asyncId = job.async_id;
-    if (!asyncId) {
-      return res.status(200).json({ id: job.id, status: job.status, output_url: job.output_url || null });
+    // kalau tidak ada async id => image-only sedang proses / atau belum update
+    if (!job.video_async_id) {
+      return res.status(200).json({
+        id: job.id,
+        status: job.status,
+        image_url: job.image_url || null,
+        video_url: job.video_url || null
+      });
     }
 
-    // check bedrock async
-    const st = await bedrock.send(new GetAsyncInvokeCommand({ asyncInvocationId: asyncId }));
-    const status = st?.status || "UNKNOWN";
+    // cek status async bedrock
+    const st = await bedrock.send(
+      new GetAsyncInvokeCommand({ asyncInvocationId: job.video_async_id })
+    );
 
-    if (status !== "COMPLETED" && status !== "FAILED") {
-      return res.status(200).json({ id: job.id, status: "processing", bedrock_status: status });
+    const bedrockStatus = st?.status || "UNKNOWN";
+
+    if (bedrockStatus !== "COMPLETED" && bedrockStatus !== "FAILED") {
+      return res.status(200).json({
+        id: job.id,
+        status: "processing",
+        bedrock_status: bedrockStatus,
+        image_url: job.image_url || null,
+        video_url: job.video_url || null
+      });
     }
 
-    if (status === "FAILED") {
-      await supabase.from("generation_jobs").update({ status: "failed" }).eq("id", job.id);
-      return res.status(200).json({ id: job.id, status: "failed", bedrock_status: status });
+    if (bedrockStatus === "FAILED") {
+      await supabase
+        .from("generation_jobs")
+        .update({ status: "failed", error: "Ray2 async FAILED" })
+        .eq("id", job.id);
+
+      return res.status(200).json({
+        id: job.id,
+        status: "failed",
+        bedrock_status: bedrockStatus,
+        image_url: job.image_url || null,
+        video_url: null
+      });
     }
 
-    // completed -> fetch latest mp4 in S3 prefix then upload to Supabase
+    // COMPLETED => ambil mp4 dari S3 prefix (usahakan yang mengandung async id)
     const { bucket, prefix } = parseS3Uri(process.env.BEDROCK_VIDEO_S3_URI);
 
-    const key = await findLatestMp4({ bucket, prefix });
-    if (!key) throw new Error("No mp4 found in S3 output prefix yet");
+    const mp4Key = await findMp4ForAsync({ bucket, prefix, asyncId: job.video_async_id });
+    if (!mp4Key) throw new Error("No mp4 found in S3 output prefix (Ray2 completed) yet");
 
-    const videoBuf = await downloadS3Object({ bucket, key });
+    const videoBuf = await downloadS3Object({ bucket, key: mp4Key });
 
-    const path = `video/${job.id}.mp4`;
-    await uploadToSupabase(path, videoBuf, "video/mp4");
+    const videoPath = `video/${job.id}.mp4`;
+    await uploadToSupabase(videoPath, videoBuf, "video/mp4");
 
-    const { data: pub } = supabase.storage.from("generations").getPublicUrl(path);
+    const { data: pubVid } = supabase.storage.from("generations").getPublicUrl(videoPath);
+    const videoUrl = pubVid.publicUrl;
 
+    // status final: done kalau:
+    // - type=video => video_url ada
+    // - type=both => image_url mungkin sudah ada; kalau belum, tetap done karena video selesai (image sudah dikerjakan lebih dulu)
     await supabase
       .from("generation_jobs")
-      .update({ status: "done", output_path: path, output_url: pub.publicUrl })
+      .update({
+        video_path: videoPath,
+        video_url: videoUrl,
+        status: "done"
+      })
       .eq("id", job.id);
 
-    return res.status(200).json({ id: job.id, status: "done", video_url: pub.publicUrl });
+    return res.status(200).json({
+      id: job.id,
+      status: "done",
+      image_url: job.image_url || null,
+      video_url: videoUrl
+    });
   } catch (err) {
     return res.status(500).json({ error: String(err?.message || err) });
   }
@@ -95,12 +127,23 @@ function parseS3Uri(s3Uri) {
   return { bucket, prefix };
 }
 
-async function findLatestMp4({ bucket, prefix }) {
+async function findMp4ForAsync({ bucket, prefix, asyncId }) {
+  // 1) coba cari mp4 yang mengandung asyncId (lebih aman daripada "latest mp4")
   const r = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: prefix }));
-  const list = (r.Contents || [])
-    .filter((o) => o.Key && o.Key.toLowerCase().endsWith(".mp4"))
+  const all = (r.Contents || []).filter((o) => o.Key);
+
+  const match = all
+    .filter((o) => o.Key.toLowerCase().endsWith(".mp4") && o.Key.includes(asyncId))
     .sort((a, b) => new Date(b.LastModified || 0) - new Date(a.LastModified || 0));
-  return list[0]?.Key || null;
+
+  if (match[0]?.Key) return match[0].Key;
+
+  // 2) fallback: ambil mp4 terbaru di prefix
+  const latest = all
+    .filter((o) => o.Key.toLowerCase().endsWith(".mp4"))
+    .sort((a, b) => new Date(b.LastModified || 0) - new Date(a.LastModified || 0));
+
+  return latest[0]?.Key || null;
 }
 
 async function downloadS3Object({ bucket, key }) {
