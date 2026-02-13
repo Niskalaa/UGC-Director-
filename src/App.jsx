@@ -1,5 +1,5 @@
-import Generator from "./components/Generator.jsx";
+import GeneratorInteractive from "./components/GeneratorInteractive.jsx";
 
 export default function App() {
-  return <Generator />;
+  return <GeneratorInteractive />;
 }
