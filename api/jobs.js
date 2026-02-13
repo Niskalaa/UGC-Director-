@@ -6,10 +6,7 @@ import {
   StartAsyncInvokeCommand
 } from "@aws-sdk/client-bedrock-runtime";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 const bedrock = new BedrockRuntimeClient({
   region: process.env.AWS_REGION || "us-west-2"
@@ -21,8 +18,9 @@ const DEFAULT_NEG =
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
+  let jobId = null;
+
   try {
-    // ENV checks
     mustEnv("SUPABASE_URL");
     mustEnv("SUPABASE_SERVICE_ROLE_KEY");
     mustEnv("AWS_REGION");
@@ -38,86 +36,102 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: "type must be image|video|both" });
     }
 
-    const plan = {
-      image: { prompt: brief, negative: negative || DEFAULT_NEG, settings: settings || {} },
-      video: { prompt: brief, negative: negative || DEFAULT_NEG, settings: settings || {} }
-    };
+    const s = settings || {};
+    const neg = (negative || DEFAULT_NEG).trim();
 
-    // Create job row (requires generation_jobs has async_id column)
+    // 1) create job row (schema baru)
     const { data: job, error: e1 } = await supabase
       .from("generation_jobs")
       .insert({
-        type: type === "both" ? "image" : type,
+        type,
         status: "processing",
-        prompt: "",
-        negative: "",
-        provider: "bedrock",
-        output_path: "",
-        output_url: "",
-        async_id: null
+        brief: String(brief),
+        settings: s
       })
       .select("*")
       .single();
 
     if (e1) throw e1;
+    jobId = job.id;
 
     const outputs = {};
 
-    // IMAGE (sync) SD3.5
+    // 2) IMAGE (sync) — SD 3.5 Large
     if (type === "image" || type === "both") {
-      const p = plan.image.prompt;
-      const neg = plan.image.negative || DEFAULT_NEG;
+      const imageModelId = process.env.BEDROCK_IMAGE_MODEL_ID;
 
-      const img = await generateImageSD35({ prompt: p, negative: neg, settings: plan.image.settings });
+      const img = await generateImageSD35({
+        prompt: String(brief),
+        negative: neg,
+        settings: s
+      });
 
-      const path = `image/${job.id}.png`;
-      await uploadToSupabase(path, img.buffer, "image/png");
+      const imagePath = `image/${job.id}.png`;
+      await uploadToSupabase(imagePath, img.buffer, "image/png");
 
-      const { data: pub } = supabase.storage.from("generations").getPublicUrl(path);
-      outputs.image_url = pub.publicUrl;
+      const { data: pubImg } = supabase.storage.from("generations").getPublicUrl(imagePath);
+      const imageUrl = pubImg.publicUrl;
+
+      outputs.image_url = imageUrl;
 
       await supabase
         .from("generation_jobs")
         .update({
-          prompt: p,
-          negative: neg,
-          provider: "bedrock-sd3.5",
-          output_path: path,
-          output_url: pub.publicUrl,
+          image_prompt: String(brief),
+          image_negative: neg,
+          image_provider: "bedrock",
+          image_model_id: imageModelId,
+          image_path: imagePath,
+          image_url: imageUrl,
           status: type === "both" ? "processing" : "done"
         })
         .eq("id", job.id);
     }
 
-    // VIDEO (async) Ray2
+    // 3) VIDEO (async) — Luma Ray2
     if (type === "video" || type === "both") {
-      const p = plan.video.prompt;
-      const neg = plan.video.negative || DEFAULT_NEG;
+      const videoModelId = process.env.BEDROCK_VIDEO_MODEL_ID;
 
-      const start = await startVideoRay2({ prompt: p, negative: neg, settings: plan.video.settings });
+      const start = await startVideoRay2({
+        prompt: String(brief),
+        negative: neg,
+        settings: s
+      });
+
+      outputs.video_status = "processing";
+      outputs.video_async_id = start.asyncInvocationId;
 
       await supabase
         .from("generation_jobs")
         .update({
-          prompt: p,
-          negative: neg,
-          provider: "bedrock-ray2",
-          status: "processing",
-          async_id: start.asyncInvocationId
+          video_prompt: String(brief),
+          video_negative: neg,
+          video_provider: "bedrock",
+          video_model_id: videoModelId,
+          video_async_id: start.asyncInvocationId,
+          status: "processing"
         })
         .eq("id", job.id);
-
-      outputs.video_status = "processing";
-      outputs.async_id = start.asyncInvocationId;
     }
 
+    // response yang dipakai UI
     return res.status(200).json({
       id: job.id,
       status: type === "image" ? "done" : "processing",
       ...outputs
     });
   } catch (err) {
-    return res.status(500).json({ error: String(err?.message || err) });
+    const msg = String(err?.message || err);
+
+    // best-effort: update job row to failed
+    if (jobId) {
+      await supabase
+        .from("generation_jobs")
+        .update({ status: "failed", error: msg })
+        .eq("id", jobId);
+    }
+
+    return res.status(500).json({ error: msg });
   }
 }
 
@@ -146,7 +160,7 @@ function mapSdSettings(s = {}) {
 
 function mapRay2Settings(s = {}) {
   const out = {};
-  // If your Ray2 param names differ, remove these or adjust.
+  // kalau Ray2 kamu tidak support field ini, hapus 3 baris ini saja.
   if (s.video_seconds) out.duration_seconds = Number(s.video_seconds);
   if (s.aspect_ratio) out.aspect_ratio = String(s.aspect_ratio);
   if (s.seed !== undefined && s.seed !== null && !Number.isNaN(Number(s.seed))) out.seed = Number(s.seed);
@@ -194,9 +208,7 @@ async function startVideoRay2({ prompt, negative, settings }) {
   const cmd = new StartAsyncInvokeCommand({
     modelId,
     modelInput: inputBody,
-    outputDataConfig: {
-      s3OutputDataConfig: { s3Uri }
-    }
+    outputDataConfig: { s3OutputDataConfig: { s3Uri } }
   });
 
   const resp = await bedrock.send(cmd);
