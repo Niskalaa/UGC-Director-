@@ -22,6 +22,7 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
 
   try {
+    // ENV checks
     mustEnv("SUPABASE_URL");
     mustEnv("SUPABASE_SERVICE_ROLE_KEY");
     mustEnv("AWS_REGION");
@@ -31,17 +32,18 @@ export default async function handler(req, res) {
     mustEnv("BEDROCK_VIDEO_MODEL_ID");
     mustEnv("BEDROCK_VIDEO_S3_URI");
 
-    const { type, brief } = req.body || {};
+    const { type, brief, negative, settings } = req.body || {};
     if (!type || !brief) return res.status(400).json({ error: "type & brief required" });
     if (!["image", "video", "both"].includes(type)) {
       return res.status(400).json({ error: "type must be image|video|both" });
     }
 
     const plan = {
-      image: { prompt: brief, negative: DEFAULT_NEG },
-      video: { prompt: brief, negative: DEFAULT_NEG }
+      image: { prompt: brief, negative: negative || DEFAULT_NEG, settings: settings || {} },
+      video: { prompt: brief, negative: negative || DEFAULT_NEG, settings: settings || {} }
     };
 
+    // Create job row (requires generation_jobs has async_id column)
     const { data: job, error: e1 } = await supabase
       .from("generation_jobs")
       .insert({
@@ -61,12 +63,12 @@ export default async function handler(req, res) {
 
     const outputs = {};
 
-    // IMAGE (sync)
+    // IMAGE (sync) SD3.5
     if (type === "image" || type === "both") {
       const p = plan.image.prompt;
       const neg = plan.image.negative || DEFAULT_NEG;
 
-      const img = await generateImageSD35({ prompt: p, negative: neg });
+      const img = await generateImageSD35({ prompt: p, negative: neg, settings: plan.image.settings });
 
       const path = `image/${job.id}.png`;
       await uploadToSupabase(path, img.buffer, "image/png");
@@ -87,12 +89,12 @@ export default async function handler(req, res) {
         .eq("id", job.id);
     }
 
-    // VIDEO (async)
+    // VIDEO (async) Ray2
     if (type === "video" || type === "both") {
       const p = plan.video.prompt;
       const neg = plan.video.negative || DEFAULT_NEG;
 
-      const start = await startVideoRay2({ prompt: p, negative: neg });
+      const start = await startVideoRay2({ prompt: p, negative: neg, settings: plan.video.settings });
 
       await supabase
         .from("generation_jobs")
@@ -130,13 +132,35 @@ async function uploadToSupabase(path, buffer, contentType) {
   if (error) throw error;
 }
 
-async function generateImageSD35({ prompt, negative }) {
+function mapSdSettings(s = {}) {
+  const out = {};
+  if (s.seed !== undefined && s.seed !== null && !Number.isNaN(Number(s.seed))) out.seed = Number(s.seed);
+  if (s.aspect_ratio) out.aspect_ratio = String(s.aspect_ratio);
+
+  if (s.quality === "draft") out.steps = 20;
+  if (s.quality === "standard") out.steps = 30;
+  if (s.quality === "high") out.steps = 40;
+
+  return out;
+}
+
+function mapRay2Settings(s = {}) {
+  const out = {};
+  // If your Ray2 param names differ, remove these or adjust.
+  if (s.video_seconds) out.duration_seconds = Number(s.video_seconds);
+  if (s.aspect_ratio) out.aspect_ratio = String(s.aspect_ratio);
+  if (s.seed !== undefined && s.seed !== null && !Number.isNaN(Number(s.seed))) out.seed = Number(s.seed);
+  return out;
+}
+
+async function generateImageSD35({ prompt, negative, settings }) {
   const modelId = process.env.BEDROCK_IMAGE_MODEL_ID;
 
   const body = {
     prompt,
     negative_prompt: negative || "",
-    output_format: "png"
+    output_format: "png",
+    ...mapSdSettings(settings)
   };
 
   const cmd = new InvokeModelCommand({
@@ -157,13 +181,14 @@ async function generateImageSD35({ prompt, negative }) {
   return { buffer: Buffer.from(b64, "base64") };
 }
 
-async function startVideoRay2({ prompt, negative }) {
+async function startVideoRay2({ prompt, negative, settings }) {
   const modelId = process.env.BEDROCK_VIDEO_MODEL_ID;
   const s3Uri = process.env.BEDROCK_VIDEO_S3_URI;
 
   const inputBody = {
     prompt,
-    negative_prompt: negative || ""
+    negative_prompt: negative || "",
+    ...mapRay2Settings(settings)
   };
 
   const cmd = new StartAsyncInvokeCommand({
