@@ -32,22 +32,24 @@ export default async function handler(req, res) {
     if (e1) throw e1;
     if (!job) return res.status(404).json({ error: "job not found" });
 
-    // If image-only job already done
+    // already done
     if (job.status === "done" && job.output_url) {
       return res.status(200).json({
         id: job.id,
         status: "done",
+        output_url: job.output_url,
         image_url: job.output_url?.includes("/image/") ? job.output_url : undefined,
-        video_url: job.output_url?.includes("/video/") ? job.output_url : undefined,
-        output_url: job.output_url
+        video_url: job.output_url?.includes("/video/") ? job.output_url : undefined
       });
     }
 
+    // no async id => probably image still processing or failed
     const asyncId = job.async_id;
     if (!asyncId) {
       return res.status(200).json({ id: job.id, status: job.status, output_url: job.output_url || null });
     }
 
+    // check bedrock async
     const st = await bedrock.send(new GetAsyncInvokeCommand({ asyncInvocationId: asyncId }));
     const status = st?.status || "UNKNOWN";
 
@@ -60,7 +62,7 @@ export default async function handler(req, res) {
       return res.status(200).json({ id: job.id, status: "failed", bedrock_status: status });
     }
 
-    // COMPLETED -> find latest mp4 in S3 prefix, upload to Supabase
+    // completed -> fetch latest mp4 in S3 prefix then upload to Supabase
     const { bucket, prefix } = parseS3Uri(process.env.BEDROCK_VIDEO_S3_URI);
 
     const key = await findLatestMp4({ bucket, prefix });
