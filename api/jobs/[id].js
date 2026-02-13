@@ -1,14 +1,7 @@
 // api/jobs/[id].js
 import { createClient } from "@supabase/supabase-js";
-import {
-  BedrockRuntimeClient,
-  GetAsyncInvokeCommand
-} from "@aws-sdk/client-bedrock-runtime";
-import {
-  S3Client,
-  ListObjectsV2Command,
-  GetObjectCommand
-} from "@aws-sdk/client-s3";
+import { BedrockRuntimeClient, GetAsyncInvokeCommand } from "@aws-sdk/client-bedrock-runtime";
+import { S3Client, ListObjectsV2Command, GetObjectCommand } from "@aws-sdk/client-s3";
 
 const supabase = createClient(
   process.env.SUPABASE_URL,
@@ -30,7 +23,6 @@ export default async function handler(req, res) {
     const id = req.query?.id;
     if (!id) return res.status(400).json({ error: "missing id" });
 
-    // read job
     const { data: job, error: e1 } = await supabase
       .from("generation_jobs")
       .select("*")
@@ -40,46 +32,36 @@ export default async function handler(req, res) {
     if (e1) throw e1;
     if (!job) return res.status(404).json({ error: "job not found" });
 
-    const asyncId = job?.meta?.bedrock_async_id;
-    if (!asyncId) {
-      // not a video async job
+    // If image-only job already done
+    if (job.status === "done" && job.output_url) {
       return res.status(200).json({
         id: job.id,
-        status: job.status,
-        output_url: job.output_url || null
+        status: "done",
+        image_url: job.output_url?.includes("/image/") ? job.output_url : undefined,
+        video_url: job.output_url?.includes("/video/") ? job.output_url : undefined,
+        output_url: job.output_url
       });
     }
 
-    // If already done, return
-    if (job.status === "done" && job.output_url) {
-      return res.status(200).json({ id: job.id, status: "done", video_url: job.output_url });
+    const asyncId = job.async_id;
+    if (!asyncId) {
+      return res.status(200).json({ id: job.id, status: job.status, output_url: job.output_url || null });
     }
 
-    // Check Bedrock async status
     const st = await bedrock.send(new GetAsyncInvokeCommand({ asyncInvocationId: asyncId }));
     const status = st?.status || "UNKNOWN";
 
-    // If not completed yet, return processing
     if (status !== "COMPLETED" && status !== "FAILED") {
-      return res.status(200).json({
-        id: job.id,
-        status: "processing",
-        bedrock_status: status
-      });
+      return res.status(200).json({ id: job.id, status: "processing", bedrock_status: status });
     }
 
     if (status === "FAILED") {
       await supabase.from("generation_jobs").update({ status: "failed" }).eq("id", job.id);
-      return res.status(200).json({
-        id: job.id,
-        status: "failed",
-        bedrock_status: status
-      });
+      return res.status(200).json({ id: job.id, status: "failed", bedrock_status: status });
     }
 
-    // COMPLETED → fetch latest mp4 from S3 prefix and upload to Supabase
-    const s3Uri = process.env.BEDROCK_VIDEO_S3_URI;
-    const { bucket, prefix } = parseS3Uri(s3Uri);
+    // COMPLETED -> find latest mp4 in S3 prefix, upload to Supabase
+    const { bucket, prefix } = parseS3Uri(process.env.BEDROCK_VIDEO_S3_URI);
 
     const key = await findLatestMp4({ bucket, prefix });
     if (!key) throw new Error("No mp4 found in S3 output prefix yet");
@@ -93,26 +75,16 @@ export default async function handler(req, res) {
 
     await supabase
       .from("generation_jobs")
-      .update({
-        status: "done",
-        output_path: path,
-        output_url: pub.publicUrl
-      })
+      .update({ status: "done", output_path: path, output_url: pub.publicUrl })
       .eq("id", job.id);
 
-    return res.status(200).json({
-      id: job.id,
-      status: "done",
-      video_url: pub.publicUrl,
-      s3_key: key
-    });
+    return res.status(200).json({ id: job.id, status: "done", video_url: pub.publicUrl });
   } catch (err) {
     return res.status(500).json({ error: String(err?.message || err) });
   }
 }
 
 function parseS3Uri(s3Uri) {
-  // s3://bucket/prefix/
   const m = /^s3:\/\/([^/]+)\/?(.*)$/.exec(s3Uri || "");
   if (!m) throw new Error("Invalid BEDROCK_VIDEO_S3_URI");
   const bucket = m[1];
@@ -131,9 +103,8 @@ async function findLatestMp4({ bucket, prefix }) {
 
 async function downloadS3Object({ bucket, key }) {
   const r = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-  const stream = r.Body;
   const chunks = [];
-  for await (const c of stream) chunks.push(c);
+  for await (const c of r.Body) chunks.push(c);
   return Buffer.concat(chunks);
 }
 
