@@ -3,17 +3,27 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import LoginPage from "./pages/Login";
 import StudioPage from "./pages/Studio";
 import ProtectedRoute from "./auth/ProtectedRoute";
+import { useAuth } from "./auth/AuthProvider";
+
+function LoginRoute() {
+  const { user, loading } = useAuth();
+  if (loading) return null; // biar tidak flicker
+  return user ? <Navigate to="/studio" replace /> : <LoginPage />;
+}
 
 export default function App() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Default masuk ke studio */}
         <Route path="/" element={<Navigate to="/studio" replace />} />
 
-        <Route path="/login" element={<LoginPage />} />
+        {/* Login public, tapi kalau sudah login auto ke studio */}
+        <Route path="/login" element={<LoginRoute />} />
 
+        {/* Studio protected */}
         <Route
-          path="/studio"
+          path="/studio/*"
           element={
             <ProtectedRoute>
               <StudioPage />
@@ -21,9 +31,10 @@ export default function App() {
           }
         />
 
-        {/* optional: kalau SPA masih punya /generator route, kita redirect client-side juga */}
+        {/* Legacy route (client-side fallback). Edge 301 di Vercel tetap dipakai. */}
         <Route path="/generator" element={<Navigate to="/studio" replace />} />
 
+        {/* Fallback */}
         <Route path="*" element={<Navigate to="/studio" replace />} />
       </Routes>
     </BrowserRouter>
