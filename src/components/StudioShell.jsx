@@ -350,11 +350,9 @@ function SettingsTab() {
   const totalDuration = Number(p.scene_count || 0) * Number(p.seconds_per_scene || 0);
 
   const canGeneratePlan =
-    (p.brand || "").trim() &&
-    (p.product_type || "").trim() &&
-    (p.material || "").trim() &&
-    (p.model_ref_url || "").trim() &&
-    (p.product_ref_url || "").trim();
+  (p.brand || "").trim() &&
+  (p.product_type || "").trim() &&
+  (p.material || "").trim();
 
   function update(key, value) {
     setP((prev) => ({ ...prev, [key]: value }));
@@ -469,7 +467,11 @@ function SettingsTab() {
       setTimeout(() => setLeftSec(0), 400);
     }
   }
+const [linkUrl, setLinkUrl] = React.useState("");
+const [linkAnalyzing, setLinkAnalyzing] = React.useState(false);
+const [linkInfo, setLinkInfo] = React.useState("");
 
+   
   async function autoFillFromImages() {
     if (analyzing) return;
     if (!(p.model_ref_url || "").trim() || !(p.product_ref_url || "").trim()) return;
@@ -630,21 +632,86 @@ function SettingsTab() {
           <Section title={t.assets} sub=" ">
             <Grid>
               <ImageUploadField
-                label={t.modelRef}
-                kind="model"
-                projectId={p.project_id || "local"}
-                valueUrl={p.model_ref_url}
-                onUrl={(url) => update("model_ref_url", url)}
-              />
-              <ImageUploadField
-                label={t.productRef}
-                kind="product"
-                projectId={p.project_id || "local"}
-                valueUrl={p.product_ref_url}
-                onUrl={(url) => update("product_ref_url", url)}
-              />
+  label="Model reference"
+  kind="model"
+  optional={true}
+  hideUrl={true}
+  projectId={p.project_id || "local"}
+  valueUrl={p.model_ref_url}
+  onUrl={(url) => update("model_ref_url", url)}
+/>
+
+<ImageUploadField
+  label="Product reference"
+  kind="product"
+  optional={true}
+  hideUrl={true}
+  projectId={p.project_id || "local"}
+  valueUrl={p.product_ref_url}
+  onUrl={(url) => update("product_ref_url", url)}
+/>
             </Grid>
           </Section>
+           <Section title="Auto-fill from Link (optional)" sub="Paste link produk/landing page → sistem scrape/analyze → isi form otomatis.">
+  <Grid2>
+    <Field label="Product / Landing page URL">
+      <Input
+        value={linkUrl}
+        onChange={(e) => setLinkUrl(e.target.value)}
+        placeholder="https://..."
+      />
+    </Field>
+  </Grid2>
+
+  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+    <button
+      type="button"
+      disabled={linkAnalyzing || !(linkUrl || "").trim()}
+      onClick={async () => {
+        setPlanError("");
+        setLinkInfo("");
+        setLinkAnalyzing(true);
+        try {
+          const r = await fetch("/api/scrape", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ url: linkUrl })
+          });
+
+          const raw = await r.text();
+          let json;
+          try { json = raw ? JSON.parse(raw) : null; } catch {
+            throw new Error(`Non-JSON scrape response (${r.status}): ${String(raw).slice(0, 180)}`);
+          }
+          if (!r.ok || !json?.ok) throw new Error(json?.error || `Scrape failed (${r.status})`);
+
+          const f = json.fields || {};
+          setP((prev) => ({
+            ...prev,
+            brand: prev.brand?.trim() ? prev.brand : (f.brand || ""),
+            product_type: prev.product_type?.trim() ? prev.product_type : (f.product_type || ""),
+            material: prev.material?.trim() ? prev.material : (f.material || ""),
+            target_audience: prev.target_audience?.trim() ? prev.target_audience : (f.target_audience || ""),
+            tone: prev.tone?.trim() ? prev.tone : (f.tone || "natural gen-z"),
+            platform: prev.platform || (f.suggested_platform || "tiktok"),
+            aspect_ratio: prev.aspect_ratio || (f.suggested_aspect_ratio || "9:16"),
+          }));
+
+          setLinkInfo("Auto-fill dari link sukses ✓");
+        } catch (e) {
+          setPlanError(e?.message || String(e));
+        } finally {
+          setLinkAnalyzing(false);
+        }
+      }}
+      style={{ ...styles.secondaryBtn, opacity: linkAnalyzing ? 0.6 : 1 }}
+    >
+      {linkAnalyzing ? "Analyzing…" : "Auto-fill from Link"}
+    </button>
+
+    {linkInfo ? <Chip>{linkInfo}</Chip> : null}
+  </div>
+</Section>
         </div>
       </div>
 
