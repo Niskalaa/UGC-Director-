@@ -5,10 +5,15 @@ import { DEFAULT_PROJECT } from "../studio/studioStore.js";
 
 const TABS = ["Settings", "Scenes", "Export"];
 
+const StudioContext = React.createContext(null);
+export function useStudio() {
+  return React.useContext(StudioContext);
+}
+
 /* =========================
-   i18n (simple)
+   i18n minimal
    ========================= */
-const COPY = {
+const copy = {
   id: {
     studio: "Studio",
     settings: "Settings",
@@ -18,8 +23,7 @@ const COPY = {
     dark: "Dark",
     light: "Light",
     aiBrain: "AI Brain",
-    bedrock: "Bedrock",
-    gemini: "Gemini",
+    provider: "Provider",
     coreInputs: "Core Inputs",
     brand: "Brand",
     productType: "Product type",
@@ -29,33 +33,31 @@ const COPY = {
     aspectRatio: "Aspect ratio",
     sceneCount: "Scene count",
     secondsPerScene: "Seconds/scene",
-    assets: "Assets (optional)",
-    modelRef: "Model reference",
-    productRef: "Product reference",
-    linkAutofill: "Auto-fill from Link (optional)",
-    productUrl: "Product / Landing page URL",
-    runAutofill: "Auto-fill",
-    generating: "Generating…",
-    cancel: "Cancel",
-    generatePlan: "Generate Plan",
+    assetsOptional: "Assets (optional)",
+    modelRef: "Model reference (optional)",
+    productRef: "Product reference (optional)",
+    autofillLink: "Auto-fill from Link (optional)",
+    landingUrl: "Product / Landing page URL",
+    autofillBtn: "Auto-fill from Link",
+    analyzeImagesBtn: "Auto-fill from Images",
     status: "Status",
     readiness: "Readiness",
-    provider: "Provider",
+    estDuration: "Estimated duration",
+    progress: "Progress",
     elapsed: "Elapsed",
-    collapse: "Minimize",
-    expand: "Show status",
+    eta: "ETA",
+    generate: "Generate Plan",
+    generating: "Generating…",
+    cancel: "Cancel",
+    minimize: "Minimize",
+    show: "Show",
     success: "Generate success ✓",
-    failed: "Generate failed",
-    noBlueprint: "No blueprint yet. Generate in Settings.",
-    beatsMissing: "Blueprint exists, but beats not readable.",
+    blueprintEmpty: "Blueprint kosong / tidak terbaca.",
+    beatsNotReadable: "Blueprint ada, tapi beats tidak terbaca.",
     openJson: "Open JSON",
     downloadJson: "Download JSON",
-    copied: "Copied ✓",
-    createdBy: "Created by",
-    requiredMissing: "Fill required fields first.",
-    coreOk: "Core",
-    modelOk: "Model",
-    productOk: "Product",
+    createdBy: "Created by @adryndian",
+    requiredMissing: "Field wajib belum lengkap.",
   },
   en: {
     studio: "Studio",
@@ -66,8 +68,7 @@ const COPY = {
     dark: "Dark",
     light: "Light",
     aiBrain: "AI Brain",
-    bedrock: "Bedrock",
-    gemini: "Gemini",
+    provider: "Provider",
     coreInputs: "Core Inputs",
     brand: "Brand",
     productType: "Product type",
@@ -77,359 +78,303 @@ const COPY = {
     aspectRatio: "Aspect ratio",
     sceneCount: "Scene count",
     secondsPerScene: "Seconds/scene",
-    assets: "Assets (optional)",
-    modelRef: "Model reference",
-    productRef: "Product reference",
-    linkAutofill: "Auto-fill from Link (optional)",
-    productUrl: "Product / Landing page URL",
-    runAutofill: "Auto-fill",
-    generating: "Generating…",
-    cancel: "Cancel",
-    generatePlan: "Generate Plan",
+    assetsOptional: "Assets (optional)",
+    modelRef: "Model reference (optional)",
+    productRef: "Product reference (optional)",
+    autofillLink: "Auto-fill from Link (optional)",
+    landingUrl: "Product / Landing page URL",
+    autofillBtn: "Auto-fill from Link",
+    analyzeImagesBtn: "Auto-fill from Images",
     status: "Status",
     readiness: "Readiness",
-    provider: "Provider",
+    estDuration: "Estimated duration",
+    progress: "Progress",
     elapsed: "Elapsed",
-    collapse: "Minimize",
-    expand: "Show status",
+    eta: "ETA",
+    generate: "Generate Plan",
+    generating: "Generating…",
+    cancel: "Cancel",
+    minimize: "Minimize",
+    show: "Show",
     success: "Generate success ✓",
-    failed: "Generate failed",
-    noBlueprint: "No blueprint yet. Generate in Settings.",
-    beatsMissing: "Blueprint exists, but beats not readable.",
+    blueprintEmpty: "Blueprint is empty / unreadable.",
+    beatsNotReadable: "Blueprint exists, but beats not readable.",
     openJson: "Open JSON",
     downloadJson: "Download JSON",
-    copied: "Copied ✓",
-    createdBy: "Created by",
-    requiredMissing: "Fill required fields first.",
-    coreOk: "Core",
-    modelOk: "Model",
-    productOk: "Product",
+    createdBy: "Created by @adryndian",
+    requiredMissing: "Required fields are incomplete.",
   }
 };
 
-/* =========================
-   Blueprint normalization
-   ========================= */
-function isObj(x) {
-  return x && typeof x === "object" && !Array.isArray(x);
-}
-function asArray(x) {
-  return Array.isArray(x) ? x : [];
+function normalizeBlueprint(respBlueprint) {
+  // handle: { blueprint: {...} } OR { blueprint: { blueprint: {...} } }
+  if (!respBlueprint) return null;
+  if (respBlueprint.blueprint && typeof respBlueprint.blueprint === "object") return respBlueprint.blueprint;
+  return respBlueprint;
 }
 
-/**
- * Try HARD to find beats/scenes array from many possible shapes.
- * Returns { beats, path }.
- */
-function extractBeats(blueprint) {
-  if (!blueprint) return { beats: [], path: "" };
+function buildBeatsFromScenePlans(bp) {
+  // If already has storyboard beats, return it.
+  const beats =
+    bp?.storyboard?.beats ||
+    bp?.SEGMENT_3?.storyboard?.beats ||
+    bp?.segments?.storyboard?.beats ||
+    null;
 
-  // 1) canonical
-  if (isObj(blueprint.storyboard) && Array.isArray(blueprint.storyboard.beats)) {
-    return { beats: blueprint.storyboard.beats, path: "storyboard.beats" };
-  }
+  if (Array.isArray(beats) && beats.length) return beats;
 
-  // 2) common variants
-  const candidates = [
-    blueprint?.beats,
-    blueprint?.scenes,
-    blueprint?.storyboard?.scenes,
-    blueprint?.storyboard?.timeline,
-    blueprint?.SEGMENT_3?.storyboard?.beats,
-    blueprint?.SEGMENT_2?.storyboard?.beats,
-    blueprint?.SEGMENT_1?.storyboard?.beats,
-    blueprint?.segments?.storyboard?.beats,
-    blueprint?.segments?.beats,
-  ];
+  const scenePlans = Array.isArray(bp?.scene_plans) ? bp.scene_plans : [];
+  if (!scenePlans.length) return [];
 
-  for (let i = 0; i < candidates.length; i++) {
-    if (Array.isArray(candidates[i]) && candidates[i].length) {
-      return { beats: candidates[i], path: `candidate[${i}]` };
-    }
-  }
+  const vo = Array.isArray(bp?.voiceover_scripts) ? bp.voiceover_scripts : [];
 
-  // 3) segments as array
-  const segArr = asArray(blueprint?.segments);
-  for (let i = 0; i < segArr.length; i++) {
-    const s = segArr[i];
-    if (isObj(s?.storyboard) && Array.isArray(s.storyboard.beats) && s.storyboard.beats.length) {
-      return { beats: s.storyboard.beats, path: `segments[${i}].storyboard.beats` };
-    }
-    if (Array.isArray(s?.beats) && s.beats.length) {
-      return { beats: s.beats, path: `segments[${i}].beats` };
-    }
-    if (Array.isArray(s?.scenes) && s.scenes.length) {
-      return { beats: s.scenes, path: `segments[${i}].scenes` };
-    }
-  }
-
-  // 4) last resort: scan top-level keys for any object containing storyboard.beats
-  for (const k of Object.keys(blueprint)) {
-    const v = blueprint[k];
-    if (isObj(v?.storyboard) && Array.isArray(v.storyboard.beats) && v.storyboard.beats.length) {
-      return { beats: v.storyboard.beats, path: `${k}.storyboard.beats` };
-    }
-    if (isObj(v) && Array.isArray(v?.beats) && v.beats.length) {
-      return { beats: v.beats, path: `${k}.beats` };
-    }
-  }
-
-  return { beats: [], path: "" };
+  return scenePlans.map((s) => {
+    const v = vo.find((x) => Number(x.scene_number) === Number(s.scene_number));
+    return {
+      id: `S${s.scene_number}`,
+      goal: s.visual_focus || `Scene ${s.scene_number}`,
+      time_window: `${s.scene_number}`,
+      action: `${s.model_action || ""}${s.setting ? `\nSetting: ${s.setting}` : ""}${s.camera_movement ? `\nCamera: ${s.camera_movement}` : ""}`.trim(),
+      on_screen_text: Array.isArray(v?.onscreen_text)
+        ? v.onscreen_text.map((t) => t.text).join(" | ")
+        : "",
+      voiceover: v?.audio || "",
+      negative_prompt: [], // blueprint kamu belum punya, UI tetap aman
+    };
+  });
 }
 
-/* =========================
-   Toast (no deps)
-   ========================= */
-function ToastHost({ toasts, onDismiss, theme }) {
-  return (
-    <div style={{ ...styles.toastHost, ...(theme === "dark" ? styles.toastHostDark : {}) }}>
-      {toasts.map((t) => (
-        <div
-          key={t.id}
-          style={{
-            ...styles.toast,
-            ...(theme === "dark" ? styles.toastDark : {}),
-            ...(t.type === "success" ? styles.toastSuccess : {}),
-            ...(t.type === "error" ? styles.toastError : {}),
-          }}
-        >
-          <div style={{ fontWeight: 900 }}>{t.title}</div>
-          {t.msg ? <div style={{ marginTop: 4, opacity: 0.85, fontSize: 12 }}>{t.msg}</div> : null}
-          <button onClick={() => onDismiss(t.id)} style={styles.toastX} type="button">
-            ×
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function useToasts() {
-  const [toasts, setToasts] = useState([]);
-  function push({ type, title, msg, ttl = 2600 }) {
-    const id = Math.random().toString(16).slice(2);
-    setToasts((p) => [...p, { id, type, title, msg }]);
-    if (ttl > 0) setTimeout(() => setToasts((p) => p.filter((x) => x.id !== id)), ttl);
+function safeJsonStringify(obj) {
+  try {
+    return JSON.stringify(obj, null, 2);
+  } catch {
+    return JSON.stringify({ error: "Failed to stringify" }, null, 2);
   }
-  function dismiss(id) {
-    setToasts((p) => p.filter((x) => x.id !== id));
-  }
-  return { toasts, push, dismiss };
 }
 
-/* =========================
-   Context
-   ========================= */
-const StudioContext = React.createContext(null);
-export function useStudio() {
-  return React.useContext(StudioContext);
+function downloadJson(filename, obj) {
+  const blob = new Blob([safeJsonStringify(obj)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
-/* =========================
-   Main
-   ========================= */
 export default function StudioShell() {
   const [tab, setTab] = useState("Settings");
-  const [lang, setLang] = useState("id"); // "id" | "en"
-  const [theme, setTheme] = useState("dark"); // "dark" | "light"
 
+  // global studio state
   const [projectDraft, setProjectDraft] = useState({ ...DEFAULT_PROJECT, ai_brain: "bedrock" });
   const [blueprint, setBlueprint] = useState(null);
 
+  // ui
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [planError, setPlanError] = useState("");
+  const [toast, setToast] = useState({ open: false, msg: "" });
+
+  // status panel
   const [statusCollapsed, setStatusCollapsed] = useState(false);
 
-  const startedAtRef = useRef(null);
-  const [elapsedMs, setElapsedMs] = useState(0);
-  const abortRef = useRef(null);
+  // theme + lang
+  const [lang, setLang] = useState(() => localStorage.getItem("ugc_lang") || "id");
+  const [theme, setTheme] = useState(() => localStorage.getItem("ugc_theme") || "dark");
 
-  const { toasts, push, dismiss } = useToasts();
-  const t = COPY[lang];
+  // loading timer/progress
+  const abortRef = useRef(null);
+  const tickRef = useRef(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
+
+  const t = copy[lang] || copy.id;
 
   useEffect(() => {
-    document.documentElement.style.background = theme === "dark" ? "#0b0b0f" : "#fff7ed";
+    localStorage.setItem("ugc_lang", lang);
+  }, [lang]);
+
+  useEffect(() => {
+    localStorage.setItem("ugc_theme", theme);
+    document.documentElement.dataset.theme = theme;
   }, [theme]);
 
-  // elapsed ticker while generating
+  // timer tick while loading
   useEffect(() => {
-    if (!loadingPlan) return;
-    const i = setInterval(() => {
-      const s = startedAtRef.current || Date.now();
-      setElapsedMs(Date.now() - s);
-    }, 200);
-    return () => clearInterval(i);
+    if (!loadingPlan) {
+      if (tickRef.current) clearInterval(tickRef.current);
+      tickRef.current = null;
+      return;
+    }
+    const start = Date.now();
+    setElapsedMs(0);
+    tickRef.current = setInterval(() => {
+      setElapsedMs(Date.now() - start);
+    }, 250);
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+      tickRef.current = null;
+    };
   }, [loadingPlan]);
 
+  // auto close toast
+  useEffect(() => {
+    if (!toast.open) return;
+    const id = setTimeout(() => setToast({ open: false, msg: "" }), 2400);
+    return () => clearTimeout(id);
+  }, [toast.open]);
+
   const ctx = {
-    tab, setTab,
-    lang, setLang,
-    theme, setTheme,
-    projectDraft, setProjectDraft,
-    blueprint, setBlueprint,
-    loadingPlan, setLoadingPlan,
-    planError, setPlanError,
-    statusCollapsed, setStatusCollapsed,
-    startedAtRef, elapsedMs, setElapsedMs,
-    abortRef,
-    toast: push,
+    tab,
+    setTab,
+    projectDraft,
+    setProjectDraft,
+    blueprint,
+    setBlueprint,
+    loadingPlan,
+    setLoadingPlan,
+    planError,
+    setPlanError,
+    statusCollapsed,
+    setStatusCollapsed,
+    lang,
+    setLang,
+    theme,
+    setTheme,
+    t,
+    toast,
+    setToast,
+    elapsedMs,
+    abortRef
   };
 
   const content = useMemo(() => {
-    if (tab === "Settings") return <SettingsTab />;
     if (tab === "Scenes") return <ScenesTab />;
-    return <ExportTab />;
+    if (tab === "Export") return <ExportTab />;
+    return <SettingsTab />;
   }, [tab]);
 
   return (
     <StudioContext.Provider value={ctx}>
-      <div style={{ ...styles.page, ...(theme === "dark" ? styles.pageDark : styles.pageLight) }}>
-        <TopBar />
+      <style>{css}</style>
 
-        <div style={styles.content}>
-          {content}
+      <div className="page">
+        {/* top bar */}
+        <div className="topbar">
+          <div className="topbar-inner">
+            <div className="title">{t.studio}</div>
+
+            <div className="top-actions">
+              <div className="pill">
+                <span className="pill-label">{t.language}</span>
+                <button className={`pill-btn ${lang === "id" ? "active" : ""}`} onClick={() => setLang("id")}>ID</button>
+                <button className={`pill-btn ${lang === "en" ? "active" : ""}`} onClick={() => setLang("en")}>EN</button>
+              </div>
+
+              <button className="ghost" onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+                {theme === "dark" ? t.light : t.dark}
+              </button>
+            </div>
+          </div>
         </div>
 
-        <StatusDock />
+        {/* content */}
+        <div className="content">{content}</div>
 
-        <TabBar />
+        {/* bottom tabs */}
+        <div className="tabbar">
+          <div className="tabbar-inner">
+            {TABS.map((x) => (
+              <button
+                key={x}
+                className={`tabbtn ${tab === x ? "active" : ""}`}
+                onClick={() => setTab(x)}
+                type="button"
+              >
+                {x === "Settings" ? t.settings : x === "Scenes" ? t.scenes : t.export}
+              </button>
+            ))}
+          </div>
+        </div>
 
-        <FooterCredit theme={theme} />
+        {/* credit fixed (static, not scrolling) */}
+        <div className="credit">{t.createdBy}</div>
 
-        <ToastHost toasts={toasts} onDismiss={dismiss} theme={theme} />
+        {/* toast */}
+        {toast.open ? (
+          <div className="toast">
+            <div className="toast-inner">{toast.msg}</div>
+          </div>
+        ) : null}
       </div>
     </StudioContext.Provider>
   );
 }
 
 /* =========================
-   Top bar + controls
+   TABS
    ========================= */
-function TopBar() {
-  const { lang, setLang, theme, setTheme } = useStudio();
-  const t = COPY[lang];
 
-  return (
-    <div style={{ ...styles.topBar, ...(theme === "dark" ? styles.topBarDark : styles.topBarLight) }}>
-      <div style={styles.topBarInner}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ ...styles.title, ...(theme === "dark" ? styles.titleDark : styles.titleLight) }}>
-            {t.studio}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div style={{ ...styles.pill, ...(theme === "dark" ? styles.pillDark : styles.pillLight) }}>
-            <span style={{ opacity: 0.75, fontSize: 12, fontWeight: 800 }}>{t.language}</span>
-            <div style={styles.pillBtns}>
-              <button
-                type="button"
-                onClick={() => setLang("id")}
-                style={{
-                  ...styles.pillBtn,
-                  ...(lang === "id" ? styles.pillBtnActive : {}),
-                  ...(theme === "dark" ? styles.pillBtnDark : {}),
-                }}
-              >
-                ID
-              </button>
-              <button
-                type="button"
-                onClick={() => setLang("en")}
-                style={{
-                  ...styles.pillBtn,
-                  ...(lang === "en" ? styles.pillBtnActive : {}),
-                  ...(theme === "dark" ? styles.pillBtnDark : {}),
-                }}
-              >
-                EN
-              </button>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            style={{
-              ...styles.modeBtn,
-              ...(theme === "dark" ? styles.modeBtnDark : styles.modeBtnLight),
-            }}
-          >
-            {theme === "dark" ? t.light : t.dark}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* =========================
-   Tabs
-   ========================= */
 function SettingsTab() {
   const {
-    theme, lang,
-    projectDraft, setProjectDraft,
-    setBlueprint, setTab,
-    loadingPlan, setLoadingPlan,
-    planError, setPlanError,
-    startedAtRef, setElapsedMs,
+    setTab,
+    projectDraft,
+    setProjectDraft,
+    setBlueprint,
+    loadingPlan,
+    setLoadingPlan,
+    planError,
+    setPlanError,
+    setToast,
+    elapsedMs,
     abortRef,
-    toast,
-    setStatusCollapsed
+    t
   } = useStudio();
-  const t = COPY[lang];
 
   const [p, setP] = useState(projectDraft);
-  const [linkUrl, setLinkUrl] = useState("");
-  const [linkInfo, setLinkInfo] = useState("");
 
-  useEffect(() => setP(projectDraft), [projectDraft]);
+  const [analyzingImages, setAnalyzingImages] = useState(false);
+  const [analyzingLink, setAnalyzingLink] = useState(false);
+  const [landingUrl, setLandingUrl] = useState("");
 
-  const totalDuration = Number(p.scene_count || 0) * Number(p.seconds_per_scene || 0);
+  // computed
+  const totalDurationSec = Number(p.scene_count || 0) * Number(p.seconds_per_scene || 0);
+  const etaSec = Math.max(8, totalDurationSec + 10); // rough UI ETA
 
-  const coreOk =
+  const readyCore =
     (p.brand || "").trim() &&
     (p.product_type || "").trim() &&
-    (p.material || "").trim() &&
-    (p.platform || "").trim() &&
-    (p.aspect_ratio || "").trim() &&
-    Number(p.scene_count || 0) > 0 &&
-    Number(p.seconds_per_scene || 0) > 0;
+    (p.material || "").trim();
 
-  const modelOk = (p.model_ref_url || "").trim().length > 0;
-  const productOk = (p.product_ref_url || "").trim().length > 0;
-
-  // assets optional: allow generate with just core, BUT backend kamu masih require model_ref_url & product_ref_url
-  // jadi tombol generate tetap butuh keduanya, kecuali kamu ubah backend.
-  const canGeneratePlan = coreOk && modelOk && productOk && !loadingPlan;
+  // assets optional (per request)
+  const canGeneratePlan = Boolean(readyCore && (p.platform || "").trim() && (p.aspect_ratio || "").trim());
 
   function update(key, value) {
     setP((prev) => ({ ...prev, [key]: value }));
   }
 
+  function cancelGenerate() {
+    try {
+      abortRef.current?.abort?.();
+    } catch {}
+  }
+
   async function generatePlanOnce() {
-    if (!canGeneratePlan) {
-      toast({ type: "error", title: t.requiredMissing, msg: "" });
+    if (!canGeneratePlan || loadingPlan) {
+      if (!canGeneratePlan) setPlanError(t.requiredMissing);
       return;
     }
 
     setPlanError("");
     setLoadingPlan(true);
-    setStatusCollapsed(false);
-
     setProjectDraft(p);
 
-    // reset timers
-    startedAtRef.current = Date.now();
-    setElapsedMs(0);
-
     const provider = (p.ai_brain || "bedrock").toLowerCase();
+
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
-    // timeout
-    const timeoutMs = 120000;
+    const timeoutMs = 120000; // 2 menit
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
 
     try {
@@ -437,7 +382,7 @@ function SettingsTab() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ provider, project: p }),
-        signal: ctrl.signal,
+        signal: ctrl.signal
       });
 
       const raw = await r.text();
@@ -445,28 +390,26 @@ function SettingsTab() {
       try {
         json = raw ? JSON.parse(raw) : null;
       } catch {
-        throw new Error(`Non-JSON response (${r.status}). Preview: ${String(raw).slice(0, 200)}`);
+        throw new Error(`Non-JSON response (${r.status}). Preview: ${String(raw).slice(0, 220)}`);
       }
 
       if (!r.ok || !json?.ok) throw new Error(json?.error || `Plan failed (${r.status})`);
-      if (!json?.blueprint) throw new Error("Plan OK but blueprint is empty.");
 
-      setBlueprint(json.blueprint);
+      // normalize blueprint shape
+      const bp = normalizeBlueprint(json?.blueprint);
+      if (!bp) throw new Error(t.blueprintEmpty);
 
-      toast({ type: "success", title: t.success, msg: `${provider.toUpperCase()} • ${totalDuration}s`, ttl: 2400 });
+      setBlueprint(bp);
+      setToast({ open: true, msg: t.success });
 
-      // go scenes
+      // go to Scenes tab
       setTab("Scenes");
-
-      // auto-collapse status after success (feel snappy)
-      setTimeout(() => setStatusCollapsed(true), 600);
     } catch (e) {
-      const msg =
-        e?.name === "AbortError"
-          ? `Timeout after ${Math.round(timeoutMs / 1000)}s`
-          : (e?.message || String(e));
-      setPlanError(msg);
-      toast({ type: "error", title: t.failed, msg, ttl: 5000 });
+      if (e?.name === "AbortError") {
+        setPlanError(`Timeout after ${Math.round(timeoutMs / 1000)}s.`);
+      } else {
+        setPlanError(e?.message || String(e));
+      }
     } finally {
       clearTimeout(timer);
       abortRef.current = null;
@@ -474,25 +417,31 @@ function SettingsTab() {
     }
   }
 
-  async function autoFillFromLink() {
-    if (!linkUrl.trim()) return;
-    setLinkInfo("");
+  async function autoFillFromImages() {
+    if (analyzingImages) return;
+    if (!(p.model_ref_url || "").trim() && !(p.product_ref_url || "").trim()) return;
+
     setPlanError("");
+    setAnalyzingImages(true);
 
     try {
-      const r = await fetch("/api/analyze-link", {
+      const r = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: linkUrl.trim() }),
+        body: JSON.stringify({
+          model_ref_url: p.model_ref_url || "",
+          product_ref_url: p.product_ref_url || ""
+        })
       });
 
       const raw = await r.text();
-      let json = null;
+      let json;
       try {
         json = raw ? JSON.parse(raw) : null;
       } catch {
-        throw new Error(`Non-JSON analyze response (${r.status}).`);
+        throw new Error(`Non-JSON analyze response (${r.status}): ${String(raw).slice(0, 180)}`);
       }
+
       if (!r.ok || !json?.ok) throw new Error(json?.error || `Analyze failed (${r.status})`);
 
       const f = json.fields || {};
@@ -500,478 +449,395 @@ function SettingsTab() {
         ...prev,
         brand: prev.brand?.trim() ? prev.brand : (f.brand || ""),
         product_type: prev.product_type?.trim() ? prev.product_type : (f.product_type || ""),
-        material: prev.material?.trim() ? prev.material : (f.material || ""),
+        material: prev.material?.trim() ? prev.material : (f.material || "")
       }));
 
-      setLinkInfo("✓");
+      setToast({ open: true, msg: "Auto-fill ✓" });
     } catch (e) {
       setPlanError(e?.message || String(e));
-      setLinkInfo("");
+    } finally {
+      setAnalyzingImages(false);
     }
   }
 
+  async function autoFillFromLink() {
+    if (analyzingLink) return;
+    if (!(landingUrl || "").trim()) return;
+
+    setPlanError("");
+    setAnalyzingLink(true);
+
+    try {
+      // kamu bisa buat endpoint ini sendiri /api/scrape (opsional)
+      // sementara: reuse /api/analyze-link jika ada
+      const r = await fetch("/api/analyze-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: landingUrl })
+      });
+
+      const raw = await r.text();
+      let json;
+      try {
+        json = raw ? JSON.parse(raw) : null;
+      } catch {
+        throw new Error(`Non-JSON analyze-link response (${r.status}): ${String(raw).slice(0, 180)}`);
+      }
+
+      if (!r.ok || !json?.ok) throw new Error(json?.error || `Analyze-link failed (${r.status})`);
+
+      const f = json.fields || {};
+      setP((prev) => ({
+        ...prev,
+        brand: prev.brand?.trim() ? prev.brand : (f.brand || ""),
+        product_type: prev.product_type?.trim() ? prev.product_type : (f.product_type || ""),
+        material: prev.material?.trim() ? prev.material : (f.material || "")
+      }));
+
+      setToast({ open: true, msg: "Auto-fill ✓" });
+    } catch (e) {
+      // kalau endpoint belum ada, kasih error jelas
+      setPlanError(e?.message || String(e));
+    } finally {
+      setAnalyzingLink(false);
+    }
+  }
+
+  const progress = loadingPlan ? Math.min(0.92, elapsedMs / (etaSec * 1000)) : 0;
+
   return (
-    <div style={{ ...styles.card, ...(theme === "dark" ? styles.cardDark : styles.cardLight) }}>
-      <CardHeader title={t.settings} theme={theme} />
+    <div className="stack">
+      {/* Card: inputs */}
+      <div className="card">
+        <div className="card-title">{t.settings}</div>
 
-      {/* AI + Link */}
-      <Section theme={theme} title={t.aiBrain}>
-        <Grid1>
-          <Field theme={theme} label={t.aiBrain}>
-            <Select theme={theme} value={p.ai_brain || "bedrock"} onChange={(e) => update("ai_brain", e.target.value)}>
-              <option value="bedrock">{t.bedrock}</option>
-              <option value="gemini">{t.gemini}</option>
-            </Select>
+        <Row>
+          <Field label={t.aiBrain}>
+            <select
+              className="select"
+              value={p.ai_brain || "bedrock"}
+              onChange={(e) => update("ai_brain", e.target.value)}
+            >
+              <option value="bedrock">Bedrock</option>
+              <option value="gemini">Gemini</option>
+            </select>
           </Field>
+        </Row>
 
-          <Field theme={theme} label={t.productUrl}>
-            <Input
-              theme={theme}
-              value={linkUrl}
-              onChange={(e) => setLinkUrl(e.target.value)}
-              placeholder="https://…"
+        <Divider />
+
+        <div className="card-sub">{t.autofillLink}</div>
+        <Row>
+          <Field label={t.landingUrl}>
+            <input
+              className="input"
+              value={landingUrl}
+              onChange={(e) => setLandingUrl(e.target.value)}
+              placeholder="https://..."
             />
-            <div style={{ display: "flex", gap: 10, marginTop: 10, alignItems: "center" }}>
-              <button
-                type="button"
-                onClick={autoFillFromLink}
-                style={{ ...styles.secondaryBtn, ...(theme === "dark" ? styles.secondaryBtnDark : {}) }}
-              >
-                {t.runAutofill}
-              </button>
-              {linkInfo ? <Chip theme={theme} tone="ok">{linkInfo}</Chip> : null}
-            </div>
           </Field>
-        </Grid1>
-      </Section>
+        </Row>
+        <Row>
+          <button className="btn secondary" onClick={autoFillFromLink} disabled={analyzingLink || !(landingUrl || "").trim()}>
+            {analyzingLink ? "…" : t.autofillBtn}
+          </button>
+        </Row>
 
-      {/* Core */}
-      <Section theme={theme} title={t.coreInputs}>
-        <Grid1>
-          <Field theme={theme} label={`${t.brand} *`}>
-            <Input theme={theme} value={p.brand} onChange={(e) => update("brand", e.target.value)} placeholder="…" />
-          </Field>
-          <Field theme={theme} label={`${t.productType} *`}>
-            <Input theme={theme} value={p.product_type} onChange={(e) => update("product_type", e.target.value)} placeholder="…" />
-          </Field>
-          <Field theme={theme} label={`${t.material} *`}>
-            <Input theme={theme} value={p.material} onChange={(e) => update("material", e.target.value)} placeholder="…" />
-          </Field>
-        </Grid1>
-      </Section>
+        <Divider />
 
-      {/* Format & Timing */}
-      <Section theme={theme} title={t.formatTiming}>
-        <Grid1>
-          <Field theme={theme} label={t.platform}>
-            <Select theme={theme} value={p.platform} onChange={(e) => update("platform", e.target.value)}>
+        <div className="card-sub">{t.formatTiming}</div>
+        <Grid2>
+          <Field label={t.platform}>
+            <select className="select" value={p.platform} onChange={(e) => update("platform", e.target.value)}>
               <option value="tiktok">TikTok</option>
               <option value="instagram">Instagram Reels</option>
-              <option value="facebook">Facebook Reels</option>
               <option value="youtube">YouTube Shorts</option>
-            </Select>
+              <option value="facebook">Facebook Reels</option>
+            </select>
           </Field>
 
-          <Field theme={theme} label={t.aspectRatio}>
-            <Select theme={theme} value={p.aspect_ratio} onChange={(e) => update("aspect_ratio", e.target.value)}>
+          <Field label={t.aspectRatio}>
+            <select className="select" value={p.aspect_ratio} onChange={(e) => update("aspect_ratio", e.target.value)}>
               <option value="9:16">9:16</option>
               <option value="1:1">1:1</option>
               <option value="16:9">16:9</option>
-            </Select>
+            </select>
           </Field>
 
-          <Field theme={theme} label={t.sceneCount}>
-            <Select
-              theme={theme}
+          <Field label={t.sceneCount}>
+            <select
+              className="select"
               value={String(p.scene_count)}
               onChange={(e) => update("scene_count", Number(e.target.value))}
             >
               {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
                 <option key={n} value={String(n)}>{n}</option>
               ))}
-            </Select>
+            </select>
           </Field>
 
-          <Field theme={theme} label={t.secondsPerScene}>
-            <Select
-              theme={theme}
+          <Field label={t.secondsPerScene}>
+            <select
+              className="select"
               value={String(p.seconds_per_scene)}
               onChange={(e) => update("seconds_per_scene", Number(e.target.value))}
             >
               {[4, 6, 8, 10, 12].map((n) => (
                 <option key={n} value={String(n)}>{n}s</option>
               ))}
-            </Select>
+            </select>
           </Field>
+        </Grid2>
 
-          <MiniRow>
-            <Chip theme={theme}>{`≈ ${totalDuration}s`}</Chip>
-          </MiniRow>
-        </Grid1>
-      </Section>
+        <Divider />
 
-      {/* Assets optional (but backend currently requires both URLs) */}
-      <Section theme={theme} title={t.assets}>
-        <Grid1>
+        <div className="card-sub">{t.coreInputs}</div>
+        <Grid2>
+          <Field label={`${t.brand} *`}>
+            <input className="input" value={p.brand} onChange={(e) => update("brand", e.target.value)} />
+          </Field>
+          <Field label={`${t.productType} *`}>
+            <input className="input" value={p.product_type} onChange={(e) => update("product_type", e.target.value)} />
+          </Field>
+          <Field label={`${t.material} *`}>
+            <input className="input" value={p.material} onChange={(e) => update("material", e.target.value)} />
+          </Field>
+        </Grid2>
+
+        <Divider />
+
+        <div className="card-sub">{t.assetsOptional}</div>
+        <Grid2>
           <ImageUploadField
-            label={`${t.modelRef} (optional)`}
+            label={t.modelRef}
             kind="model"
             projectId={p.project_id || "local"}
             valueUrl={p.model_ref_url}
             onUrl={(url) => update("model_ref_url", url)}
-            optional
-            hideUrl
-            showPreview
+            hideUrl={true}
+            showPreview={true}
+            optional={true}
           />
-
           <ImageUploadField
-            label={`${t.productRef} (optional)`}
+            label={t.productRef}
             kind="product"
             projectId={p.project_id || "local"}
             valueUrl={p.product_ref_url}
             onUrl={(url) => update("product_ref_url", url)}
-            optional
-            hideUrl
-            showPreview
+            hideUrl={true}
+            showPreview={true}
+            optional={true}
           />
-        </Grid1>
-      </Section>
+        </Grid2>
 
-      {planError ? (
-        <div style={{ ...styles.errorBox, ...(theme === "dark" ? styles.errorBoxDark : {}) }}>
-          {planError}
-        </div>
-      ) : null}
-
-      <div style={{ marginTop: 14 }}>
-        <button
-          type="button"
-          onClick={generatePlanOnce}
-          disabled={!canGeneratePlan}
-          style={{
-            ...styles.primaryBtn,
-            ...(theme === "dark" ? styles.primaryBtnDark : styles.primaryBtnLight),
-            opacity: canGeneratePlan ? 1 : 0.5,
-            cursor: canGeneratePlan ? "pointer" : "not-allowed",
-            width: "100%",
-          }}
-        >
-          {loadingPlan ? t.generating : t.generatePlan}
-        </button>
+        <Row>
+          <button
+            className="btn secondary"
+            onClick={autoFillFromImages}
+            disabled={analyzingImages || (!String(p.model_ref_url || "").trim() && !String(p.product_ref_url || "").trim())}
+          >
+            {analyzingImages ? "…" : t.analyzeImagesBtn}
+          </button>
+        </Row>
       </div>
+
+      {/* Card: status */}
+      <StatusCard
+        canGenerate={canGeneratePlan}
+        readyCore={!!readyCore}
+        hasModel={!!String(p.model_ref_url || "").trim()}
+        hasProduct={!!String(p.product_ref_url || "").trim()}
+        provider={(p.ai_brain || "bedrock").toUpperCase()}
+        estDurationSec={totalDurationSec}
+        loading={loadingPlan}
+        progress={progress}
+        elapsedMs={elapsedMs}
+        etaSec={etaSec}
+        onGenerate={generatePlanOnce}
+        onCancel={cancelGenerate}
+        error={planError}
+      />
     </div>
   );
 }
 
 function ScenesTab() {
-  const { blueprint, theme, lang, toast } = useStudio();
-  const t = COPY[lang];
+  const { blueprint, t } = useStudio();
 
-  const { beats, path } = useMemo(() => extractBeats(blueprint), [blueprint]);
+  const beats = useMemo(() => {
+    if (!blueprint) return [];
+    const b = buildBeatsFromScenePlans(blueprint);
+    return Array.isArray(b) ? b : [];
+  }, [blueprint]);
 
-  function copyJson() {
-    try {
-      navigator.clipboard.writeText(JSON.stringify(blueprint, null, 2));
-      toast({ type: "success", title: t.copied, msg: "", ttl: 1200 });
-    } catch {
-      // ignore
-    }
+  if (!blueprint) {
+    return (
+      <div className="card">
+        <div className="card-title">{t.scenes}</div>
+        <div className="muted">{t.blueprintEmpty}</div>
+      </div>
+    );
   }
 
+  const hasBeats = beats.length > 0;
+
   return (
-    <div style={{ ...styles.card, ...(theme === "dark" ? styles.cardDark : styles.cardLight) }}>
-      <CardHeader title={t.scenes} theme={theme} />
+    <div className="stack">
+      <div className="card">
+        <div className="card-title">{t.scenes}</div>
 
-      {!blueprint ? (
-        <div style={{ ...styles.placeholder, ...(theme === "dark" ? styles.placeholderDark : {}) }}>
-          {t.noBlueprint}
-        </div>
-      ) : beats.length === 0 ? (
-        <div style={{ display: "grid", gap: 10 }}>
-          <div style={{ ...styles.placeholder, ...(theme === "dark" ? styles.placeholderDark : {}) }}>
-            {t.beatsMissing}
-          </div>
-
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={copyJson}
-              style={{ ...styles.secondaryBtn, ...(theme === "dark" ? styles.secondaryBtnDark : {}) }}
-            >
-              {t.openJson}
-            </button>
-
-            <a
-              href={makeJsonDownloadHref(blueprint)}
-              download="blueprint.json"
-              style={{
-                ...styles.secondaryBtn,
-                ...(theme === "dark" ? styles.secondaryBtnDark : {}),
-                textDecoration: "none",
-                display: "inline-flex",
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              {t.downloadJson}
-            </a>
-
-            {path ? <Chip theme={theme}>{path}</Chip> : null}
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: "grid", gap: 12 }}>
-          {path ? <Chip theme={theme}>{path}</Chip> : null}
-
-          {beats.map((b, idx) => {
-            const id = b?.id || b?.scene_id || `S${idx + 1}`;
-            const goal = b?.goal || b?.title || b?.name || "SCENE";
-            const action = b?.action || b?.visual || b?.what_happens || "—";
-            const ost = b?.on_screen_text || b?.text_overlay || b?.caption || "—";
-            const neg = Array.isArray(b?.negative_prompt)
-              ? b.negative_prompt
-              : Array.isArray(b?.negatives)
-              ? b.negatives
-              : [];
-
-            return (
-              <div key={id} style={{ ...styles.sceneCard, ...(theme === "dark" ? styles.sceneCardDark : {}) }}>
-                <div style={styles.sceneTop}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <span style={{ ...styles.sceneBadge, ...(theme === "dark" ? styles.sceneBadgeDark : {}) }}>
-                      {id}
-                    </span>
-                    <div style={{ fontWeight: 900 }}>{goal}</div>
-                  </div>
-                  <Chip theme={theme}>Draft</Chip>
+        {!hasBeats ? (
+          <div className="empty">{t.beatsNotReadable}</div>
+        ) : (
+          <div className="scene-list">
+            {beats.map((b, idx) => (
+              <div key={b.id || idx} className="scene">
+                <div className="scene-top">
+                  <div className="badge">{b.id || `S${idx + 1}`}</div>
+                  <div className="scene-goal">{b.goal || "SCENE"}</div>
                 </div>
 
-                <div style={styles.sceneGrid}>
-                  <div>
-                    <div style={{ ...styles.miniLabel, ...(theme === "dark" ? styles.miniLabelDark : {}) }}>Action</div>
-                    <div style={{ ...styles.miniBox, ...(theme === "dark" ? styles.miniBoxDark : {}) }}>
-                      {String(action)}
-                    </div>
-                  </div>
-                  <div>
-                    <div style={{ ...styles.miniLabel, ...(theme === "dark" ? styles.miniLabelDark : {}) }}>
-                      On-screen
-                    </div>
-                    <div style={{ ...styles.miniBox, ...(theme === "dark" ? styles.miniBoxDark : {}) }}>
-                      {String(ost)}
-                    </div>
-                  </div>
-                </div>
+                <div className="scene-body">
+                  <div className="miniLabel">Action</div>
+                  <div className="miniBox">{b.action || "—"}</div>
 
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ ...styles.miniLabel, ...(theme === "dark" ? styles.miniLabelDark : {}) }}>
-                    Negative
-                  </div>
-                  <div style={{ ...styles.miniBox, ...(theme === "dark" ? styles.miniBoxDark : {}) }}>
-                    {neg.slice(0, 10).join(", ") || "—"}
-                    {neg.length > 10 ? "…" : ""}
-                  </div>
-                </div>
+                  <div className="miniLabel" style={{ marginTop: 10 }}>On-screen</div>
+                  <div className="miniBox">{b.on_screen_text || "—"}</div>
 
-                <div style={styles.stepperRow}>
-                  <Step theme={theme} label="Plan" active />
-                  <Step theme={theme} label="Image" />
-                  <Step theme={theme} label="Approve" />
-                  <Step theme={theme} label="Video" />
-                  <Step theme={theme} label="Audio" />
+                  {b.voiceover ? (
+                    <>
+                      <div className="miniLabel" style={{ marginTop: 10 }}>VO</div>
+                      <div className="miniBox">{b.voiceover}</div>
+                    </>
+                  ) : null}
                 </div>
               </div>
-            );
-          })}
+            ))}
+          </div>
+        )}
+
+        <div className="row" style={{ marginTop: 12 }}>
+          <button className="btn secondary" onClick={() => window.open("data:application/json," + encodeURIComponent(safeJsonStringify(blueprint)), "_blank")}>
+            {t.openJson}
+          </button>
+          <button className="btn secondary" onClick={() => downloadJson("blueprint.json", blueprint)}>
+            {t.downloadJson}
+          </button>
         </div>
-      )}
+      </div>
     </div>
   );
 }
 
 function ExportTab() {
-  const { blueprint, theme, lang } = useStudio();
-  const t = COPY[lang];
-
+  const { blueprint, t } = useStudio();
   return (
-    <div style={{ ...styles.card, ...(theme === "dark" ? styles.cardDark : styles.cardLight) }}>
-      <CardHeader title={t.export} theme={theme} />
+    <div className="card">
+      <div className="card-title">{t.export}</div>
       {!blueprint ? (
-        <div style={{ ...styles.placeholder, ...(theme === "dark" ? styles.placeholderDark : {}) }}>
-          {t.noBlueprint}
-        </div>
+        <div className="muted">{t.blueprintEmpty}</div>
       ) : (
-        <a
-          href={makeJsonDownloadHref(blueprint)}
-          download="blueprint.json"
-          style={{
-            ...styles.primaryBtn,
-            ...(theme === "dark" ? styles.primaryBtnDark : styles.primaryBtnLight),
-            textDecoration: "none",
-            display: "inline-flex",
-            justifyContent: "center",
-            width: "100%",
-          }}
-        >
-          {t.downloadJson}
-        </a>
+        <div className="row">
+          <button className="btn secondary" onClick={() => downloadJson("blueprint.json", blueprint)}>
+            {t.downloadJson}
+          </button>
+        </div>
       )}
     </div>
   );
 }
 
 /* =========================
-   Status dock (collapsible)
+   Status card (minimize + solid bg + real loading)
    ========================= */
-function StatusDock() {
-  const {
-    theme, lang,
-    projectDraft,
-    loadingPlan,
-    planError,
-    statusCollapsed,
-    setStatusCollapsed,
-    elapsedMs,
-    abortRef,
-    setLoadingPlan,
-    setPlanError
-  } = useStudio();
-  const t = COPY[lang];
 
-  const coreOk =
-    (projectDraft.brand || "").trim() &&
-    (projectDraft.product_type || "").trim() &&
-    (projectDraft.material || "").trim() &&
-    (projectDraft.platform || "").trim() &&
-    (projectDraft.aspect_ratio || "").trim() &&
-    Number(projectDraft.scene_count || 0) > 0 &&
-    Number(projectDraft.seconds_per_scene || 0) > 0;
+function StatusCard({
+  canGenerate,
+  readyCore,
+  hasModel,
+  hasProduct,
+  provider,
+  estDurationSec,
+  loading,
+  progress,
+  elapsedMs,
+  etaSec,
+  onGenerate,
+  onCancel,
+  error
+}) {
+  const { statusCollapsed, setStatusCollapsed, t } = useStudio();
 
-  const modelOk = (projectDraft.model_ref_url || "").trim().length > 0;
-  const productOk = (projectDraft.product_ref_url || "").trim().length > 0;
-
-  const duration = Number(projectDraft.scene_count || 0) * Number(projectDraft.seconds_per_scene || 0);
-
-  function onCancel() {
-    try {
-      abortRef.current?.abort();
-    } catch {}
-    abortRef.current = null;
-    setLoadingPlan(false);
-    setPlanError("Canceled");
-  }
-
-  const elapsed = formatElapsed(elapsedMs);
+  const elapsedLabel = formatMs(elapsedMs);
+  const etaLeft = loading ? Math.max(0, etaSec * 1000 - elapsedMs) : null;
 
   return (
-    <div
-      style={{
-        ...styles.statusDock,
-        ...(theme === "dark" ? styles.statusDockDark : styles.statusDockLight),
-        transform: statusCollapsed ? "translateY(calc(100% - 44px))" : "translateY(0)",
-      }}
-    >
-      <div style={styles.statusInner}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-          <div style={{ fontWeight: 900 }}>{t.status}</div>
-
-          <button
-            type="button"
-            onClick={() => setStatusCollapsed(!statusCollapsed)}
-            style={{
-              ...styles.collapseBtn,
-              ...(theme === "dark" ? styles.collapseBtnDark : styles.collapseBtnLight),
-            }}
-          >
-            {statusCollapsed ? t.expand : t.collapse}
+    <div className={`statusWrap ${statusCollapsed ? "collapsed" : ""}`}>
+      <div className="card statusCard">
+        <div className="statusHead">
+          <div>
+            <div className="card-title">{t.status}</div>
+            <div className="muted">{t.readiness}</div>
+          </div>
+          <button className="ghost" onClick={() => setStatusCollapsed((v) => !v)}>
+            {statusCollapsed ? t.show : t.minimize}
           </button>
         </div>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-          <Chip theme={theme} tone={coreOk ? "ok" : "bad"}>{t.coreOk} {coreOk ? "✓" : "×"}</Chip>
-          <Chip theme={theme} tone={modelOk ? "ok" : "bad"}>{t.modelOk} {modelOk ? "✓" : "×"}</Chip>
-          <Chip theme={theme} tone={productOk ? "ok" : "bad"}>{t.productOk} {productOk ? "✓" : "×"}</Chip>
-          <Chip theme={theme}>{`≈ ${duration || 0}s`}</Chip>
-          <Chip theme={theme}>{`${t.provider}: ${(projectDraft.ai_brain || "bedrock").toUpperCase()}`}</Chip>
-        </div>
+        {!statusCollapsed ? (
+          <>
+            <div className="chips">
+              <Chip ok={!!readyCore}>Core {readyCore ? "✓" : "×"}</Chip>
+              <Chip ok={!!hasModel}>Model {hasModel ? "✓" : "×"}</Chip>
+              <Chip ok={!!hasProduct}>Product {hasProduct ? "✓" : "×"}</Chip>
+              <Chip>{t.estDuration}: {Math.max(0, Number(estDurationSec || 0))}s</Chip>
+              <Chip>{t.provider}: {provider}</Chip>
+            </div>
 
-        <div style={{ marginTop: 12 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-            <div style={{ opacity: 0.8, fontSize: 12, fontWeight: 800 }}>{t.elapsed}: {elapsed}</div>
-            {loadingPlan ? (
-              <button
-                type="button"
-                onClick={onCancel}
-                style={{
-                  ...styles.secondaryBtn,
-                  ...(theme === "dark" ? styles.secondaryBtnDark : {}),
-                  padding: "10px 12px",
-                }}
-              >
-                {t.cancel}
-              </button>
-            ) : null}
-          </div>
+            <div className="muted" style={{ marginTop: 10 }}>{t.progress}</div>
 
-          <div style={{ ...styles.progressTrack, ...(theme === "dark" ? styles.progressTrackDark : {}) }}>
-            <div
-              style={{
-                ...styles.progressBar,
-                ...(loadingPlan ? styles.progressBarAnim : {}),
-              }}
-            />
-          </div>
-        </div>
+            <div className="progress">
+              <div className={`bar ${loading ? "anim" : ""}`} style={{ width: `${Math.max(0, Math.min(100, progress * 100))}%` }} />
+            </div>
 
-        {planError ? (
-          <div style={{ ...styles.errorBox, ...(theme === "dark" ? styles.errorBoxDark : {}) }}>
-            {planError}
+            <div className="row" style={{ justifyContent: "space-between", marginTop: 10 }}>
+              <Chip>{t.elapsed}: {elapsedLabel}</Chip>
+              <div className="row" style={{ gap: 10 }}>
+                {loading ? (
+                  <>
+                    <Chip>{t.eta}: {etaLeft !== null ? formatMs(etaLeft) : "-"}</Chip>
+                    <button className="btn secondary" onClick={onCancel}>{t.cancel}</button>
+                  </>
+                ) : null}
+              </div>
+            </div>
+
+            <button
+              className={`btn primary ${loading ? "disabled" : ""}`}
+              type="button"
+              onClick={onGenerate}
+              disabled={!canGenerate || loading}
+              title={!canGenerate ? t.requiredMissing : ""}
+            >
+              {loading ? (
+                <span className="btnSpin">
+                  <span className="spinner" /> {t.generating}
+                </span>
+              ) : (
+                t.generate
+              )}
+            </button>
+
+            {error ? <div className="error">{error}</div> : null}
+          </>
+        ) : (
+          <div className="chips" style={{ marginTop: 10 }}>
+            <Chip>{provider}</Chip>
+            <Chip>{Math.max(0, Number(estDurationSec || 0))}s</Chip>
+            {loading ? <Chip>{t.generating}</Chip> : <Chip>Ready</Chip>}
           </div>
-        ) : null}
+        )}
       </div>
-    </div>
-  );
-}
-
-/* =========================
-   Bottom tabs
-   ========================= */
-function TabBar() {
-  const { tab, setTab, theme, lang } = useStudio();
-  const t = COPY[lang];
-
-  const labels = {
-    Settings: t.settings,
-    Scenes: t.scenes,
-    Export: t.export,
-  };
-
-  return (
-    <div style={styles.tabBarWrap}>
-      <div style={{ ...styles.tabBar, ...(theme === "dark" ? styles.tabBarDark : styles.tabBarLight) }}>
-        {TABS.map((x) => (
-          <button
-            key={x}
-            type="button"
-            onClick={() => setTab(x)}
-            style={{
-              ...styles.tabBtn,
-              ...(theme === "dark" ? styles.tabBtnDark : {}),
-              ...(tab === x ? (theme === "dark" ? styles.tabBtnActiveDark : styles.tabBtnActiveLight) : {}),
-            }}
-          >
-            {labels[x]}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function FooterCredit({ theme }) {
-  return (
-    <div style={{ ...styles.footer, ...(theme === "dark" ? styles.footerDark : styles.footerLight) }}>
-      Created by <span style={{ fontWeight: 900 }}>@adryndian</span>
     </div>
   );
 }
@@ -979,517 +845,412 @@ function FooterCredit({ theme }) {
 /* =========================
    UI atoms
    ========================= */
-function MiniRow({ children }) {
-  return (
-    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-      {children}
-    </div>
-  );
-}
-function CardHeader({ title, theme }) {
-  return (
-    <div style={{ ...styles.cardHeader, ...(theme === "dark" ? styles.cardHeaderDark : {}) }}>
-      <div style={{ ...styles.cardTitle, ...(theme === "dark" ? styles.cardTitleDark : {}) }}>{title}</div>
-    </div>
-  );
+
+function Divider() {
+  return <div className="divider" />;
 }
 
-function Section({ title, children, theme }) {
-  return (
-    <div style={{ marginTop: 14 }}>
-      <div style={{ ...styles.sectionTitle, ...(theme === "dark" ? styles.sectionTitleDark : {}) }}>{title}</div>
-      <div style={{ display: "grid", gap: 12, marginTop: 10 }}>{children}</div>
-    </div>
-  );
+function Row({ children }) {
+  return <div className="row">{children}</div>;
 }
 
-function Grid1({ children }) {
-  return <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>{children}</div>;
+function Grid2({ children }) {
+  return <div className="grid2">{children}</div>;
 }
 
-function Field({ label, children, theme }) {
+function Field({ label, children }) {
   return (
-    <div>
-      <div style={{ ...styles.label, ...(theme === "dark" ? styles.labelDark : {}) }}>{label}</div>
+    <div className="field">
+      <div className="label">{label}</div>
       {children}
     </div>
   );
 }
 
-function Input({ theme, ...props }) {
+function Chip({ children, ok }) {
   return (
-    <input
-      {...props}
-      style={{
-        ...styles.input,
-        ...(theme === "dark" ? styles.inputDark : styles.inputLight),
-      }}
-    />
-  );
-}
-
-function Select({ theme, ...props }) {
-  return (
-    <select
-      {...props}
-      style={{
-        ...styles.select,
-        ...(theme === "dark" ? styles.selectDark : styles.selectLight),
-      }}
-    />
-  );
-}
-
-function Chip({ children, tone, theme }) {
-  const base = theme === "dark" ? styles.chipDark : styles.chipLight;
-  const ok = theme === "dark" ? styles.chipOkDark : styles.chipOkLight;
-  const bad = theme === "dark" ? styles.chipBadDark : styles.chipBadLight;
-
-  return (
-    <span style={{ ...styles.chip, ...base, ...(tone === "ok" ? ok : tone === "bad" ? bad : {}) }}>
+    <span className={`chip ${ok === true ? "ok" : ok === false ? "bad" : ""}`}>
       {children}
     </span>
   );
 }
 
-function Step({ label, active, theme }) {
-  return (
-    <div style={{ ...styles.step, ...(theme === "dark" ? styles.stepDark : styles.stepLight), ...(active ? styles.stepActive : {}) }}>
-      {label}
-    </div>
-  );
-}
-
-/* =========================
-   Utils
-   ========================= */
-function formatElapsed(ms) {
+function formatMs(ms) {
   const s = Math.max(0, Math.floor(ms / 1000));
   const m = Math.floor(s / 60);
-  const r = s % 60;
-  return `${m}:${String(r).padStart(2, "0")}`;
-}
-
-function makeJsonDownloadHref(obj) {
-  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
-  return URL.createObjectURL(blob);
+  const ss = String(s % 60).padStart(2, "0");
+  return `${m}:${ss}`;
 }
 
 /* =========================
-   Styles (black / white / orange)
+   CSS (embedded, jadi gak perlu bingung taruh di mana)
    ========================= */
-const ORANGE = "#ff6a00";
 
-const styles = {
-  page: {
-    minHeight: "100vh",
-    paddingBottom: 140, // for tabbar + footer
-  },
-  pageDark: {
-    background: "radial-gradient(1200px 900px at 20% 0%, rgba(255,106,0,0.12), rgba(0,0,0,0) 55%), #0b0b0f",
-    color: "#e5e7eb",
-  },
-  pageLight: {
-    background: "linear-gradient(180deg, #fff7ed 0%, #ffffff 70%)",
-    color: "#0b1220",
-  },
+const css = `
+:root{
+  --bg: #0b0b0f;
+  --card: rgba(20,20,24,0.92);
+  --stroke: rgba(255,255,255,0.10);
+  --text: rgba(255,255,255,0.92);
+  --muted: rgba(255,255,255,0.60);
+  --orange: #ff6a00;
+  --orange2: #ff8a3d;
+  --goodBg: rgba(34,197,94,0.16);
+  --goodBd: rgba(34,197,94,0.28);
+  --badBg: rgba(239,68,68,0.16);
+  --badBd: rgba(239,68,68,0.28);
+  --shadow: 0 18px 60px rgba(0,0,0,0.55);
+}
+:root[data-theme="light"]{
+  --bg: #fff7ed;
+  --card: rgba(255,255,255,0.95);
+  --stroke: rgba(0,0,0,0.08);
+  --text: rgba(0,0,0,0.88);
+  --muted: rgba(0,0,0,0.55);
+  --shadow: 0 18px 60px rgba(0,0,0,0.10);
+}
+*{ box-sizing:border-box; }
+.page{
+  min-height:100vh;
+  background:
+    radial-gradient(800px 500px at 20% 10%, rgba(255,106,0,0.20), transparent 60%),
+    radial-gradient(900px 700px at 80% 40%, rgba(255,138,61,0.16), transparent 60%),
+    var(--bg);
+  color: var(--text);
+  padding-bottom: 120px;
+}
+.topbar{
+  position: sticky;
+  top:0;
+  z-index: 50;
+  backdrop-filter: blur(14px);
+  background: linear-gradient(180deg, rgba(0,0,0,0.25), rgba(0,0,0,0.02));
+  border-bottom: 1px solid var(--stroke);
+}
+:root[data-theme="light"] .topbar{
+  background: rgba(255,255,255,0.55);
+}
+.topbar-inner{
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 12px 14px;
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.title{ font-weight: 900; font-size: 18px; letter-spacing: 0.2px; }
+.top-actions{ display:flex; gap:10px; align-items:center; }
+.pill{
+  display:flex; align-items:center; gap:6px;
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.06);
+  padding: 6px;
+  border-radius: 999px;
+}
+:root[data-theme="light"] .pill{ background: rgba(0,0,0,0.04); }
+.pill-label{
+  font-size: 12px;
+  color: var(--muted);
+  padding: 0 6px;
+  font-weight: 800;
+}
+.pill-btn{
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.pill-btn.active{
+  border-color: var(--stroke);
+  background: rgba(255,255,255,0.10);
+}
+:root[data-theme="light"] .pill-btn.active{ background: rgba(0,0,0,0.06); }
+.ghost{
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+:root[data-theme="light"] .ghost{ background: rgba(0,0,0,0.04); }
 
-  topBar: {
-    position: "sticky",
-    top: 0,
-    zIndex: 50,
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
-    backdropFilter: "blur(14px)",
-  },
-  topBarDark: { background: "rgba(10,10,14,0.72)" },
-  topBarLight: { background: "rgba(255,255,255,0.70)", borderBottom: "1px solid rgba(0,0,0,0.06)" },
-  topBarInner: {
-    maxWidth: 860,
-    margin: "0 auto",
-    padding: "14px 14px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  title: { fontWeight: 950, fontSize: 18, letterSpacing: -0.2 },
-  titleDark: { color: "#f9fafb" },
-  titleLight: { color: "#0b1220" },
+.content{
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 14px;
+}
 
-  pill: {
-    display: "flex",
-    alignItems: "center",
-    gap: 10,
-    padding: "8px 10px",
-    borderRadius: 999,
-  },
-  pillDark: { background: "rgba(255,255,255,0.06)", border: "1px solid rgba(255,255,255,0.08)" },
-  pillLight: { background: "rgba(255,255,255,0.80)", border: "1px solid rgba(0,0,0,0.06)" },
-  pillBtns: { display: "flex", gap: 6 },
-  pillBtn: {
-    border: "none",
-    padding: "6px 10px",
-    borderRadius: 999,
-    fontWeight: 900,
-    cursor: "pointer",
-    fontSize: 12,
-    background: "transparent",
-  },
-  pillBtnDark: { color: "#e5e7eb" },
-  pillBtnActive: { background: "rgba(255,255,255,0.16)" },
+.stack{ display:grid; gap: 12px; }
 
-  modeBtn: {
-    borderRadius: 999,
-    padding: "10px 12px",
-    fontWeight: 900,
-    border: "1px solid rgba(255,255,255,0.10)",
-    cursor: "pointer",
-  },
-  modeBtnDark: { background: "rgba(255,255,255,0.06)", color: "#f9fafb" },
-  modeBtnLight: { background: "rgba(255,255,255,0.90)", color: "#0b1220", border: "1px solid rgba(0,0,0,0.08)" },
+.card{
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+  padding: 14px;
+}
+.card-title{ font-weight: 900; font-size: 16px; }
+.card-sub{ margin-top: 8px; color: var(--muted); font-size: 12px; font-weight: 700; }
 
-  content: {
-    maxWidth: 860,
-    margin: "0 auto",
-    padding: 14,
-    display: "grid",
-    gap: 12,
-  },
+.muted{ color: var(--muted); font-weight: 700; font-size: 12px; margin-top: 6px; }
+.empty{
+  margin-top: 12px;
+  border: 1px dashed var(--stroke);
+  border-radius: 16px;
+  padding: 12px;
+  color: var(--muted);
+  font-weight: 800;
+}
 
-  card: {
-    borderRadius: 18,
-    padding: 14,
-  },
-  cardDark: {
-    background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,255,255,0.10)",
-    boxShadow: "0 20px 60px rgba(0,0,0,0.35)",
-  },
-  cardLight: {
-    background: "rgba(255,255,255,0.85)",
-    border: "1px solid rgba(0,0,0,0.06)",
-    boxShadow: "0 12px 40px rgba(0,0,0,0.07)",
-  },
+.divider{
+  height: 1px;
+  background: var(--stroke);
+  margin: 12px 0;
+}
 
-  cardHeader: { paddingBottom: 10, borderBottom: "1px solid rgba(255,255,255,0.08)" },
-  cardHeaderDark: { borderBottom: "1px solid rgba(255,255,255,0.08)" },
-  cardTitle: { fontWeight: 950, fontSize: 16, letterSpacing: -0.2 },
-  cardTitleDark: { color: "#f9fafb" },
+.row{ display:flex; gap: 10px; align-items:center; flex-wrap: wrap; }
+.grid2{
+  display:grid;
+  grid-template-columns: repeat(1, minmax(0,1fr));
+  gap: 12px;
+}
+@media(min-width: 760px){
+  .grid2{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
 
-  sectionTitle: { fontWeight: 950, fontSize: 13, opacity: 0.95 },
-  sectionTitleDark: { color: "#f9fafb" },
+.field{ width: 100%; }
+.label{ font-size: 12px; font-weight: 900; margin-bottom: 6px; color: var(--muted); }
+.input, .select{
+  width: 100%;
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+  padding: 12px 12px;
+  border-radius: 14px;
+  outline: none;
+  font-weight: 800;
+}
+:root[data-theme="light"] .input, :root[data-theme="light"] .select{
+  background: rgba(0,0,0,0.03);
+}
 
-  label: { fontSize: 12, fontWeight: 900, marginBottom: 8, opacity: 0.85 },
-  labelDark: { color: "#e5e7eb" },
+.btn{
+  border-radius: 16px;
+  padding: 12px 14px;
+  font-weight: 900;
+  cursor: pointer;
+  border: 1px solid var(--stroke);
+}
+.btn.primary{
+  width: 100%;
+  margin-top: 12px;
+  border: none;
+  color: #111;
+  background: linear-gradient(180deg, var(--orange), var(--orange2));
+}
+.btn.secondary{
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+}
+:root[data-theme="light"] .btn.secondary{ background: rgba(0,0,0,0.04); }
+.btn.primary.disabled{
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.btnSpin{ display:inline-flex; align-items:center; gap:10px; justify-content:center; }
 
-  input: {
-    width: "100%",
-    padding: "12px 12px",
-    borderRadius: 14,
-    outline: "none",
-    fontWeight: 800,
-    fontSize: 13,
-  },
-  inputDark: {
-    background: "rgba(0,0,0,0.35)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    color: "#f9fafb",
-  },
-  inputLight: {
-    background: "rgba(255,255,255,0.95)",
-    border: "1px solid rgba(0,0,0,0.10)",
-    color: "#0b1220",
-  },
+.chips{ display:flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.chip{
+  display:inline-flex;
+  align-items:center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 900;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.06);
+  color: var(--text);
+}
+:root[data-theme="light"] .chip{ background: rgba(0,0,0,0.04); }
+.chip.ok{ background: var(--goodBg); border-color: var(--goodBd); }
+.chip.bad{ background: var(--badBg); border-color: var(--badBd); }
 
-  select: {
-    width: "100%",
-    padding: "12px 12px",
-    borderRadius: 14,
-    outline: "none",
-    fontWeight: 900,
-    fontSize: 13,
-  },
-  selectDark: {
-    background: "rgba(0,0,0,0.35)",
-    border: "1px solid rgba(255,255,255,0.12)",
-    color: "#f9fafb",
-  },
-  selectLight: {
-    background: "rgba(255,255,255,0.95)",
-    border: "1px solid rgba(0,0,0,0.10)",
-    color: "#0b1220",
-  },
+.progress{
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.04);
+  overflow:hidden;
+  margin-top: 8px;
+}
+.bar{
+  height: 100%;
+  background: linear-gradient(90deg, var(--orange), var(--orange2));
+  border-radius: 999px;
+}
+.bar.anim{
+  animation: pulseBar 1.2s ease-in-out infinite;
+}
+@keyframes pulseBar{
+  0%{ filter: brightness(0.95); }
+  50%{ filter: brightness(1.20); }
+  100%{ filter: brightness(0.95); }
+}
 
-  chip: {
-    fontSize: 12,
-    fontWeight: 950,
-    padding: "8px 10px",
-    borderRadius: 999,
-    border: "1px solid transparent",
-  },
-  chipDark: { background: "rgba(255,255,255,0.06)", borderColor: "rgba(255,255,255,0.10)", color: "#e5e7eb" },
-  chipLight: { background: "rgba(0,0,0,0.04)", borderColor: "rgba(0,0,0,0.06)", color: "#0b1220" },
-  chipOkDark: { background: "rgba(34,197,94,0.16)", borderColor: "rgba(34,197,94,0.22)" },
-  chipBadDark: { background: "rgba(239,68,68,0.16)", borderColor: "rgba(239,68,68,0.22)" },
-  chipOkLight: { background: "rgba(34,197,94,0.12)", borderColor: "rgba(34,197,94,0.18)" },
-  chipBadLight: { background: "rgba(239,68,68,0.10)", borderColor: "rgba(239,68,68,0.16)" },
+.spinner{
+  width: 16px; height: 16px;
+  border-radius: 999px;
+  border: 2px solid rgba(0,0,0,0.25);
+  border-top-color: rgba(0,0,0,0.75);
+  animation: spin 0.9s linear infinite;
+}
+:root[data-theme="dark"] .spinner{
+  border: 2px solid rgba(255,255,255,0.25);
+  border-top-color: rgba(255,255,255,0.85);
+}
+@keyframes spin { to { transform: rotate(360deg); } }
 
-  MiniRow: {},
+.error{
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid var(--badBd);
+  background: var(--badBg);
+  color: var(--text);
+  font-weight: 900;
+}
 
-  primaryBtn: {
-    padding: "14px 14px",
-    borderRadius: 16,
-    border: "none",
-    fontWeight: 950,
-    fontSize: 14,
-  },
-  primaryBtnDark: { background: ORANGE, color: "black" },
-  primaryBtnLight: { background: ORANGE, color: "white" },
+.scene-list{ display:grid; gap: 12px; margin-top: 12px; }
+.scene{
+  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  background: rgba(255,255,255,0.04);
+  padding: 12px;
+}
+:root[data-theme="light"] .scene{ background: rgba(0,0,0,0.03); }
+.scene-top{ display:flex; align-items:center; gap: 10px; }
+.badge{
+  font-weight: 900;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(255,106,0,0.35);
+  background: rgba(255,106,0,0.16);
+}
+.scene-goal{ font-weight: 900; }
 
-  secondaryBtn: {
-    padding: "12px 14px",
-    borderRadius: 16,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "transparent",
-    fontWeight: 950,
-    cursor: "pointer",
-  },
-  secondaryBtnDark: { color: "#f9fafb", borderColor: "rgba(255,255,255,0.12)" },
+.miniLabel{ font-size: 12px; font-weight: 900; color: var(--muted); }
+.miniBox{
+  margin-top: 6px;
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.04);
+  border-radius: 14px;
+  padding: 10px;
+  white-space: pre-wrap;
+  font-weight: 800;
+  font-size: 13px;
+}
+:root[data-theme="light"] .miniBox{ background: rgba(0,0,0,0.03); }
 
-  placeholder: {
-    padding: 12,
-    borderRadius: 14,
-    border: "1px dashed rgba(0,0,0,0.18)",
-    background: "rgba(255,255,255,0.04)",
-  },
-  placeholderDark: { border: "1px dashed rgba(255,255,255,0.16)", background: "rgba(255,255,255,0.04)" },
+.tabbar{
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  padding: 12px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  z-index: 60;
+}
+.tabbar-inner{
+  max-width: 520px;
+  margin: 0 auto;
+  display:flex;
+  gap: 10px;
+  border: 1px solid var(--stroke);
+  background: rgba(0,0,0,0.35);
+  backdrop-filter: blur(16px);
+  border-radius: 18px;
+  padding: 10px;
+}
+:root[data-theme="light"] .tabbar-inner{ background: rgba(255,255,255,0.70); }
 
-  sceneCard: {
-    borderRadius: 18,
-    padding: 12,
-    border: "1px solid rgba(0,0,0,0.08)",
-    background: "rgba(255,255,255,0.70)",
-  },
-  sceneCardDark: {
-    border: "1px solid rgba(255,255,255,0.10)",
-    background: "rgba(255,255,255,0.05)",
-  },
-  sceneTop: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" },
-  sceneBadge: {
-    fontWeight: 950,
-    fontSize: 12,
-    padding: "6px 10px",
-    borderRadius: 999,
-    background: "rgba(255,106,0,0.16)",
-    border: "1px solid rgba(255,106,0,0.25)",
-    color: "#111827",
-  },
-  sceneBadgeDark: { color: "#f9fafb" },
-  sceneGrid: { display: "grid", gridTemplateColumns: "1fr", gap: 10, marginTop: 10 },
-  miniLabel: { fontSize: 12, fontWeight: 950, marginBottom: 6 },
-  miniLabelDark: { color: "#e5e7eb" },
-  miniBox: {
-    borderRadius: 14,
-    padding: 10,
-    border: "1px solid rgba(0,0,0,0.08)",
-    background: "rgba(255,255,255,0.85)",
-    fontWeight: 700,
-    fontSize: 13,
-    whiteSpace: "pre-wrap",
-  },
-  miniBoxDark: {
-    border: "1px solid rgba(255,255,255,0.10)",
-    background: "rgba(0,0,0,0.35)",
-    color: "#f9fafb",
-  },
-  stepperRow: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 },
-  step: {
-    padding: "8px 10px",
-    borderRadius: 999,
-    fontSize: 12,
-    fontWeight: 950,
-    border: "1px solid rgba(0,0,0,0.08)",
-  },
-  stepDark: { border: "1px solid rgba(255,255,255,0.10)", color: "#e5e7eb", background: "rgba(255,255,255,0.04)" },
-  stepLight: { color: "#0b1220", background: "rgba(0,0,0,0.04)" },
-  stepActive: { background: "rgba(255,106,0,0.18)", borderColor: "rgba(255,106,0,0.30)" },
+.tabbtn{
+  flex:1;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: 12px 10px;
+  border-radius: 14px;
+  font-weight: 900;
+  cursor: pointer;
+}
+.tabbtn.active{
+  background: rgba(255,255,255,0.10);
+  border: 1px solid var(--stroke);
+}
+:root[data-theme="light"] .tabbtn.active{ background: rgba(0,0,0,0.06); }
 
-  errorBox: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 14,
-    background: "rgba(239,68,68,0.12)",
-    border: "1px solid rgba(239,68,68,0.18)",
-    color: "#b91c1c",
-    fontWeight: 900,
-    fontSize: 13,
-    whiteSpace: "pre-wrap",
-  },
-  errorBoxDark: { color: "#fecaca" },
+.credit{
+  position: fixed;
+  left: 0; right: 0;
+  bottom: calc(74px + env(safe-area-inset-bottom));
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 900;
+  z-index: 55;
+  pointer-events: none;
+}
 
-  // Status dock
-  statusDock: {
-    position: "fixed",
-    left: 0,
-    right: 0,
-    bottom: 64, // above tab bar
-    zIndex: 60,
-    transition: "transform 220ms ease",
-    pointerEvents: "none",
-  },
-  statusDockDark: {},
-  statusDockLight: {},
-  statusInner: {
-    maxWidth: 860,
-    margin: "0 auto",
-    pointerEvents: "auto",
-    borderRadius: 18,
-    padding: 12,
-  },
-  statusDockDarkInner: {},
-  statusDockLightInner: {},
-  // apply inner skin via theme
-  statusDockDark: {},
-  statusDockLight: {},
-  // we'll reuse card skins directly on inner:
-  // but easiest: set background here:
-  statusInnerSkin: {},
+.toast{
+  position: fixed;
+  left: 0; right: 0;
+  top: 72px;
+  display:flex;
+  justify-content:center;
+  z-index: 80;
+}
+.toast-inner{
+  border: 1px solid var(--stroke);
+  background: rgba(0,0,0,0.55);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 999px;
+  font-weight: 900;
+  backdrop-filter: blur(14px);
+}
+:root[data-theme="light"] .toast-inner{
+  background: rgba(255,255,255,0.85);
+  color: rgba(0,0,0,0.85);
+}
 
-  collapseBtn: {
-    borderRadius: 999,
-    padding: "8px 10px",
-    fontWeight: 950,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "transparent",
-    cursor: "pointer",
-  },
-  collapseBtnDark: { color: "#f9fafb" },
-  collapseBtnLight: { color: "#0b1220", borderColor: "rgba(0,0,0,0.10)", background: "rgba(255,255,255,0.75)" },
+.statusWrap{
+  position: sticky;
+  bottom: calc(78px + env(safe-area-inset-bottom));
+  z-index: 40;
+}
+.statusCard{
+  /* FIX transparansi: pakai solid card var(--card) */
+}
+.statusHead{
+  display:flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.statusWrap.collapsed .statusCard{
+  padding-bottom: 12px;
+}
+`;
 
-  progressTrack: {
-    height: 10,
-    borderRadius: 999,
-    overflow: "hidden",
-    background: "rgba(0,0,0,0.18)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    marginTop: 10,
-  },
-  progressTrackDark: { background: "rgba(255,255,255,0.06)" },
-  progressBar: {
-    height: "100%",
-    width: "35%",
-    background: ORANGE,
-    borderRadius: 999,
-    transform: "translateX(-120%)",
-  },
-  progressBarAnim: {
-    animation: "ugc_progress 1.1s ease-in-out infinite",
-  },
-
-  // Tab bar
-  tabBarWrap: {
-    position: "fixed",
-    left: 0,
-    right: 0,
-    bottom: 34, // above footer
-    zIndex: 55,
-    padding: 12,
-    paddingBottom: "calc(12px + env(safe-area-inset-bottom))",
-    pointerEvents: "none",
-  },
-  tabBar: {
-    maxWidth: 520,
-    margin: "0 auto",
-    display: "flex",
-    gap: 10,
-    padding: 10,
-    borderRadius: 18,
-    pointerEvents: "auto",
-  },
-  tabBarDark: {
-    background: "rgba(255,255,255,0.06)",
-    border: "1px solid rgba(255,255,255,0.10)",
-    backdropFilter: "blur(16px)",
-  },
-  tabBarLight: {
-    background: "rgba(255,255,255,0.80)",
-    border: "1px solid rgba(0,0,0,0.06)",
-    backdropFilter: "blur(16px)",
-  },
-  tabBtn: {
-    flex: 1,
-    border: "none",
-    borderRadius: 14,
-    padding: "12px 10px",
-    fontWeight: 950,
-    cursor: "pointer",
-    background: "transparent",
-    fontSize: 13,
-  },
-  tabBtnDark: { color: "#e5e7eb" },
-  tabBtnActiveDark: { background: "rgba(255,255,255,0.10)" },
-  tabBtnActiveLight: { background: "rgba(0,0,0,0.06)" },
-
-  // Footer
-  footer: {
-    position: "fixed",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 40,
-    height: 34,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontSize: 12,
-    fontWeight: 800,
-    pointerEvents: "none",
-  },
-  footerDark: { color: "rgba(255,255,255,0.45)", background: "rgba(0,0,0,0.15)" },
-  footerLight: { color: "rgba(0,0,0,0.50)", background: "rgba(255,255,255,0.45)" },
-
-  // Toast
-  toastHost: {
-    position: "fixed",
-    top: 64,
-    right: 12,
-    zIndex: 80,
-    display: "grid",
-    gap: 10,
-    pointerEvents: "none",
-  },
-  toastHostDark: {},
-  toast: {
-    position: "relative",
-    width: 280,
-    borderRadius: 16,
-    padding: 12,
-    pointerEvents: "auto",
-    border: "1px solid rgba(255,255,255,0.10)",
-    background: "rgba(255,255,255,0.06)",
-    backdropFilter: "blur(14px)",
-  },
-  toastDark: { color: "#f9fafb" },
-  toastSuccess: { borderColor: "rgba(34,197,94,0.22)" },
-  toastError: { borderColor: "rgba(239,68,68,0.22)" },
-  toastX: {
-    position: "absolute",
-    top: 6,
-    right: 10,
-    border: "none",
-    background: "transparent",
-    color: "inherit",
-    fontSize: 18,
-    cursor: "pointer",
-    opacity: 0.7,
-  },
-};
-
-
-// Patch statusInner skin depending theme (cheap + safe)
-const _origStatusDock = styles.statusDock;
-styles.statusDock = _origStatusDock;
-
-// We'll just override statusInner background in runtime via inline in StatusDock:
-const _origStatusInner = styles.statusInner;
-styles.statusInner = _origStatusInner;
+/* =========================
+   exported helper for handler
+   ========================= */
+function normalizeBlueprintLocal(x) {
+  return normalizeBlueprint(x);
+}
