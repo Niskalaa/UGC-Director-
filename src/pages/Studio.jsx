@@ -1,11 +1,17 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 import StudioShell from "../components/StudioShell.jsx";
 import { supabase } from "../lib/supabaseClient";
 
 export default function StudioPage() {
+  const navigate = useNavigate();
+
   async function logout() {
-    await supabase.auth.signOut();
-    window.location.href = "/login";
+    try {
+      await supabase.auth.signOut();
+    } finally {
+      navigate("/login", { replace: true });
+    }
   }
 
   return (
@@ -18,7 +24,7 @@ export default function StudioPage() {
           padding: 10,
           backdropFilter: "blur(10px)",
           background: "rgba(255,255,255,0.6)",
-          borderBottom: "1px solid rgba(0,0,0,0.08)"
+          borderBottom: "1px solid rgba(0,0,0,0.08)",
         }}
       >
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
@@ -29,7 +35,7 @@ export default function StudioPage() {
               border: "1px solid rgba(0,0,0,0.15)",
               borderRadius: 12,
               padding: "8px 12px",
-              background: "rgba(255,255,255,0.7)"
+              background: "rgba(255,255,255,0.7)",
             }}
           >
             Logout
