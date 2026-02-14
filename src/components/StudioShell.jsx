@@ -979,6 +979,13 @@ function FooterCredit({ theme }) {
 /* =========================
    UI atoms
    ========================= */
+function MiniRow({ children }) {
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+      {children}
+    </div>
+  );
+}
 function CardHeader({ title, theme }) {
   return (
     <div style={{ ...styles.cardHeader, ...(theme === "dark" ? styles.cardHeaderDark : {}) }}>
