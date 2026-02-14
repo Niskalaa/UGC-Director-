@@ -1,6 +1,6 @@
 import React, { ReactNode, ErrorInfo, Component } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./src/App";
+import App from "./src/App.jsx"; // ✅ pakai router app baru
 
 console.log("System: Booting...");
 
