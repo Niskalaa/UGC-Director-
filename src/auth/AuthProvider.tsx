@@ -1,3 +1,4 @@
+// src/auth/AuthProvider.tsx
 import React, { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "../lib/supabaseClient";
@@ -28,18 +29,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (!mounted) return;
         setSession(null);
       } finally {
-        if (mounted) setLoading(false); // ✅ WAJIB, biar gak stuck
+        if (mounted) setLoading(false);
       }
     })();
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      // event bisa datang setelah init juga
+      if (!mounted) return;
       setSession(newSession);
-      setLoading(false); // ✅ juga aman di sini
+      setLoading(false);
     });
 
     return () => {
       mounted = false;
-      sub.subscription?.unsubscribe();
+      sub?.subscription?.unsubscribe?.();
     };
   }, []);
 
