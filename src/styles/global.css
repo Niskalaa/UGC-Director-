@@ -22,6 +22,35 @@ body {
   50%  { transform: translateX(120%);  opacity: 1; }
   100% { transform: translateX(320%);  opacity: .85; }
 }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Theme variables */
+:root {
+  --bg: #0b0b0f;
+  --fg: #f3f3f3;
+  --card: rgba(255,255,255,.06);
+  --card2: rgba(255,255,255,.04);
+  --topbar: rgba(255,255,255,.05);
+  --bottomTabs: rgba(10,10,14,.72);
+  --statusCard: rgba(10,10,14,.86);
+  --input: rgba(255,255,255,.06);
+  --border: rgba(255,255,255,.12);
+}
+
+html[data-theme="light"] {
+  --bg: #f6f6f7;
+  --fg: #0c0c0f;
+  --card: rgba(255,255,255,.85);
+  --card2: rgba(255,255,255,.75);
+  --topbar: rgba(255,255,255,.85);
+  --bottomTabs: rgba(255,255,255,.88);
+  --statusCard: rgba(255,255,255,.92);
+  --input: rgba(0,0,0,.04);
+  --border: rgba(0,0,0,.10);
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); }
 /* ===== UGC Studio Theme ===== */
 :root {
   --bg: #fff7ed;
