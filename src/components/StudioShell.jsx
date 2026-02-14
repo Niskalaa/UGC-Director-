@@ -605,5 +605,49 @@ const styles = {
   tabBtnActive: {
     background: "rgba(255,255,255,0.92)",
     boxShadow: "0 6px 18px rgba(0,0,0,0.08)"
-  }
+  },
+  bgRow: {
+  display: "grid",
+  gridTemplateColumns: "52px 1fr",
+  gap: 10,
+  alignItems: "center"
+},
+bgLabel: {
+  fontWeight: 900,
+  fontSize: 12,
+  color: "#111827",
+  textAlign: "center",
+  padding: "8px 0",
+  borderRadius: 12,
+  background: "rgba(255,255,255,0.6)",
+  border: "1px solid rgba(0,0,0,0.06)"
+},
+stickyBar: {
+  position: "sticky",
+  bottom: 0,
+  marginTop: 16,
+  paddingTop: 12
+},
+stickyInner: {
+  display: "flex",
+  gap: 10,
+  alignItems: "center",
+  justifyContent: "space-between",
+  flexWrap: "wrap",
+  padding: 12,
+  borderRadius: 18,
+  background: "rgba(255,255,255,0.65)",
+  backdropFilter: "blur(14px)",
+  border: "1px solid rgba(255,255,255,0.5)",
+  boxShadow: "0 10px 30px rgba(0,0,0,0.08)"
+},
+primaryBtn: {
+  padding: "12px 14px",
+  borderRadius: 16,
+  border: "none",
+  background: "#f97316",
+  color: "white",
+  fontWeight: 900
+}
+  
 };
