@@ -66,6 +66,18 @@ export default function StudioShell() {
             ))}
           </div>
         </div>
+        {/* Credit */}
+<div style={styles.credit}>
+  Created by{" "}
+  <a
+    href="https://x.com/adryndian"
+    target="_blank"
+    rel="noreferrer"
+    style={styles.creditLink}
+  >
+    @adryndian
+  </a>
+</div>
       </div>
     </StudioContext.Provider>
   );
