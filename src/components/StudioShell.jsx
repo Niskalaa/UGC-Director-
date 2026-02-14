@@ -77,6 +77,7 @@ export default function StudioShell() {
   >
     @adryndian
   </a>
+  </div>
       </div>
     </StudioContext.Provider>
   );
@@ -702,7 +703,7 @@ const styles = {
     border: "1px solid rgba(239,68,68,0.18)",
     color: "#b91c1c",
     fontWeight: 800
-  }
+  },
   credit: {
   position: "fixed",
   left: 0,
