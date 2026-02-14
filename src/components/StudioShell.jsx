@@ -3,12 +3,82 @@ import React, { useMemo, useState } from "react";
 import ImageUploadField from "./ImageUploadField.jsx";
 import { DEFAULT_PROJECT } from "../studio/studioStore.js";
 
-const TABS = ["Scenes", "Settings", "Export"];
+const TABS_KEYS = ["Scenes", "Settings", "Export"];
 
 const StudioContext = React.createContext(null);
 export function useStudio() {
   return React.useContext(StudioContext);
 }
+
+/* =========================
+   Helpers
+   ========================= */
+function fmtMMSS(s) {
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return `${String(m).padStart(2, "0")}:${String(r).padStart(2, "0")}`;
+}
+
+const I18N = {
+  id: {
+    scenes: "Scenes",
+    settings: "Settings",
+    export: "Export",
+    aiBrain: "AI Brain",
+    language: "Bahasa",
+    formatTiming: "Format & Timing",
+    platform: "Platform",
+    aspect: "Aspect ratio",
+    sceneCount: "Scene count (max 10)",
+    secondsPerScene: "Seconds per scene",
+    coreInputs: "Core Inputs",
+    brand: "Brand *",
+    productType: "Product type *",
+    material: "Material *",
+    assets: "Assets",
+    autoFill: "Auto-fill from Images",
+    analyzing: "Analyzing…",
+    generating: "Generating…",
+    generatePlan: "Generate Plan (once)",
+    estTime: "Estimasi waktu",
+    timeLeft: "Sisa waktu",
+    pleaseWait: "Tunggu ya… sedang proses.",
+    tip: "Kalau stuck, biasanya route /api/plan belum jalan atau quota/Bedrock error.",
+    goSettings: "Go to Settings",
+    noBlueprint: "Belum ada blueprint. Buka tab Settings → isi data → Generate Plan.",
+    beatsMissing: "Blueprint ada, tapi beats tidak terbaca.",
+    createdBy: "Created by"
+  },
+  en: {
+    scenes: "Scenes",
+    settings: "Settings",
+    export: "Export",
+    aiBrain: "AI Brain",
+    language: "Language",
+    formatTiming: "Format & Timing",
+    platform: "Platform",
+    aspect: "Aspect ratio",
+    sceneCount: "Scene count (max 10)",
+    secondsPerScene: "Seconds per scene",
+    coreInputs: "Core Inputs",
+    brand: "Brand *",
+    productType: "Product type *",
+    material: "Material *",
+    assets: "Assets",
+    autoFill: "Auto-fill from Images",
+    analyzing: "Analyzing…",
+    generating: "Generating…",
+    generatePlan: "Generate Plan (once)",
+    estTime: "Estimated time",
+    timeLeft: "Time left",
+    pleaseWait: "Please wait… processing.",
+    tip: "If it hangs, usually /api/plan isn’t responding or quota/Bedrock error.",
+    goSettings: "Go to Settings",
+    noBlueprint: "No blueprint yet. Go to Settings → fill inputs → Generate Plan.",
+    beatsMissing: "Blueprint exists, but beats cannot be read.",
+    createdBy: "Created by"
+  }
+};
 
 export default function StudioShell() {
   const [tab, setTab] = useState("Scenes");
@@ -18,6 +88,10 @@ export default function StudioShell() {
   const [blueprint, setBlueprint] = useState(null);
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [planError, setPlanError] = useState("");
+
+  const lang = projectDraft?.ui_lang || "id";
+  const t = I18N[lang] || I18N.id;
+  const tabs = [t.scenes, t.settings, t.export];
 
   const ctx = {
     tab,
@@ -54,30 +128,34 @@ export default function StudioShell() {
         {/* Bottom tabs */}
         <div style={styles.tabBar}>
           <div style={styles.tabBarInner}>
-            {TABS.map((t) => (
-              <button
-                key={t}
-                onClick={() => setTab(t)}
-                style={{ ...styles.tabBtn, ...(tab === t ? styles.tabBtnActive : {}) }}
-                type="button"
-              >
-                {t}
-              </button>
-            ))}
+            {tabs.map((label, idx) => {
+              const key = TABS_KEYS[idx];
+              return (
+                <button
+                  key={key}
+                  onClick={() => setTab(key)}
+                  style={{ ...styles.tabBtn, ...(tab === key ? styles.tabBtnActive : {}) }}
+                  type="button"
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
         </div>
+
         {/* Credit */}
-<div style={styles.credit}>
-  Created by{" "}
-  <a
-    href="https://x.com/adryndian"
-    target="_blank"
-    rel="noreferrer"
-    style={styles.creditLink}
-  >
-    @adryndian
-  </a>
-  </div>
+        <div style={styles.credit}>
+          {t.createdBy}{" "}
+          <a
+            href="https://x.com/adryndian"
+            target="_blank"
+            rel="noreferrer"
+            style={styles.creditLink}
+          >
+            @adryndian
+          </a>
+        </div>
       </div>
     </StudioContext.Provider>
   );
@@ -88,7 +166,8 @@ export default function StudioShell() {
    ========================= */
 
 function ScenesTab() {
-  const { blueprint, setTab } = useStudio();
+  const { blueprint, setTab, projectDraft } = useStudio();
+  const t = I18N[projectDraft?.ui_lang || "id"] || I18N.id;
 
   const beats =
     blueprint?.storyboard?.beats ||
@@ -99,23 +178,23 @@ function ScenesTab() {
   return (
     <div style={styles.card}>
       <div style={styles.cardHeader}>
-        <div style={styles.cardTitle}>Scenes</div>
+        <div style={styles.cardTitle}>{t.scenes}</div>
         <div style={styles.cardSub}>Per-scene workflow: plan → image → approve → video → audio (manual trigger)</div>
       </div>
 
       {!blueprint ? (
         <div style={styles.placeholder}>
-          Belum ada blueprint. Buka tab <b>Settings</b> → isi data → klik <b>Generate Plan (once)</b>.
+          {t.noBlueprint}
           <div style={{ marginTop: 10 }}>
             <button type="button" onClick={() => setTab("Settings")} style={styles.secondaryBtn}>
-              Go to Settings
+              {t.goSettings}
             </button>
           </div>
         </div>
       ) : (
         <div style={{ display: "grid", gap: 12 }}>
           {beats.length === 0 ? (
-            <div style={styles.placeholder}>Blueprint ada, tapi beats tidak terbaca.</div>
+            <div style={styles.placeholder}>{t.beatsMissing}</div>
           ) : (
             beats.map((b, idx) => (
               <div key={b.id || idx} style={styles.sceneCard}>
@@ -189,6 +268,22 @@ function SettingsTab() {
   const [analyzing, setAnalyzing] = React.useState(false);
   const [analysisInfo, setAnalysisInfo] = React.useState("");
 
+  // loading UI
+  const [progress, setProgress] = React.useState(0);
+  const [etaSec, setEtaSec] = React.useState(90);
+  const [leftSec, setLeftSec] = React.useState(90);
+
+  const lang = (p.ui_lang || "id");
+  const t = I18N[lang] || I18N.id;
+
+  React.useEffect(() => {
+    if (!loadingPlan && !analyzing) return;
+    const iv = setInterval(() => {
+      setLeftSec((s) => (s > 0 ? s - 1 : 0));
+    }, 1000);
+    return () => clearInterval(iv);
+  }, [loadingPlan, analyzing]);
+
   const totalDuration = Number(p.scene_count || 0) * Number(p.seconds_per_scene || 0);
 
   const canGeneratePlan =
@@ -208,12 +303,23 @@ function SettingsTab() {
     setPlanError("");
     setLoadingPlan(true);
 
+    // ETA rule: base 60s + 6s/scene (cap 150s)
+    const estimated = Math.min(150, 60 + Number(p.scene_count || 6) * 6);
+    setEtaSec(estimated);
+    setLeftSec(estimated);
+    setProgress(2);
+
     setProjectDraft(p);
+
     const provider = (p.ai_brain || "bedrock").toLowerCase();
 
     const ctrl = new AbortController();
-    const timeoutMs = 90000;
+    const timeoutMs = estimated * 1000 + 15000;
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+
+    const pv = setInterval(() => {
+      setProgress((x) => (x < 92 ? x + 1 : x));
+    }, 900);
 
     try {
       const r = await fetch("/api/plan", {
@@ -234,6 +340,7 @@ function SettingsTab() {
       if (!r.ok || !json?.ok) throw new Error(json?.error || `Plan failed (${r.status})`);
       if (!json?.blueprint) throw new Error("Plan OK tapi blueprint kosong. Cek /api/plan response.");
 
+      setProgress(100);
       setBlueprint(json.blueprint);
       setTab("Scenes");
     } catch (e) {
@@ -244,7 +351,9 @@ function SettingsTab() {
       }
     } finally {
       clearTimeout(timer);
+      clearInterval(pv);
       setLoadingPlan(false);
+      setTimeout(() => setProgress(0), 400);
     }
   }
 
@@ -255,6 +364,15 @@ function SettingsTab() {
     setPlanError("");
     setAnalysisInfo("");
     setAnalyzing(true);
+
+    const estimated = 25;
+    setEtaSec(estimated);
+    setLeftSec(estimated);
+    setProgress(2);
+
+    const pv = setInterval(() => {
+      setProgress((x) => (x < 92 ? x + 2 : x));
+    }, 700);
 
     try {
       const r = await fetch("/api/analyze", {
@@ -286,24 +404,40 @@ function SettingsTab() {
         target_audience: prev.target_audience?.trim() ? prev.target_audience : (f.target_audience || "")
       }));
 
+      setProgress(100);
       setAnalysisInfo("Auto-fill sukses ✓ (cek Core Inputs & Tone).");
     } catch (e) {
       setPlanError(e?.message || String(e));
     } finally {
+      clearInterval(pv);
       setAnalyzing(false);
+      setTimeout(() => setProgress(0), 400);
     }
   }
 
   return (
     <div style={styles.card}>
       <div style={styles.cardHeader}>
-        <div style={styles.cardTitle}>Settings</div>
+        <div style={styles.cardTitle}>{t.settings}</div>
         <div style={styles.cardSub}>Isi data → Auto-fill → Generate Plan</div>
       </div>
 
-      <Section title="AI Brain" sub="Default: Bedrock. Gemini opsional.">
+      {/* Language */}
+      <Section title={t.language} sub="">
         <Grid2>
-          <Field label="AI Brain">
+          <Field label={t.language}>
+            <Select value={p.ui_lang || "id"} onChange={(e) => update("ui_lang", e.target.value)}>
+              <option value="id">Indonesia</option>
+              <option value="en">English</option>
+            </Select>
+          </Field>
+        </Grid2>
+      </Section>
+
+      {/* AI Brain */}
+      <Section title={t.aiBrain} sub="Default: Bedrock. Gemini opsional.">
+        <Grid2>
+          <Field label={t.aiBrain}>
             <Select value={p.ai_brain || "bedrock"} onChange={(e) => update("ai_brain", e.target.value)}>
               <option value="bedrock">Bedrock (DeepSeek + Claude)</option>
               <option value="gemini">Gemini (single-pass)</option>
@@ -311,57 +445,55 @@ function SettingsTab() {
           </Field>
         </Grid2>
       </Section>
-<Section title="Format & Timing" sub="Atur jumlah scene dan durasi per scene.">
-  <Grid2>
-    <Field label="Platform">
-      <Select value={p.platform} onChange={(e) => update("platform", e.target.value)}>
-        <option value="tiktok">TikTok</option>
-        <option value="instagram">Instagram Reels</option>
-        <option value="facebook">Facebook Reels</option>
-        <option value="youtube">YouTube Shorts</option>
-      </Select>
-    </Field>
 
-    <Field label="Aspect ratio">
-      <Select value={p.aspect_ratio} onChange={(e) => update("aspect_ratio", e.target.value)}>
-        <option value="9:16">9:16</option>
-        <option value="1:1">1:1</option>
-        <option value="16:9">16:9</option>
-      </Select>
-    </Field>
-
-    <Field label="Scene count (max 10)">
-      <Select
-        value={String(p.scene_count)}
-        onChange={(e) => update("scene_count", Number(e.target.value))}
-      >
-        {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-          <option key={n} value={String(n)}>{n}</option>
-        ))}
-      </Select>
-    </Field>
-
-    <Field label="Seconds per scene">
-      <Select
-        value={String(p.seconds_per_scene)}
-        onChange={(e) => update("seconds_per_scene", Number(e.target.value))}
-      >
-        {[4, 6, 8, 10, 12].map((n) => (
-          <option key={n} value={String(n)}>{n}s</option>
-        ))}
-      </Select>
-    </Field>
-  </Grid2>
-</Section>
-      <Section title="Core Inputs" sub="Wajib untuk generate plan.">
+      {/* Format & timing */}
+      <Section title={t.formatTiming} sub="Atur jumlah scene dan durasi per scene.">
         <Grid2>
-          <Field label="Brand *">
+          <Field label={t.platform}>
+            <Select value={p.platform} onChange={(e) => update("platform", e.target.value)}>
+              <option value="tiktok">TikTok</option>
+              <option value="instagram">Instagram Reels</option>
+              <option value="facebook">Facebook Reels</option>
+              <option value="youtube">YouTube Shorts</option>
+            </Select>
+          </Field>
+
+          <Field label={t.aspect}>
+            <Select value={p.aspect_ratio} onChange={(e) => update("aspect_ratio", e.target.value)}>
+              <option value="9:16">9:16</option>
+              <option value="1:1">1:1</option>
+              <option value="16:9">16:9</option>
+            </Select>
+          </Field>
+
+          <Field label={t.sceneCount}>
+            <Select value={String(p.scene_count)} onChange={(e) => update("scene_count", Number(e.target.value))}>
+              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+                <option key={n} value={String(n)}>{n}</option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label={t.secondsPerScene}>
+            <Select value={String(p.seconds_per_scene)} onChange={(e) => update("seconds_per_scene", Number(e.target.value))}>
+              {[4, 6, 8, 10, 12].map((n) => (
+                <option key={n} value={String(n)}>{n}s</option>
+              ))}
+            </Select>
+          </Field>
+        </Grid2>
+      </Section>
+
+      {/* Core */}
+      <Section title={t.coreInputs} sub="Wajib untuk generate plan.">
+        <Grid2>
+          <Field label={t.brand}>
             <Input value={p.brand} onChange={(e) => update("brand", e.target.value)} placeholder="Nama brand" />
           </Field>
-          <Field label="Product type *">
+          <Field label={t.productType}>
             <Input value={p.product_type} onChange={(e) => update("product_type", e.target.value)} placeholder="Contoh: sunscreen, hoodie, coffee" />
           </Field>
-          <Field label="Material *">
+          <Field label={t.material}>
             <Input value={p.material} onChange={(e) => update("material", e.target.value)} placeholder="Contoh: cotton, serum gel, stainless" />
           </Field>
         </Grid2>
@@ -372,7 +504,8 @@ function SettingsTab() {
         </MiniRow>
       </Section>
 
-      <Section title="Assets" sub="Upload → URL otomatis → Auto-fill.">
+      {/* Assets */}
+      <Section title={t.assets} sub="Upload → URL otomatis → Auto-fill.">
         <Grid2>
           <ImageUploadField
             label="Model reference *"
@@ -397,7 +530,7 @@ function SettingsTab() {
             onClick={autoFillFromImages}
             style={{ ...styles.secondaryBtn, opacity: analyzing ? 0.6 : 1 }}
           >
-            {analyzing ? "Analyzing…" : "Auto-fill from Images"}
+            {analyzing ? t.analyzing : t.autoFill}
           </button>
 
           {analysisInfo ? <Chip>{analysisInfo}</Chip> : null}
@@ -424,20 +557,56 @@ function SettingsTab() {
             disabled={!canGeneratePlan || loadingPlan}
             onClick={generatePlanOnce}
           >
-            {loadingPlan ? "Generating…" : "Generate Plan (once)"}
+            {loadingPlan ? t.generating : t.generatePlan}
           </button>
         </div>
       </div>
+
+      {/* Loading overlay */}
+      {(loadingPlan || analyzing) ? (
+        <div style={styles.overlay}>
+          <div style={styles.overlayCard}>
+            <div style={styles.spinner} />
+            <div style={{ fontWeight: 900, marginTop: 10 }}>
+              {loadingPlan ? t.generating : t.analyzing}
+            </div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6, textAlign: "center" }}>
+              {t.pleaseWait}
+            </div>
+
+            <div style={{ width: "100%", marginTop: 12 }}>
+              <div style={styles.progressTrack}>
+                <div style={{ ...styles.progressFill, width: `${Math.min(100, progress)}%` }} />
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12 }}>
+                <div style={{ fontWeight: 800, color: "#374151" }}>
+                  {t.estTime}: {fmtMMSS(etaSec)}
+                </div>
+                <div style={{ fontWeight: 900, color: "#111827" }}>
+                  {t.timeLeft}: {fmtMMSS(leftSec)}
+                </div>
+              </div>
+
+              <div style={{ marginTop: 10, fontSize: 12, color: "#6b7280", textAlign: "center" }}>
+                {t.tip}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
 
 function ExportTab() {
-  const { blueprint } = useStudio();
+  const { blueprint, projectDraft } = useStudio();
+  const t = I18N[projectDraft?.ui_lang || "id"] || I18N.id;
+
   return (
     <div style={styles.card}>
       <div style={styles.cardHeader}>
-        <div style={styles.cardTitle}>Export</div>
+        <div style={styles.cardTitle}>{t.export}</div>
         <div style={styles.cardSub}>Download blueprint + assets per scene</div>
       </div>
       {!blueprint ? (
@@ -602,6 +771,7 @@ const styles = {
     color: "#374151",
     background: "rgba(255,255,255,0.55)"
   },
+
   tabBar: {
     position: "fixed",
     left: 0,
@@ -637,6 +807,7 @@ const styles = {
     background: "rgba(255,255,255,0.92)",
     boxShadow: "0 6px 18px rgba(0,0,0,0.08)"
   },
+
   stickyBar: { position: "sticky", bottom: 0, marginTop: 16, paddingTop: 12 },
   stickyInner: {
     display: "flex",
@@ -666,6 +837,7 @@ const styles = {
     background: "rgba(255,255,255,0.7)",
     fontWeight: 900
   },
+
   sceneCard: {
     borderRadius: 18,
     padding: 12,
@@ -695,6 +867,7 @@ const styles = {
   },
   stepperRow: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 },
   sceneActions: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 },
+
   errorBox: {
     marginTop: 12,
     padding: 12,
@@ -704,26 +877,74 @@ const styles = {
     color: "#b91c1c",
     fontWeight: 800
   },
+
+  // overlay + progress
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(255,255,255,0.65)",
+    backdropFilter: "blur(10px)",
+    zIndex: 9999,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 16
+  },
+  overlayCard: {
+    width: "100%",
+    maxWidth: 420,
+    borderRadius: 18,
+    background: "rgba(255,255,255,0.85)",
+    border: "1px solid rgba(0,0,0,0.06)",
+    boxShadow: "0 16px 40px rgba(0,0,0,0.12)",
+    padding: 16,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center"
+  },
+  spinner: {
+    width: 34,
+    height: 34,
+    borderRadius: 999,
+    border: "4px solid rgba(0,0,0,0.10)",
+    borderTop: "4px solid rgba(249,115,22,0.95)",
+    animation: "spin 0.9s linear infinite"
+  },
+  progressTrack: {
+    width: "100%",
+    height: 10,
+    borderRadius: 999,
+    background: "rgba(0,0,0,0.06)",
+    overflow: "hidden"
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 999,
+    background: "rgba(249,115,22,0.95)",
+    transition: "width 200ms ease"
+  },
+
+  // credit
   credit: {
-  position: "fixed",
-  left: 0,
-  right: 0,
-  bottom: "calc(84px + env(safe-area-inset-bottom))",
-  display: "flex",
-  justifyContent: "center",
-  pointerEvents: "none",
-  zIndex: 25
-},
-creditLink: {
-  pointerEvents: "auto",
-  fontSize: 12,
-  fontWeight: 800,
-  color: "rgba(17,24,39,0.55)",
-  textDecoration: "none",
-  background: "rgba(255,255,255,0.55)",
-  border: "1px solid rgba(0,0,0,0.06)",
-  padding: "6px 10px",
-  borderRadius: 999,
-  backdropFilter: "blur(12px)"
-}
+    position: "fixed",
+    left: 0,
+    right: 0,
+    bottom: "calc(84px + env(safe-area-inset-bottom))",
+    display: "flex",
+    justifyContent: "center",
+    pointerEvents: "none",
+    zIndex: 25
+  },
+  creditLink: {
+    pointerEvents: "auto",
+    fontSize: 12,
+    fontWeight: 800,
+    color: "rgba(17,24,39,0.55)",
+    textDecoration: "none",
+    background: "rgba(255,255,255,0.55)",
+    border: "1px solid rgba(0,0,0,0.06)",
+    padding: "6px 10px",
+    borderRadius: 999,
+    backdropFilter: "blur(12px)"
+  }
 };
