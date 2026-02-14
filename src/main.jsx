@@ -2,7 +2,9 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import GeneratorPage from "./pages/GeneratorPage.jsx";
-import "./src/styles/global.css";
+
+// ✅ FIX PATH (file ada di src/styles/global.css)
+import "./styles/global.css";
 
 function Home() {
   return (
