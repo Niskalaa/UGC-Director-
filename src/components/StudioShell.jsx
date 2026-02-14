@@ -915,12 +915,12 @@ function Section({ title, sub, children }) {
   );
 }
 
-function Grid2({ children }) {
+function Grid({ children, cols = 1 }) {
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: "repeat(1, minmax(0, 1fr))",
+        gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
         gap: 12
       }}
     >
@@ -929,6 +929,9 @@ function Grid2({ children }) {
   );
 }
 
+function Grid2({ children }) {
+  return <Grid cols={1}>{children}</Grid>;
+}
 function Field({ label, children }) {
   return (
     <div>
