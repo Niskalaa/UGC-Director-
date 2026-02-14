@@ -1,6 +1,7 @@
 // src/components/StudioShell.jsx
 import React, { useMemo, useState, useEffect } from "react";
 import ImageUploadField from "./ImageUploadField.jsx";
+import Toast from "./Toast.jsx";
 import { DEFAULT_PROJECT } from "../studio/studioStore.js";
 
 /* =========================
