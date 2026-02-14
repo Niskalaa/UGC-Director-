@@ -7,13 +7,29 @@ const REGION = process.env.AWS_REGION || "us-west-2";
 // ===== Helpers =====
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * FIXED:
+ * - Inference Profile ID/ARN juga mengandung string model ID,
+ *   jadi TIDAK BOLEH pakai `.includes("anthropic.claude...")` untuk deteksi base model.
+ * - Base model = "anthropic.claude-..." (tanpa `global.` dan tanpa `:inference-profile/`)
+ */
 function isClaude45BaseId(id = "") {
-  // base model id yang bikin error "on-demand throughput isn't supported"
-  return String(id).includes("anthropic.claude-sonnet-4-5-20250929-v1:0");
+  const s = String(id).trim();
+
+  // ✅ inference profile ARN
+  if (s.startsWith("arn:aws:bedrock:") && s.includes(":inference-profile/")) return false;
+
+  // ✅ inference profile ID (contoh: global.anthropic.claude-sonnet-4-5-...)
+  if (s.startsWith("global.")) return false;
+
+  // ✅ base model id (on-demand) → ini yang bikin error
+  return (
+    s === "anthropic.claude-sonnet-4-5-20250929-v1:0" ||
+    s.startsWith("anthropic.claude-sonnet-4-5-")
+  );
 }
 
 function parseRetrySecondsFromText(msg = "") {
-  // Gemini error sering bilang: "Please retry in 48.903816418s."
   const m = String(msg).match(/retry in\s+([\d.]+)s/i);
   if (!m) return null;
   const sec = Number(m[1]);
@@ -52,7 +68,7 @@ function assertRequired(project, keys) {
 
 // ===== Main Handler =====
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
 
   try {
     const body = req.body || {};
@@ -61,7 +77,6 @@ export default async function handler(req, res) {
 
     if (!project) return res.status(400).json({ ok: false, error: "project required" });
 
-    // minimal guard
     assertRequired(project, [
       "brand",
       "product_type",
@@ -81,7 +96,6 @@ export default async function handler(req, res) {
       return res.status(200).json({ ok: true, provider: "gemini", blueprint });
     }
 
-    // Default: Bedrock pipeline (DeepSeek -> Claude -> DeepSeek)
     const blueprint = await planWithBedrock(project);
     return res.status(200).json({ ok: true, provider: "bedrock", blueprint });
   } catch (e) {
@@ -95,27 +109,19 @@ export default async function handler(req, res) {
    ========================= */
 
 async function planWithBedrock(project) {
-  // ---- Model IDs ----
-  // DeepSeek: boleh inference profile ARN/ID atau base model id (tergantung akun)
+  // DeepSeek: inference profile ARN/ID atau base model id
   const DEEPSEEK_MODEL =
     process.env.BEDROCK_DEEPSEEK_INFERENCE_PROFILE_ARN ||
     process.env.BEDROCK_DEEPSEEK_INFERENCE_PROFILE_ID ||
     process.env.BEDROCK_DEEPSEEK_MODEL_ID ||
     "deepseek.r1-v1:0";
 
-  // Claude 4.5: WAJIB inference profile (sesuai error kamu)
+  // Claude 4.5: WAJIB inference profile (ARN/ID)
   const CLAUDE_MODEL =
-  process.env.BEDROCK_CLAUDE_INFERENCE_PROFILE_ARN ||
-  process.env.BEDROCK_CLAUDE_INFERENCE_PROFILE_ID;
-
-if (!CLAUDE_MODEL) {
-  throw new Error(
-    "Missing Claude inference profile. Set BEDROCK_CLAUDE_INFERENCE_PROFILE_ARN (recommended) or BEDROCK_CLAUDE_INFERENCE_PROFILE_ID in Vercel env."
- console.log("[planWithBedrock] REGION", REGION);
-console.log("[planWithBedrock] DEEPSEEK_MODEL", DEEPSEEK_MODEL);
-console.log("[planWithBedrock] CLAUDE_MODEL", CLAUDE_MODEL);
-  );
-}
+    process.env.BEDROCK_CLAUDE_INFERENCE_PROFILE_ARN ||
+    process.env.BEDROCK_CLAUDE_INFERENCE_PROFILE_ID ||
+    process.env.BEDROCK_CLAUDE_MODEL_ID ||
+    "anthropic.claude-sonnet-4-5-20250929-v1:0";
 
   // Guard keras: kalau masih base id, stop & kasih instruksi jelas
   if (isClaude45BaseId(CLAUDE_MODEL)) {
@@ -193,12 +199,11 @@ async function bedrockJSONWithRetry(brClient, modelId, payload) {
     } catch (err) {
       lastErr = err;
 
-      // kalau error "on-demand throughput isn't supported" → ini bukan retryable
+      // "on-demand throughput isn't supported" → bukan retryable
       if (isOnDemandNotSupported(err)) throw err;
 
-      // non-json kadang terjadi karena model nyeleneh; boleh retry 1x
+      // non-json kadang terjadi; throttle juga retryable
       const retryable = isThrottleError(err) || isNonJsonError(err);
-
       if (!retryable || attempt === maxAttempts) throw err;
 
       const jitter = Math.floor(Math.random() * 250);
@@ -212,8 +217,7 @@ async function bedrockJSONWithRetry(brClient, modelId, payload) {
 }
 
 async function bedrockJSON(brClient, modelId, payload) {
-  // NOTE: beberapa model sensitif. Hindari set temperature + topP bersamaan.
-  // Kita pakai temperature saja.
+  // Hindari temperature + topP bareng (beberapa model sensitif). Pakai temperature saja.
   const cmd = new ConverseCommand({
     modelId,
     messages: [
@@ -245,8 +249,6 @@ function extractBedrockText(out) {
 
 async function planWithGemini(project) {
   const apiKey = process.env.GEMINI_API_KEY;
-  // Kamu bisa upgrade model via ENV: GEMINI_MODEL
-  // contoh: gemini-2.5-flash, gemini-2.5-pro (tergantung akses & billing)
   const model = process.env.GEMINI_MODEL || "gemini-2.0-flash";
 
   if (!apiKey) throw new Error("Missing GEMINI_API_KEY");
@@ -266,7 +268,6 @@ async function planWithGemini(project) {
   };
 
   const maxAttempts = Number(process.env.GEMINI_RETRY_MAX || 4);
-
   let lastErr = null;
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
