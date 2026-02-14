@@ -120,7 +120,6 @@ async function bedrockJSON(brClient, modelId, payload) {
     ],
     inferenceConfig: {
       temperature: 0.2,
-      topP: 0.9,
       maxTokens: 4096
     }
   });
