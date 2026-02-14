@@ -1,8 +1,7 @@
 import React, { ReactNode, ErrorInfo, Component } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
 import App from "./App";
-import GeneratorPage from "./src/pages/GeneratorPage";
+import { AuthProvider } from "./auth/AuthProvider";
 
 console.log("System: Booting v2.3...");
 
@@ -15,7 +14,6 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-// Error Boundary to catch render-phase errors
 class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   public state: ErrorBoundaryState = { hasError: false, error: null };
 
@@ -92,7 +90,8 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
         </div>
       );
     }
-    return (this as any).props.children;
+
+    return this.props.children;
   }
 }
 
@@ -101,21 +100,17 @@ const container = document.getElementById("root");
 if (container) {
   try {
     const root = createRoot(container);
+
     root.render(
       <React.StrictMode>
         <ErrorBoundary>
-          <BrowserRouter>
-            <Routes>
-              {/* App lama kamu tetap di root */}
-              <Route path="/*" element={<App />} />
-
-              {/* Generator ada di route khusus */}
-              <Route path="/generator" element={<GeneratorPage />} />
-            </Routes>
-          </BrowserRouter>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
         </ErrorBoundary>
       </React.StrictMode>
     );
+
     console.log("System: React mounted successfully.");
   } catch (err) {
     console.error("System: Critical Mount Error", err);
