@@ -77,7 +77,6 @@ export default function StudioShell() {
   >
     @adryndian
   </a>
-</div>
       </div>
     </StudioContext.Provider>
   );
