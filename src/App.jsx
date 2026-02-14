@@ -7,15 +7,7 @@ import { useAuth } from "./auth/AuthProvider";
 
 function LoginRoute() {
   const { user, loading } = useAuth();
-  function LoginRoute() {
-  const { user, loading } = useAuth();
-  if (loading) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <div style={{ fontWeight: 800 }}>Loading…</div>
-      </div>
-    );
-  }
+  if (loading) return null; // biar tidak flicker
   return user ? <Navigate to="/studio" replace /> : <LoginPage />;
 }
 
@@ -39,7 +31,7 @@ export default function App() {
           }
         />
 
-        {/* Legacy route (client-side fallback). Edge 301 di Vercel tetap dipakai. */}
+        {/* Legacy route */}
         <Route path="/generator" element={<Navigate to="/studio" replace />} />
 
         {/* Fallback */}
