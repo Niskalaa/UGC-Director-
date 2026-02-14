@@ -299,7 +299,48 @@ function SettingsTab() {
           </Field>
         </Grid2>
       </Section>
+<Section title="Format & Timing" sub="Atur jumlah scene dan durasi per scene.">
+  <Grid2>
+    <Field label="Platform">
+      <Select value={p.platform} onChange={(e) => update("platform", e.target.value)}>
+        <option value="tiktok">TikTok</option>
+        <option value="instagram">Instagram Reels</option>
+        <option value="facebook">Facebook Reels</option>
+        <option value="youtube">YouTube Shorts</option>
+      </Select>
+    </Field>
 
+    <Field label="Aspect ratio">
+      <Select value={p.aspect_ratio} onChange={(e) => update("aspect_ratio", e.target.value)}>
+        <option value="9:16">9:16</option>
+        <option value="1:1">1:1</option>
+        <option value="16:9">16:9</option>
+      </Select>
+    </Field>
+
+    <Field label="Scene count (max 10)">
+      <Select
+        value={String(p.scene_count)}
+        onChange={(e) => update("scene_count", Number(e.target.value))}
+      >
+        {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+          <option key={n} value={String(n)}>{n}</option>
+        ))}
+      </Select>
+    </Field>
+
+    <Field label="Seconds per scene">
+      <Select
+        value={String(p.seconds_per_scene)}
+        onChange={(e) => update("seconds_per_scene", Number(e.target.value))}
+      >
+        {[4, 6, 8, 10, 12].map((n) => (
+          <option key={n} value={String(n)}>{n}s</option>
+        ))}
+      </Select>
+    </Field>
+  </Grid2>
+</Section>
       <Section title="Core Inputs" sub="Wajib untuk generate plan.">
         <Grid2>
           <Field label="Brand *">
