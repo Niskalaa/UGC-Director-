@@ -628,30 +628,28 @@ const [linkInfo, setLinkInfo] = React.useState("");
 
         {/* Col 3 */}
         <div style={styles.card}>
-          <CardHeader title={t.assets} sub="Upload → URL otomatis" />
-          <Section title={t.assets} sub=" ">
-            <Grid>
-              <ImageUploadField
-  label="Model reference"
-  kind="model"
-  optional={true}
-  hideUrl={true}
-  projectId={p.project_id || "local"}
-  valueUrl={p.model_ref_url}
-  onUrl={(url) => update("model_ref_url", url)}
-/>
-
-<ImageUploadField
-  label="Product reference"
-  kind="product"
-  optional={true}
-  hideUrl={true}
-  projectId={p.project_id || "local"}
-  valueUrl={p.product_ref_url}
-  onUrl={(url) => update("product_ref_url", url)}
-/>
-            </Grid>
-          </Section>
+          <Section title="Assets (optional)" sub="Upload optional. URL disimpan tapi tidak ditampilkan.">
+  <Grid2>
+    <ImageUploadField
+      label="Model reference (optional)"
+      kind="model"
+      projectId={p.project_id || "local"}
+      valueUrl={p.model_ref_url}
+      onUrl={(url) => update("model_ref_url", url)}
+      hideUrl={true}
+      optional={true}
+    />
+    <ImageUploadField
+      label="Product reference (optional)"
+      kind="product"
+      projectId={p.project_id || "local"}
+      valueUrl={p.product_ref_url}
+      onUrl={(url) => update("product_ref_url", url)}
+      hideUrl={true}
+      optional={true}
+    />
+  </Grid2>
+</Section>
            <Section title="Auto-fill from Link (optional)" sub="Paste link produk/landing page → sistem scrape/analyze → isi form otomatis.">
   <Grid2>
     <Field label="Product / Landing page URL">
