@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import GeneratorInteractive from "./GeneratorInteractive.jsx";
+import ImageUploadField from "./ImageUploadField.jsx";
 import { DEFAULT_PROJECT } from "../studio/studioStore.js";
 
 const TABS = ["Scenes", "Settings", "Export"];
@@ -16,6 +17,8 @@ export default function StudioShell() {
   const [projectDraft, setProjectDraft] = useState({ ...DEFAULT_PROJECT, ai_brain: "bedrock" }); // bedrock | gemini
   const [blueprint, setBlueprint] = useState(null);
   const [loadingPlan, setLoadingPlan] = useState(false);
+  const [analyzing, setAnalyzing] = React.useState(false);
+const [analysisInfo, setAnalysisInfo] = React.useState("");
   const [planError, setPlanError] = useState("");
 
   const ctx = {
@@ -342,25 +345,84 @@ function SettingsTab() {
       </Section>
 
       {/* SECTION: Assets */}
-      <Section title="Assets (lock identity/outfit/product)" sub="MVP: tempel URL image dulu. Nanti kita bikin uploader.">
-        <Grid2>
-          <Field label="Model reference URL *">
-            <Input value={p.model_ref_url} onChange={(e) => update("model_ref_url", e.target.value)} placeholder="https://... (link image)" />
-          </Field>
-          <Field label="Product reference URL *">
-            <Input value={p.product_ref_url} onChange={(e) => update("product_ref_url", e.target.value)} placeholder="https://... (link image)" />
-          </Field>
-        </Grid2>
+<Section title="Assets (lock identity/outfit/product)" sub="Upload image → otomatis isi URL. Lalu Auto-fill untuk isi field dari analisa image.">
+  <Grid2>
+    <ImageUploadField
+      label="Model reference *"
+      kind="model"
+      projectId={p.project_id || "local"}
+      valueUrl={p.model_ref_url}
+      onUrl={(url) => update("model_ref_url", url)}
+    />
+    <ImageUploadField
+      label="Product reference *"
+      kind="product"
+      projectId={p.project_id || "local"}
+      valueUrl={p.product_ref_url}
+      onUrl={(url) => update("product_ref_url", url)}
+    />
+  </Grid2>
 
-        <SectionLite title="Scene background (optional) — per scene">
-          {Array.from({ length: Number(p.scene_count || 0) }, (_, i) => i).map((i) => (
-            <div key={i} style={styles.bgRow}>
-              <div style={styles.bgLabel}>S{i + 1}</div>
-              <Input value={(p.scene_bg_urls || [])[i] || ""} onChange={(e) => updateSceneBg(i, e.target.value)} placeholder="Optional background image URL" />
-            </div>
-          ))}
-        </SectionLite>
-      </Section>
+  <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+    <button
+      type="button"
+      disabled={analyzing || !p.model_ref_url.trim() || !p.product_ref_url.trim()}
+      onClick={async () => {
+        setPlanError("");
+        setAnalysisInfo("");
+        setAnalyzing(true);
+        try {
+          const r = await fetch("/api/analyze", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model_ref_url: p.model_ref_url,
+              product_ref_url: p.product_ref_url
+            })
+          });
+
+          const raw = await r.text();
+          let json;
+          try { json = raw ? JSON.parse(raw) : null; } catch {
+            throw new Error(`Non-JSON analyze response (${r.status}): ${String(raw).slice(0, 180)}`);
+          }
+
+          if (!r.ok || !json?.ok) throw new Error(json?.error || `Analyze failed (${r.status})`);
+
+          const f = json.fields || {};
+
+          // apply fields to draft (only fill if empty, biar gak nimpa input manual)
+          setP((prev) => ({
+            ...prev,
+            brand: prev.brand?.trim() ? prev.brand : (f.brand || ""),
+            product_type: prev.product_type?.trim() ? prev.product_type : (f.product_type || ""),
+            material: prev.material?.trim() ? prev.material : (f.material || ""),
+            platform: prev.platform || (f.suggested_platform || "tiktok"),
+            aspect_ratio: prev.aspect_ratio || (f.suggested_aspect_ratio || "9:16"),
+            scene_count: prev.scene_count || (Number(f.suggested_scene_count) || 6),
+            seconds_per_scene: prev.seconds_per_scene || (Number(f.suggested_seconds_per_scene) || 8),
+            tone: prev.tone || (f.tone || "natural gen-z"),
+            target_audience: prev.target_audience || (f.target_audience || ""),
+          }));
+
+          setAnalysisInfo("Auto-fill sukses ✓ (cek Core Inputs & Tone).");
+        } catch (e) {
+          setPlanError(e?.message || String(e));
+        } finally {
+          setAnalyzing(false);
+        }
+      }}
+      style={{
+        ...styles.secondaryBtn,
+        opacity: analyzing || !p.model_ref_url.trim() || !p.product_ref_url.trim() ? 0.5 : 1
+      }}
+    >
+      {analyzing ? "Analyzing…" : "Auto-fill from Images"}
+    </button>
+
+    {analysisInfo ? <Chip>{analysisInfo}</Chip> : null}
+  </div>
+</Section>
 
       {/* SECTION: Tone */}
       <Section title="Audience & Tone" sub="1 gaya konsisten untuk semua scene.">
