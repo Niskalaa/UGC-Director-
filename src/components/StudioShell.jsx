@@ -182,96 +182,119 @@ function SettingsTab() {
 
   const [p, setP] = React.useState(projectDraft);
 
-  // ✅ tambahkan ini
   const [analyzing, setAnalyzing] = React.useState(false);
   const [analysisInfo, setAnalysisInfo] = React.useState("");
-
-  ...
-}
-  const [p, setP] = React.useState(projectDraft);
 
   const totalDuration = Number(p.scene_count || 0) * Number(p.seconds_per_scene || 0);
 
   const canGeneratePlan =
-    p.brand.trim() &&
-    p.product_type.trim() &&
-    p.material.trim() &&
-    p.model_ref_url.trim() &&
-    p.product_ref_url.trim();
+    (p.brand || "").trim() &&
+    (p.product_type || "").trim() &&
+    (p.material || "").trim() &&
+    (p.model_ref_url || "").trim() &&
+    (p.product_ref_url || "").trim();
 
   function update(key, value) {
     setP((prev) => ({ ...prev, [key]: value }));
   }
 
-  function updateSceneBg(idx, value) {
-    setP((prev) => {
-      const next = [...(prev.scene_bg_urls || [])];
-      while (next.length < Number(prev.scene_count || 0)) next.push("");
-      next[idx] = value;
-      return { ...prev, scene_bg_urls: next };
-    });
-  }
-
   async function generatePlanOnce() {
-  if (!canGeneratePlan || loadingPlan) return;
+    if (!canGeneratePlan || loadingPlan) return;
 
-  setPlanError("");
-  setLoadingPlan(true);
+    setPlanError("");
+    setLoadingPlan(true);
 
-  // persist draft globally
-  setProjectDraft(p);
+    setProjectDraft(p);
 
-  const provider = (p.ai_brain || "bedrock").toLowerCase();
+    const provider = (p.ai_brain || "bedrock").toLowerCase();
 
-  // timeout guard biar ga stuck selamanya
-  const ctrl = new AbortController();
-  const timeoutMs = 90000; // 90s (Bedrock bisa lama). Naikkan kalau perlu.
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-
-  const t0 = Date.now();
-
-  try {
-    const r = await fetch("/api/plan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider, project: p }),
-      signal: ctrl.signal
-    });
-
-    // ambil text dulu (lebih robust daripada r.json langsung)
-    const raw = await r.text();
-    let json = null;
+    const ctrl = new AbortController();
+    const timeoutMs = 90000;
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    const t0 = Date.now();
 
     try {
-      json = raw ? JSON.parse(raw) : null;
+      const r = await fetch("/api/plan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider, project: p }),
+        signal: ctrl.signal
+      });
+
+      const raw = await r.text();
+      let json = null;
+
+      try {
+        json = raw ? JSON.parse(raw) : null;
+      } catch {
+        throw new Error(`Non-JSON response (${r.status}). Preview: ${String(raw).slice(0, 220)}`);
+      }
+
+      if (!r.ok || !json?.ok) throw new Error(json?.error || `Plan failed (${r.status})`);
+      if (!json?.blueprint) throw new Error("Plan OK tapi blueprint kosong. Cek /api/plan response.");
+
+      setBlueprint(json.blueprint);
+      setTab("Scenes");
     } catch (e) {
-      // kalau server balikin HTML / teks, kasih preview biar kebaca errornya
-      const preview = String(raw).slice(0, 220);
-      throw new Error(`Non-JSON response (${r.status}). Preview: ${preview}`);
+      if (e?.name === "AbortError") {
+        setPlanError(`Timeout after ${Math.round(timeoutMs / 1000)}s. Server mungkin hang / route tidak kepanggil.`);
+      } else {
+        setPlanError(e?.message || String(e));
+      }
+    } finally {
+      clearTimeout(timer);
+      setLoadingPlan(false);
+      console.log("Plan latency(ms):", Date.now() - t0, "provider:", provider);
     }
-
-    if (!r.ok || !json?.ok) {
-      throw new Error(json?.error || `Plan failed (${r.status})`);
-    }
-
-    if (!json?.blueprint) {
-      throw new Error("Plan OK tapi blueprint kosong. Cek /api/plan response.");
-    }
-
-    setBlueprint(json.blueprint);
-    setTab("Scenes");
-  } catch (e) {
-    if (e?.name === "AbortError") {
-      setPlanError(`Timeout after ${Math.round(timeoutMs / 1000)}s. Server mungkin hang / route tidak kepanggil.`);
-    } else {
-      setPlanError(e?.message || String(e));
-    }
-  } finally {
-    clearTimeout(timer);
-    setLoadingPlan(false);
-    console.log("Plan latency(ms):", Date.now() - t0, "provider:", provider);
   }
-}
+
+  async function autoFillFromImages() {
+    if (analyzing) return;
+    if (!(p.model_ref_url || "").trim() || !(p.product_ref_url || "").trim()) return;
+
+    setPlanError("");
+    setAnalysisInfo("");
+    setAnalyzing(true);
+
+    try {
+      const r = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model_ref_url: p.model_ref_url,
+          product_ref_url: p.product_ref_url
+        })
+      });
+
+      const raw = await r.text();
+      let json;
+
+      try {
+        json = raw ? JSON.parse(raw) : null;
+      } catch {
+        throw new Error(`Non-JSON analyze response (${r.status}): ${String(raw).slice(0, 180)}`);
+      }
+
+      if (!r.ok || !json?.ok) throw new Error(json?.error || `Analyze failed (${r.status})`);
+
+      const f = json.fields || {};
+
+      setP((prev) => ({
+        ...prev,
+        brand: prev.brand?.trim() ? prev.brand : (f.brand || ""),
+        product_type: prev.product_type?.trim() ? prev.product_type : (f.product_type || ""),
+        material: prev.material?.trim() ? prev.material : (f.material || ""),
+        tone: prev.tone?.trim() ? prev.tone : (f.tone || "natural gen-z"),
+        target_audience: prev.target_audience?.trim() ? prev.target_audience : (f.target_audience || "")
+      }));
+
+      setAnalysisInfo("Auto-fill sukses ✓ (cek Core Inputs & Tone).");
+    } catch (e) {
+      setPlanError(e?.message || String(e));
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   return (
     <div style={styles.card}>
@@ -280,6 +303,101 @@ function SettingsTab() {
         <div style={styles.cardSub}>Isi data → Generate Plan (sekali) → lalu per-scene generate image/video/audio</div>
       </div>
 
+      <Section title="AI Brain" sub="Default: Bedrock (DeepSeek+Claude). Gemini sebagai opsi ke-3.">
+        <Grid2>
+          <Field label="AI Brain">
+            <Select value={p.ai_brain || "bedrock"} onChange={(e) => update("ai_brain", e.target.value)}>
+              <option value="bedrock">Bedrock (DeepSeek + Claude)</option>
+              <option value="gemini">Gemini (single-pass)</option>
+            </Select>
+          </Field>
+        </Grid2>
+      </Section>
+
+      <Section title="Core Inputs" sub="Wajib untuk generate plan.">
+        <Grid2>
+          <Field label="Project name (optional)">
+            <Input value={p.project_name} onChange={(e) => update("project_name", e.target.value)} placeholder="UGC Project — Feb 2026" />
+          </Field>
+
+          <Field label="Brand *">
+            <Input value={p.brand} onChange={(e) => update("brand", e.target.value)} placeholder="Nama brand" />
+          </Field>
+
+          <Field label="Product type *">
+            <Input value={p.product_type} onChange={(e) => update("product_type", e.target.value)} placeholder="Contoh: sunscreen, hoodie, coffee" />
+          </Field>
+
+          <Field label="Material *">
+            <Input value={p.material} onChange={(e) => update("material", e.target.value)} placeholder="Contoh: cotton, serum gel, stainless" />
+          </Field>
+        </Grid2>
+
+        <MiniRow>
+          <Chip>Estimated duration: {totalDuration}s</Chip>
+          <Chip>AI Brain: {(p.ai_brain || "bedrock").toUpperCase()}</Chip>
+        </MiniRow>
+      </Section>
+
+      <Section title="Assets (lock identity/outfit/product)" sub="Upload image → otomatis isi URL. Lalu Auto-fill untuk isi field dari analisa image.">
+        <Grid2>
+          <ImageUploadField
+            label="Model reference *"
+            kind="model"
+            projectId={p.project_id || "local"}
+            valueUrl={p.model_ref_url}
+            onUrl={(url) => update("model_ref_url", url)}
+          />
+          <ImageUploadField
+            label="Product reference *"
+            kind="product"
+            projectId={p.project_id || "local"}
+            valueUrl={p.product_ref_url}
+            onUrl={(url) => update("product_ref_url", url)}
+          />
+        </Grid2>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+          <button
+            type="button"
+            disabled={analyzing || !(p.model_ref_url || "").trim() || !(p.product_ref_url || "").trim()}
+            onClick={autoFillFromImages}
+            style={{ ...styles.secondaryBtn, opacity: analyzing ? 0.6 : 1 }}
+          >
+            {analyzing ? "Analyzing…" : "Auto-fill from Images"}
+          </button>
+
+          {analysisInfo ? <Chip>{analysisInfo}</Chip> : null}
+        </div>
+      </Section>
+
+      {planError ? <div style={styles.errorBox}>{planError}</div> : null}
+
+      <div style={styles.stickyBar}>
+        <div style={styles.stickyInner}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Chip>{(p.brand || "").trim() ? "Core ✓" : "Core ✗"}</Chip>
+            <Chip>{(p.model_ref_url || "").trim() ? "Model ✓" : "Model ✗"}</Chip>
+            <Chip>{(p.product_ref_url || "").trim() ? "Product ✓" : "Product ✗"}</Chip>
+          </div>
+
+          <button
+            type="button"
+            style={{
+              ...styles.primaryBtn,
+              opacity: canGeneratePlan && !loadingPlan ? 1 : 0.5,
+              cursor: canGeneratePlan && !loadingPlan ? "pointer" : "not-allowed"
+            }}
+            disabled={!canGeneratePlan || loadingPlan}
+            onClick={generatePlanOnce}
+          >
+            {loadingPlan ? "Generating…" : "Generate Plan (once)"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
       {/* SECTION: AI Brain */}
       <Section title="AI Brain" sub="Default: Bedrock (DeepSeek+Claude). Gemini sebagai opsi ke-3.">
         <Grid2>
