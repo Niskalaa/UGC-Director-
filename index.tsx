@@ -1,6 +1,8 @@
+// index.tsx (ROOT)
 import React, { ReactNode, ErrorInfo, Component } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./src/App.jsx"; // ✅ pastikan path ini benar
+import App from "./src/App.jsx";
+import { AuthProvider } from "./src/auth/AuthProvider";
 
 console.log("System: Booting...");
 
@@ -37,7 +39,9 @@ if (!rootEl) throw new Error('Root element "#root" missing');
 createRoot(rootEl).render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App />
+      <AuthProvider>
+        <App />
+      </AuthProvider>
     </ErrorBoundary>
   </React.StrictMode>
 );
