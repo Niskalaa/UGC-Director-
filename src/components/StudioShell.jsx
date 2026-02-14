@@ -182,6 +182,14 @@ function SettingsTab() {
 
   const [p, setP] = React.useState(projectDraft);
 
+  // ✅ tambahkan ini
+  const [analyzing, setAnalyzing] = React.useState(false);
+  const [analysisInfo, setAnalysisInfo] = React.useState("");
+
+  ...
+}
+  const [p, setP] = React.useState(projectDraft);
+
   const totalDuration = Number(p.scene_count || 0) * Number(p.seconds_per_scene || 0);
 
   const canGeneratePlan =
