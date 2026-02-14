@@ -45,7 +45,10 @@ export default async function handler(req, res) {
    ========================= */
 
 async function planWithBedrock(project) {
-  const DEEPSEEK_MODEL = process.env.BEDROCK_DEEPSEEK_MODEL_ID || "deepseek.r1-v1:0";
+  const DEEPSEEK_MODEL =
+  process.env.BEDROCK_DEEPSEEK_INFERENCE_PROFILE_ARN ||
+  process.env.BEDROCK_DEEPSEEK_MODEL_ID ||
+  "deepseek.r1-v1:0";
   const CLAUDE_MODEL = process.env.BEDROCK_CLAUDE_MODEL_ID || "anthropic.claude-sonnet-4-5-20250929-v1:0";
 
   // init client once per request (ok for Vercel)
