@@ -1,6 +1,6 @@
 import React, { ReactNode, ErrorInfo, Component } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./App";
+import App from "./src/App";
 
 console.log("System: Booting...");
 
