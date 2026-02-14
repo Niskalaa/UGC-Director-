@@ -10,234 +10,154 @@ export function useStudio() {
   return React.useContext(StudioContext);
 }
 
-/* =========================
-   Blueprint Normalizer
-   - bikin "beats" konsisten untuk UI
-   ========================= */
-
-function normalizeBlueprint(raw) {
-  if (!raw) return { raw: null, beats: [], meta: {} };
-
-  // 1) Schema "baru" (yang kamu harapkan)
-  const beatsA =
-    raw?.storyboard?.beats ||
-    raw?.SEGMENT_3?.storyboard?.beats ||
-    raw?.segments?.storyboard?.beats ||
-    raw?.blueprint?.storyboard?.beats;
-
-  if (Array.isArray(beatsA) && beatsA.length) {
-    return {
-      raw,
-      beats: beatsA.map((b, idx) => ({
-        id: b.id || `S${idx + 1}`,
-        goal: b.goal || b.purpose || "SCENE",
-        time_window: b.time_window || b.duration || b.duration_seconds ? `${b.duration_seconds || ""}s` : "",
-        action: b.action || b.visual || b.visual_elements?.join(", ") || "",
-        on_screen_text: b.on_screen_text || b.text_overlay || "",
-        camera: b.camera || b.camera_movement || "",
-        negative_prompt: Array.isArray(b.negative_prompt) ? b.negative_prompt : []
-      })),
-      meta: {
-        project_id: raw?.project_id || raw?.meta?.project_id
-      }
-    };
-  }
-
-  // 2) Schema file kamu: ugc_prompt_os_v1.scene_breakdown[]
-  const v1 = raw?.ugc_prompt_os_v1;
-  const scenes = v1?.scene_breakdown;
-
-  if (Array.isArray(scenes) && scenes.length) {
-    const overlays = Array.isArray(v1?.gen_z_optimization?.text_overlays)
-      ? v1.gen_z_optimization.text_overlays
-      : [];
-
-    const beats = scenes.map((s, idx) => ({
-      id: `S${s.scene_number || idx + 1}`,
-      goal: s.purpose || "SCENE",
-      time_window: `${Number(s.duration_seconds || 0) || ""}s`.trim(),
-      action: Array.isArray(s.visual_elements) ? s.visual_elements.join(", ") : "",
-      on_screen_text: overlays[idx] || "",
-      camera: s.camera_movement || "",
-      negative_prompt: [] // schema ini belum punya negative_prompt per scene
-    }));
-
-    return {
-      raw,
-      beats,
-      meta: {
-        project_id: v1?.project_id,
-        brand: v1?.brand,
-        platform: v1?.platform,
-        aspect_ratio: v1?.aspect_ratio
-      }
-    };
-  }
-
-  // fallback
-  return { raw, beats: [], meta: {} };
+/* ---------------------------
+   Utils
+--------------------------- */
+function clamp(n, a, b) {
+  return Math.max(a, Math.min(b, n));
 }
 
-/* =========================
-   Tiny Toast (tanpa library)
-   ========================= */
-function useToast() {
-  const [toast, setToast] = useState(null);
-  function show(message, type = "ok", ms = 2200) {
-    setToast({ message, type });
-    window.clearTimeout(show._t);
-    show._t = window.setTimeout(() => setToast(null), ms);
-  }
-  return { toast, show, clear: () => setToast(null) };
+function msToClock(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const mm = String(Math.floor(s / 60)).padStart(2, "0");
+  const ss = String(s % 60).padStart(2, "0");
+  return `${mm}:${ss}`;
 }
 
-/* =========================
-   Main
-   ========================= */
+function downloadJson(obj, filename = "blueprint.json") {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
+function openJson(obj) {
+  const w = window.open("", "_blank");
+  if (!w) return;
+  w.document.write(`<pre style="white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;">${escapeHtml(JSON.stringify(obj, null, 2))}</pre>`);
+  w.document.close();
+}
+
+function escapeHtml(str) {
+  return String(str)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
+}
+
+// ✅ robust scene extraction: supports your uploaded blueprint.json (scene_plans)
+function extractScenes(blueprint) {
+  if (!blueprint) return [];
+
+  const bp = blueprint.blueprint ? blueprint.blueprint : blueprint;
+
+  // primary
+  if (Array.isArray(bp.scene_plans)) return bp.scene_plans;
+
+  // fallbacks
+  const beats =
+    bp?.storyboard?.beats ||
+    bp?.SEGMENT_3?.storyboard?.beats ||
+    bp?.segments?.storyboard?.beats ||
+    bp?.storyboard?.scenes ||
+    [];
+
+  return Array.isArray(beats) ? beats : [];
+}
+
+/* ---------------------------
+   Toast
+--------------------------- */
+function Toast({ toast, onClose }) {
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => onClose?.(), 2600);
+    return () => clearTimeout(t);
+  }, [toast, onClose]);
+
+  if (!toast) return null;
+  return (
+    <div style={styles.toastWrap}>
+      <div style={{ ...styles.toast, ...(toast.type === "ok" ? styles.toastOk : styles.toastBad) }}>
+        <div style={{ fontWeight: 900 }}>{toast.title}</div>
+        {toast.msg ? <div style={{ marginTop: 4, opacity: 0.9 }}>{toast.msg}</div> : null}
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------------
+   Root Shell
+--------------------------- */
 export default function StudioShell() {
   const [tab, setTab] = useState("Settings");
 
-  // global studio state
-  const [projectDraft, setProjectDraft] = useState({
-    ...DEFAULT_PROJECT,
-    ai_brain: "bedrock",
-    // optional link autofill
-    product_page_url: ""
-  });
+  const [lang, setLang] = useState("id"); // id | en
+  const [theme, setTheme] = useState("dark"); // dark | light
 
+  const [projectDraft, setProjectDraft] = useState({ ...DEFAULT_PROJECT, ai_brain: "bedrock" });
   const [blueprint, setBlueprint] = useState(null);
-  const normalized = useMemo(() => normalizeBlueprint(blueprint), [blueprint]);
 
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [planError, setPlanError] = useState("");
-  const [statusCollapsed, setStatusCollapsed] = useState(false);
+  const [toast, setToast] = useState(null);
 
-  // progress/ETA
-  const [elapsedSec, setElapsedSec] = useState(0);
-  const startRef = useRef(0);
-  const abortRef = useRef(null);
+  const [statusMin, setStatusMin] = useState(false);
 
-  const { toast, show: toastShow } = useToast();
-
-  // theme + lang
-  const [dark, setDark] = useState(true);
-  const [lang, setLang] = useState("id"); // id | en
+  // loading timers
+  const genStartRef = useRef(0);
+  const tickRef = useRef(null);
+  const [elapsedMs, setElapsedMs] = useState(0);
 
   useEffect(() => {
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
-  }, [dark]);
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
-  const t = useMemo(() => {
-    const dict = {
-      id: {
-        studio: "Studio",
-        settings: "Settings",
-        scenes: "Scenes",
-        export: "Export",
-        language: "Bahasa",
-        dark: "Dark",
-        light: "Light",
-        aiBrain: "AI Brain",
-        autofillLink: "Auto-fill dari Link",
-        pageUrl: "Product / Landing page URL",
-        autofillImages: "Auto-fill dari Images",
-        formatTiming: "Format & Timing",
-        platform: "Platform",
-        ratio: "Aspect ratio",
-        sceneCount: "Scene count",
-        secondsPer: "Seconds / scene",
-        coreInputs: "Core Inputs",
-        brand: "Brand",
-        productType: "Product type",
-        material: "Material",
-        assetsOptional: "Assets (optional)",
-        modelRef: "Model reference",
-        productRef: "Product reference",
-        status: "Status",
-        minimize: "Minimize",
-        show: "Show",
-        provider: "Provider",
-        eta: "ETA",
-        elapsed: "Elapsed",
-        generate: "Generate Plan",
-        generating: "Generating…",
-        cancel: "Cancel",
-        openJson: "Open JSON",
-        downloadJson: "Download JSON",
-        noBlueprint: "Belum ada blueprint. Generate dulu di Settings.",
-        beatsNotReadable: "Blueprint ada, tapi beats tidak terbaca.",
-        success: "Generate success ✓",
-        analyzeSuccess: "Auto-fill sukses ✓",
-        analyzeFail: "Auto-fill gagal"
-      },
-      en: {
-        studio: "Studio",
-        settings: "Settings",
-        scenes: "Scenes",
-        export: "Export",
-        language: "Language",
-        dark: "Dark",
-        light: "Light",
-        aiBrain: "AI Brain",
-        autofillLink: "Auto-fill from Link",
-        pageUrl: "Product / Landing page URL",
-        autofillImages: "Auto-fill from Images",
-        formatTiming: "Format & Timing",
-        platform: "Platform",
-        ratio: "Aspect ratio",
-        sceneCount: "Scene count",
-        secondsPer: "Seconds / scene",
-        coreInputs: "Core Inputs",
-        brand: "Brand",
-        productType: "Product type",
-        material: "Material",
-        assetsOptional: "Assets (optional)",
-        modelRef: "Model reference",
-        productRef: "Product reference",
-        status: "Status",
-        minimize: "Minimize",
-        show: "Show",
-        provider: "Provider",
-        eta: "ETA",
-        elapsed: "Elapsed",
-        generate: "Generate Plan",
-        generating: "Generating…",
-        cancel: "Cancel",
-        openJson: "Open JSON",
-        downloadJson: "Download JSON",
-        noBlueprint: "No blueprint yet. Generate from Settings.",
-        beatsNotReadable: "Blueprint exists, but beats not readable.",
-        success: "Generate success ✓",
-        analyzeSuccess: "Auto-fill success ✓",
-        analyzeFail: "Auto-fill failed"
-      }
+  useEffect(() => {
+    if (!loadingPlan) {
+      if (tickRef.current) clearInterval(tickRef.current);
+      tickRef.current = null;
+      return;
+    }
+    genStartRef.current = Date.now();
+    setElapsedMs(0);
+    tickRef.current = setInterval(() => {
+      setElapsedMs(Date.now() - genStartRef.current);
+    }, 250);
+    return () => {
+      if (tickRef.current) clearInterval(tickRef.current);
+      tickRef.current = null;
     };
-    return dict[lang] || dict.id;
-  }, [lang]);
+  }, [loadingPlan]);
 
   const ctx = {
     tab,
     setTab,
+    lang,
+    setLang,
+    theme,
+    setTheme,
+
     projectDraft,
     setProjectDraft,
     blueprint,
     setBlueprint,
-    normalized,
+
     loadingPlan,
     setLoadingPlan,
     planError,
     setPlanError,
-    statusCollapsed,
-    setStatusCollapsed,
-    elapsedSec,
-    setElapsedSec,
-    dark,
-    setDark,
-    lang,
-    setLang,
+
     toast,
-    toastShow
+    setToast,
+
+    statusMin,
+    setStatusMin,
+
+    elapsedMs
   };
 
   const content = useMemo(() => {
@@ -248,235 +168,82 @@ export default function StudioShell() {
 
   return (
     <StudioContext.Provider value={ctx}>
-      <div className="ugc-page">
+      <div style={styles.page}>
         <TopBar />
+        <div style={styles.content}>{content}</div>
 
-        <div className="ugc-container">{content}</div>
+        <StatusBar />
 
-        <StatusDock />
-
-        <BottomTabs />
-
-        {/* static credit */}
-        <div className="ugc-credit">Created by @adryndian</div>
-
-        {/* toast */}
-        {toast ? (
-          <div className={`ugc-toast ${toast.type === "bad" ? "bad" : "ok"}`}>
-            {toast.message}
+        <div style={styles.tabBar}>
+          <div style={styles.tabBarInner}>
+            {TABS.map((t) => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                style={{ ...styles.tabBtn, ...(tab === t ? styles.tabBtnActive : {}) }}
+                type="button"
+              >
+                {t}
+              </button>
+            ))}
           </div>
-        ) : null}
+          <div style={styles.credit}>Created by @adryndian</div>
+        </div>
+
+        <Toast toast={toast} onClose={() => setToast(null)} />
       </div>
     </StudioContext.Provider>
   );
 }
 
-/* =========================
-   TOP BAR
-   ========================= */
-
+/* ---------------------------
+   TopBar
+--------------------------- */
 function TopBar() {
-  const { lang, setLang, dark, setDark } = useStudio();
-  const labelLang = lang === "id" ? "Bahasa" : "Language";
+  const { lang, setLang, theme, setTheme } = useStudio();
   return (
-    <div className="ugc-topbar">
-      <div className="ugc-topbar-inner">
-        <div className="ugc-title">Studio</div>
-        <div className="ugc-top-actions">
-          <div className="ugc-pill">
-            <span className="ugc-pill-label">{labelLang}</span>
+    <div style={styles.topBar}>
+      <div style={styles.topBarInner}>
+        <div style={styles.title}>Studio</div>
+
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <div style={styles.pill}>
+            <span style={{ opacity: 0.7, fontWeight: 800 }}>{lang === "id" ? "Bahasa" : "Language"}</span>
             <button
-              className={`ugc-pill-btn ${lang === "id" ? "active" : ""}`}
-              onClick={() => setLang("id")}
               type="button"
+              onClick={() => setLang("id")}
+              style={{ ...styles.pillBtn, ...(lang === "id" ? styles.pillBtnActive : {}) }}
             >
               ID
             </button>
             <button
-              className={`ugc-pill-btn ${lang === "en" ? "active" : ""}`}
-              onClick={() => setLang("en")}
               type="button"
+              onClick={() => setLang("en")}
+              style={{ ...styles.pillBtn, ...(lang === "en" ? styles.pillBtnActive : {}) }}
             >
               EN
             </button>
           </div>
 
-          <button className="ugc-btn ghost" onClick={() => setDark((v) => !v)} type="button">
-            {dark ? "Light" : "Dark"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* =========================
-   BOTTOM TABS
-   ========================= */
-
-function BottomTabs() {
-  const { tab, setTab } = useStudio();
-  return (
-    <div className="ugc-tabbar">
-      <div className="ugc-tabbar-inner">
-        {TABS.map((t) => (
           <button
-            key={t}
-            className={`ugc-tab ${tab === t ? "active" : ""}`}
-            onClick={() => setTab(t)}
             type="button"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            style={styles.ghostBtn}
           >
-            {t}
+            {theme === "dark" ? "Light" : "Dark"}
           </button>
-        ))}
+        </div>
       </div>
     </div>
   );
 }
 
-/* =========================
-   STATUS DOCK (minimize)
-   ========================= */
-
-function StatusDock() {
-  const {
-    projectDraft,
-    blueprint,
-    normalized,
-    loadingPlan,
-    planError,
-    statusCollapsed,
-    setStatusCollapsed,
-    elapsedSec
-  } = useStudio();
-
-  const sceneCount = Number(projectDraft.scene_count || 0);
-  const secondsPer = Number(projectDraft.seconds_per_scene || 0);
-  const est = sceneCount * secondsPer;
-
-  const coreOk = Boolean((projectDraft.brand || "").trim() && (projectDraft.product_type || "").trim() && (projectDraft.material || "").trim());
-  const modelOk = Boolean((projectDraft.model_ref_url || "").trim());
-  const productOk = Boolean((projectDraft.product_ref_url || "").trim());
-
-  const provider = (projectDraft.ai_brain || "bedrock").toUpperCase();
-
-  // "fake progress" tapi stabil & gak stuck: max 92% sebelum selesai
-  const progress = useMemo(() => {
-    if (!loadingPlan) return blueprint ? 100 : 0;
-    const p = est > 0 ? Math.min(0.92, elapsedSec / Math.max(8, est)) : Math.min(0.92, elapsedSec / 20);
-    return Math.round(p * 100);
-  }, [loadingPlan, elapsedSec, est, blueprint]);
-
-  return (
-    <div className={`ugc-status ${statusCollapsed ? "collapsed" : ""}`}>
-      <div className="ugc-status-inner">
-        <div className="ugc-status-head">
-          <div className="ugc-status-title">Status</div>
-          <button
-            className="ugc-btn ghost small"
-            type="button"
-            onClick={() => setStatusCollapsed((v) => !v)}
-          >
-            {statusCollapsed ? "Show" : "Minimize"}
-          </button>
-        </div>
-
-        {!statusCollapsed ? (
-          <>
-            <div className="ugc-chiprow">
-              <Chip tone={coreOk ? "ok" : "bad"}>Core {coreOk ? "✓" : "✗"}</Chip>
-              <Chip tone={modelOk ? "ok" : "bad"}>Model {modelOk ? "✓" : "✗"}</Chip>
-              <Chip tone={productOk ? "ok" : "bad"}>Product {productOk ? "✓" : "✗"}</Chip>
-              <Chip>≈ {est || 0}s</Chip>
-              <Chip>{provider}</Chip>
-              <Chip>{normalized?.beats?.length ? `${normalized.beats.length} scenes` : ""}</Chip>
-            </div>
-
-            <div className="ugc-progress">
-              <div className="ugc-progress-track">
-                <div className="ugc-progress-bar" style={{ width: `${progress}%` }} />
-              </div>
-              <div className="ugc-progress-meta">
-                <span>Elapsed: {fmtTime(elapsedSec)}</span>
-                {loadingPlan ? <span className="ugc-spinner" /> : null}
-              </div>
-            </div>
-
-            {planError ? <div className="ugc-error">{planError}</div> : null}
-          </>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-/* =========================
-   TABS
-   ========================= */
-
-function ScenesTab() {
-  const { normalized, setTab } = useStudio();
-  const beats = normalized?.beats || [];
-
-  if (!normalized?.raw) {
-    return (
-      <Card>
-        <CardHeader title="Scenes" />
-        <div className="ugc-muted">Belum ada blueprint. Generate dulu di Settings.</div>
-        <div style={{ marginTop: 12 }}>
-          <button className="ugc-btn primary" type="button" onClick={() => setTab("Settings")}>
-            Go to Settings
-          </button>
-        </div>
-      </Card>
-    );
-  }
-
-  return (
-    <Card>
-      <CardHeader title="Scenes" sub="plan → image → approve → video → audio" />
-      {beats.length === 0 ? (
-        <div className="ugc-muted-box">Blueprint ada, tapi beats tidak terbaca.</div>
-      ) : (
-        <div className="ugc-list">
-          {beats.map((b, idx) => (
-            <div className="ugc-scene" key={`${b.id}-${idx}`}>
-              <div className="ugc-scene-top">
-                <div className="ugc-badge">{b.id}</div>
-                <div className="ugc-scene-title">{b.goal}</div>
-                {b.time_window ? <Chip>{b.time_window}</Chip> : null}
-              </div>
-
-              {b.action ? (
-                <div className="ugc-row">
-                  <div className="ugc-row-label">Action</div>
-                  <div className="ugc-row-val">{b.action}</div>
-                </div>
-              ) : null}
-
-              {b.on_screen_text ? (
-                <div className="ugc-row">
-                  <div className="ugc-row-label">On-screen</div>
-                  <div className="ugc-row-val">{b.on_screen_text}</div>
-                </div>
-              ) : null}
-
-              {b.camera ? (
-                <div className="ugc-row">
-                  <div className="ugc-row-label">Camera</div>
-                  <div className="ugc-row-val">{b.camera}</div>
-                </div>
-              ) : null}
-            </div>
-          ))}
-        </div>
-      )}
-    </Card>
-  );
-}
-
+/* ---------------------------
+   Tabs
+--------------------------- */
 function SettingsTab() {
   const {
+    lang,
     projectDraft,
     setProjectDraft,
     setBlueprint,
@@ -485,131 +252,43 @@ function SettingsTab() {
     setLoadingPlan,
     planError,
     setPlanError,
-    setElapsedSec,
-    toastShow
+    setToast
   } = useStudio();
 
   const [p, setP] = useState(projectDraft);
-  const [analyzingImg, setAnalyzingImg] = useState(false);
-  const [analyzingLink, setAnalyzingLink] = useState(false);
 
-  useEffect(() => {
-    // keep draft in sync on mount changes
-    setP(projectDraft);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const totalDuration = Number(p.scene_count || 0) * Number(p.seconds_per_scene || 0);
 
-  const coreOk =
+  // ✅ assets optional now
+  const canGenerate =
     (p.brand || "").trim() &&
     (p.product_type || "").trim() &&
     (p.material || "").trim() &&
     (p.platform || "").trim() &&
     (p.aspect_ratio || "").trim() &&
-    String(p.scene_count || "").trim() &&
-    String(p.seconds_per_scene || "").trim();
+    Number(p.scene_count || 0) > 0 &&
+    Number(p.seconds_per_scene || 0) > 0;
 
-  const canGenerate = Boolean(coreOk); // assets optional sesuai request kamu
+  function t(id, en) {
+    return lang === "id" ? id : en;
+  }
 
   function update(key, value) {
     setP((prev) => ({ ...prev, [key]: value }));
   }
 
-  async function autoFillFromImages() {
-    if (analyzingImg) return;
-    if (!(p.model_ref_url || "").trim() || !(p.product_ref_url || "").trim()) return;
-
-    setPlanError("");
-    setAnalyzingImg(true);
-    try {
-      const r = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model_ref_url: p.model_ref_url,
-          product_ref_url: p.product_ref_url
-        })
-      });
-      const raw = await r.text();
-      const json = raw ? JSON.parse(raw) : null;
-      if (!r.ok || !json?.ok) throw new Error(json?.error || `Analyze failed (${r.status})`);
-
-      const f = json.fields || {};
-      setP((prev) => ({
-        ...prev,
-        brand: prev.brand?.trim() ? prev.brand : f.brand || "",
-        product_type: prev.product_type?.trim() ? prev.product_type : f.product_type || "",
-        material: prev.material?.trim() ? prev.material : f.material || "",
-        tone: prev.tone?.trim() ? prev.tone : f.tone || prev.tone || "natural gen-z"
-      }));
-
-      toastShow("Auto-fill success ✓", "ok");
-    } catch (e) {
-      setPlanError(`${String(e?.message || e)}`);
-      toastShow("Auto-fill failed", "bad");
-    } finally {
-      setAnalyzingImg(false);
-    }
-  }
-
-  async function autoFillFromLink() {
-    if (analyzingLink) return;
-    if (!(p.product_page_url || "").trim()) return;
-
-    setPlanError("");
-    setAnalyzingLink(true);
-    try {
-      const r = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          product_page_url: p.product_page_url
-        })
-      });
-      const raw = await r.text();
-      const json = raw ? JSON.parse(raw) : null;
-      if (!r.ok || !json?.ok) throw new Error(json?.error || `Analyze failed (${r.status})`);
-
-      const f = json.fields || {};
-      setP((prev) => ({
-        ...prev,
-        brand: prev.brand?.trim() ? prev.brand : f.brand || "",
-        product_type: prev.product_type?.trim() ? prev.product_type : f.product_type || "",
-        material: prev.material?.trim() ? prev.material : f.material || "",
-        tone: prev.tone?.trim() ? prev.tone : f.tone || prev.tone || "natural gen-z"
-      }));
-
-      toastShow("Auto-fill success ✓", "ok");
-    } catch (e) {
-      setPlanError(`${String(e?.message || e)}`);
-      toastShow("Auto-fill failed", "bad");
-    } finally {
-      setAnalyzingLink(false);
-    }
-  }
-
-  async function generatePlanOnce() {
+  async function generatePlan() {
     if (!canGenerate || loadingPlan) return;
 
     setPlanError("");
     setLoadingPlan(true);
 
-    setElapsedSec(0);
-    const started = Date.now();
-    const tick = window.setInterval(() => {
-      setElapsedSec(Math.floor((Date.now() - started) / 1000));
-    }, 250);
-
     const provider = (p.ai_brain || "bedrock").toLowerCase();
-
     const ctrl = new AbortController();
-    // expose abort to Status cancel
-    window.__ugcAbort = () => ctrl.abort();
-
     const timeoutMs = 120000;
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
 
     try {
-      // persist draft
       setProjectDraft(p);
 
       const r = await fetch("/api/plan", {
@@ -620,249 +299,351 @@ function SettingsTab() {
       });
 
       const raw = await r.text();
-
       let json = null;
       try {
         json = raw ? JSON.parse(raw) : null;
       } catch {
-        throw new Error(`Non-JSON response (${r.status}). Preview: ${String(raw).slice(0, 200)}`);
+        throw new Error(`Non-JSON response (${r.status}). Preview: ${String(raw).slice(0, 220)}`);
       }
 
       if (!r.ok || !json?.ok) throw new Error(json?.error || `Plan failed (${r.status})`);
-      if (!json?.blueprint) throw new Error("Plan OK tapi blueprint kosong.");
+      if (!json?.blueprint) throw new Error("Plan OK tapi blueprint kosong. Cek /api/plan response.");
 
       setBlueprint(json.blueprint);
-      toastShow("Generate success ✓", "ok");
+      setToast({ type: "ok", title: t("Generate sukses ✓", "Generate success ✓"), msg: t("Blueprint tersimpan.", "Blueprint saved.") });
       setTab("Scenes");
     } catch (e) {
       if (e?.name === "AbortError") {
-        setPlanError(`Canceled / timeout.`);
+        setPlanError(t("Timeout. Server terlalu lama merespons.", "Timeout. Server took too long."));
       } else {
         setPlanError(e?.message || String(e));
       }
-      toastShow("Generate failed", "bad");
+      setToast({ type: "bad", title: t("Generate gagal", "Generate failed"), msg: e?.message || String(e) });
     } finally {
       clearTimeout(timer);
-      clearInterval(tick);
       setLoadingPlan(false);
-      window.__ugcAbort = null;
     }
   }
 
   return (
-    <Card>
-      <CardHeader title="Settings" />
+    <div style={styles.card}>
+      <CardTitle title={t("Settings", "Settings")} />
 
-      <Section title="AI Brain">
-        <Field label="AI Brain">
-          <Select value={p.ai_brain || "bedrock"} onChange={(e) => update("ai_brain", e.target.value)}>
-            <option value="bedrock">Bedrock</option>
-            <option value="gemini">Gemini</option>
-          </Select>
+      <Section title={t("AI Brain", "AI Brain")}>
+        <Select value={p.ai_brain || "bedrock"} onChange={(e) => update("ai_brain", e.target.value)}>
+          <option value="bedrock">Bedrock</option>
+          <option value="gemini">Gemini</option>
+        </Select>
+      </Section>
+
+      <Section title={t("Core Inputs", "Core Inputs")}>
+        <Field label={t("Brand *", "Brand *")}>
+          <Input value={p.brand || ""} onChange={(e) => update("brand", e.target.value)} placeholder={t("Nama brand", "Brand name")} />
+        </Field>
+        <Field label={t("Product type *", "Product type *")}>
+          <Input value={p.product_type || ""} onChange={(e) => update("product_type", e.target.value)} placeholder="sunscreen, hoodie, coffee" />
+        </Field>
+        <Field label={t("Material *", "Material *")}>
+          <Input value={p.material || ""} onChange={(e) => update("material", e.target.value)} placeholder="cotton, serum gel, stainless" />
         </Field>
       </Section>
 
-      <Section title="Auto-fill (optional)">
-        <Field label="Product / Landing page URL">
-          <Input
-            value={p.product_page_url || ""}
-            onChange={(e) => update("product_page_url", e.target.value)}
-            placeholder="https://..."
-          />
+      <Section title={t("Format & Timing", "Format & Timing")}>
+        <Field label={t("Platform", "Platform")}>
+          <Select value={p.platform || "tiktok"} onChange={(e) => update("platform", e.target.value)}>
+            <option value="tiktok">TikTok</option>
+            <option value="instagram">Instagram Reels</option>
+            <option value="facebook">Facebook Reels</option>
+            <option value="youtube">YouTube Shorts</option>
+          </Select>
         </Field>
 
-        <div className="ugc-row-actions">
-          <button
-            className="ugc-btn ghost"
-            type="button"
-            disabled={analyzingLink || !(p.product_page_url || "").trim()}
-            onClick={autoFillFromLink}
-          >
-            {analyzingLink ? "Analyzing…" : "Auto-fill from Link"}
-          </button>
+        <Field label={t("Aspect ratio", "Aspect ratio")}>
+          <Select value={p.aspect_ratio || "9:16"} onChange={(e) => update("aspect_ratio", e.target.value)}>
+            <option value="9:16">9:16</option>
+            <option value="1:1">1:1</option>
+            <option value="16:9">16:9</option>
+          </Select>
+        </Field>
 
-          <button
-            className="ugc-btn ghost"
-            type="button"
-            disabled={analyzingImg || !(p.model_ref_url || "").trim() || !(p.product_ref_url || "").trim()}
-            onClick={autoFillFromImages}
-          >
-            {analyzingImg ? "Analyzing…" : "Auto-fill from Images"}
-          </button>
+        <Field label={t("Scene count", "Scene count")}>
+          <Select value={String(p.scene_count || 6)} onChange={(e) => update("scene_count", Number(e.target.value))}>
+            {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
+              <option key={n} value={String(n)}>
+                {n}
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <Field label={t("Seconds per scene", "Seconds per scene")}>
+          <Select value={String(p.seconds_per_scene || 8)} onChange={(e) => update("seconds_per_scene", Number(e.target.value))}>
+            {[4, 6, 8, 10, 12].map((n) => (
+              <option key={n} value={String(n)}>
+                {n}s
+              </option>
+            ))}
+          </Select>
+        </Field>
+
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 }}>
+          <Chip>{t("Estimasi durasi:", "Estimated duration:")} {totalDuration}s</Chip>
+          <Chip>{t("Provider:", "Provider:")} {(p.ai_brain || "bedrock").toUpperCase()}</Chip>
         </div>
       </Section>
 
-      <Section title="Format & Timing">
-        <Grid2>
-          <Field label="Platform">
-            <Select value={p.platform} onChange={(e) => update("platform", e.target.value)}>
-              <option value="tiktok">TikTok</option>
-              <option value="instagram">Instagram Reels</option>
-              <option value="facebook">Facebook Reels</option>
-              <option value="youtube">YouTube Shorts</option>
-            </Select>
-          </Field>
-
-          <Field label="Aspect ratio">
-            <Select value={p.aspect_ratio} onChange={(e) => update("aspect_ratio", e.target.value)}>
-              <option value="9:16">9:16</option>
-              <option value="1:1">1:1</option>
-              <option value="16:9">16:9</option>
-            </Select>
-          </Field>
-
-          <Field label="Scene count">
-            <Select value={String(p.scene_count)} onChange={(e) => update("scene_count", Number(e.target.value))}>
-              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-                <option key={n} value={String(n)}>
-                  {n}
-                </option>
-              ))}
-            </Select>
-          </Field>
-
-          <Field label="Seconds / scene">
-            <Select
-              value={String(p.seconds_per_scene)}
-              onChange={(e) => update("seconds_per_scene", Number(e.target.value))}
-            >
-              {[4, 6, 8, 10, 12].map((n) => (
-                <option key={n} value={String(n)}>
-                  {n}s
-                </option>
-              ))}
-            </Select>
-          </Field>
-        </Grid2>
+      <Section title={t("Assets (optional)", "Assets (optional)")}>
+        <ImageUploadField
+          label={t("Model reference", "Model reference")}
+          kind="model"
+          projectId={p.project_id || "local"}
+          valueUrl={p.model_ref_url || ""}
+          onUrl={(url) => update("model_ref_url", url)}
+          hideUrl={true}
+          showPreview={true}
+          optional={true}
+        />
+        <div style={{ height: 10 }} />
+        <ImageUploadField
+          label={t("Product reference", "Product reference")}
+          kind="product"
+          projectId={p.project_id || "local"}
+          valueUrl={p.product_ref_url || ""}
+          onUrl={(url) => update("product_ref_url", url)}
+          hideUrl={true}
+          showPreview={true}
+          optional={true}
+        />
       </Section>
 
-      <Section title="Core Inputs">
-        <Grid2>
-          <Field label="Brand *">
-            <Input value={p.brand || ""} onChange={(e) => update("brand", e.target.value)} placeholder="Brand" />
-          </Field>
-          <Field label="Product type *">
-            <Input
-              value={p.product_type || ""}
-              onChange={(e) => update("product_type", e.target.value)}
-              placeholder="sunscreen, hoodie, coffee"
-            />
-          </Field>
-          <Field label="Material *">
-            <Input
-              value={p.material || ""}
-              onChange={(e) => update("material", e.target.value)}
-              placeholder="cotton, serum gel, stainless"
-            />
-          </Field>
-        </Grid2>
-      </Section>
+      {planError ? <div style={styles.errorBox}>{planError}</div> : null}
 
-      <Section title="Assets (optional)">
-        <Grid2>
-          <ImageUploadField
-            label="Model reference"
-            kind="model"
-            projectId={p.project_id || "local"}
-            valueUrl={p.model_ref_url}
-            onUrl={(url) => update("model_ref_url", url)}
-            optional
-            hideUrl
-            showPreview
-          />
-          <ImageUploadField
-            label="Product reference"
-            kind="product"
-            projectId={p.project_id || "local"}
-            valueUrl={p.product_ref_url}
-            onUrl={(url) => update("product_ref_url", url)}
-            optional
-            hideUrl
-            showPreview
-          />
-        </Grid2>
-      </Section>
-
-      {planError ? <div className="ugc-error">{planError}</div> : null}
-
-      <div className="ugc-generate">
+      <div style={{ marginTop: 14 }}>
         <button
-          className={`ugc-btn primary ${loadingPlan ? "loading" : ""}`}
           type="button"
+          onClick={generatePlan}
           disabled={!canGenerate || loadingPlan}
-          onClick={generatePlanOnce}
+          style={{
+            ...styles.primaryBtn,
+            opacity: canGenerate && !loadingPlan ? 1 : 0.55,
+            cursor: canGenerate && !loadingPlan ? "pointer" : "not-allowed"
+          }}
         >
-          {loadingPlan ? "Generating…" : "Generate Plan"}
+          {loadingPlan ? t("Generating…", "Generating…") : t("Generate Plan", "Generate Plan")}
         </button>
-
-        {loadingPlan ? (
-          <button
-            className="ugc-btn ghost"
-            type="button"
-            onClick={() => window.__ugcAbort?.()}
-          >
-            Cancel
-          </button>
-        ) : null}
       </div>
-    </Card>
+    </div>
+  );
+}
+
+function ScenesTab() {
+  const { lang, blueprint, setToast } = useStudio();
+  function t(id, en) { return lang === "id" ? id : en; }
+
+  const scenes = useMemo(() => extractScenes(blueprint), [blueprint]);
+
+  return (
+    <div style={styles.card}>
+      <CardTitle title={t("Scenes", "Scenes")} />
+
+      {!blueprint ? (
+        <div style={styles.placeholder}>
+          {t("Belum ada blueprint. Generate dulu di Settings.", "No blueprint yet. Generate in Settings first.")}
+        </div>
+      ) : (
+        <>
+          {scenes.length === 0 ? (
+            <div style={styles.placeholder}>
+              {t("Blueprint ada, tapi scenes tidak terbaca.", "Blueprint exists, but scenes not readable.")}
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
+                <button type="button" style={styles.secondaryBtn} onClick={() => openJson(blueprint)}>
+                  {t("Open JSON", "Open JSON")}
+                </button>
+                <button type="button" style={styles.secondaryBtn} onClick={() => downloadJson(blueprint)}>
+                  {t("Download JSON", "Download JSON")}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {scenes.map((s, i) => {
+                const id = s.id || s.scene_id || `S${i + 1}`;
+                const goal = s.goal || s.title || s.hook || "SCENE";
+                const time = s.time_window || s.time || s.duration || "";
+                const action = s.action || s.visual || s.scene || "";
+                const ost = s.on_screen_text || s.onscreen_text || s.ost || "";
+
+                return (
+                  <div key={id} style={styles.sceneCard}>
+                    <div style={{ display: "flex", gap: 10, justifyContent: "space-between", flexWrap: "wrap", alignItems: "center" }}>
+                      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                        <span style={styles.sceneBadge}>{id}</span>
+                        <div style={{ fontWeight: 900 }}>{goal}</div>
+                        {time ? <Chip>{time}</Chip> : null}
+                      </div>
+                      <Chip>Draft</Chip>
+                    </div>
+
+                    {action ? (
+                      <div style={{ marginTop: 10 }}>
+                        <div style={styles.miniLabel}>{t("Action", "Action")}</div>
+                        <div style={styles.miniBox}>{String(action)}</div>
+                      </div>
+                    ) : null}
+
+                    {ost ? (
+                      <div style={{ marginTop: 10 }}>
+                        <div style={styles.miniLabel}>{t("On-screen text", "On-screen text")}</div>
+                        <div style={styles.miniBox}>{String(ost)}</div>
+                      </div>
+                    ) : null}
+
+                    <div style={styles.stepperRow}>
+                      <Step label="Plan" active />
+                      <Step label="Image" />
+                      <Step label="Approve" />
+                      <Step label="Video" />
+                      <Step label="Audio" />
+                    </div>
+
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }}>
+                      <button
+                        type="button"
+                        style={styles.secondaryBtn}
+                        onClick={() => setToast({ type: "ok", title: t("Next", "Next"), msg: t("Step: Generate Image per scene", "Step: Generate Image per scene") })}
+                      >
+                        {t("Generate Image", "Generate Image")}
+                      </button>
+                      <button
+                        type="button"
+                        style={styles.secondaryBtn}
+                        onClick={() => openJson(s)}
+                      >
+                        {t("Open Scene JSON", "Open Scene JSON")}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
 function ExportTab() {
-  const { blueprint } = useStudio();
-
-  function download() {
-    const data = JSON.stringify(blueprint, null, 2);
-    const blob = new Blob([data], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "blueprint.json";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  function openJson() {
-    const data = JSON.stringify(blueprint, null, 2);
-    const w = window.open("", "_blank");
-    if (!w) return;
-    w.document.write(`<pre style="white-space:pre-wrap;font-family:ui-monospace, SFMono-Regular, Menlo, monospace;">${escapeHtml(data)}</pre>`);
-    w.document.close();
-  }
+  const { lang, blueprint } = useStudio();
+  function t(id, en) { return lang === "id" ? id : en; }
 
   return (
-    <Card>
-      <CardHeader title="Export" />
+    <div style={styles.card}>
+      <CardTitle title={t("Export", "Export")} />
       {!blueprint ? (
-        <div className="ugc-muted">Belum ada blueprint.</div>
+        <div style={styles.placeholder}>{t("Belum ada blueprint.", "No blueprint yet.")}</div>
       ) : (
-        <div className="ugc-row-actions">
-          <button className="ugc-btn ghost" type="button" onClick={openJson}>
-            Open JSON
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button type="button" style={styles.secondaryBtn} onClick={() => openJson(blueprint)}>
+            {t("Open JSON", "Open JSON")}
           </button>
-          <button className="ugc-btn primary" type="button" onClick={download}>
-            Download JSON
+          <button type="button" style={styles.secondaryBtn} onClick={() => downloadJson(blueprint)}>
+            {t("Download JSON", "Download JSON")}
           </button>
         </div>
       )}
-    </Card>
+    </div>
   );
 }
 
-/* =========================
-   UI atoms
-   ========================= */
+/* ---------------------------
+   Status Bar (minimizable)
+--------------------------- */
+function StatusBar() {
+  const {
+    lang,
+    projectDraft,
+    loadingPlan,
+    planError,
+    statusMin,
+    setStatusMin,
+    elapsedMs
+  } = useStudio();
 
-function Card({ children }) {
-  return <div className="ugc-card">{children}</div>;
+  function t(id, en) { return lang === "id" ? id : en; }
+
+  const coreOk = !!(projectDraft.brand && projectDraft.product_type && projectDraft.material);
+  const modelOk = !!(projectDraft.model_ref_url || ""); // optional, but show status
+  const productOk = !!(projectDraft.product_ref_url || "");
+
+  const totalDuration = Number(projectDraft.scene_count || 0) * Number(projectDraft.seconds_per_scene || 0);
+  const provider = String(projectDraft.ai_brain || "bedrock").toUpperCase();
+
+  // pseudo progress: based on elapsed vs expected duration (clamped)
+  const expectedMs = clamp(totalDuration * 1000, 8000, 60000);
+  const progress = loadingPlan ? clamp(elapsedMs / expectedMs, 0.05, 0.92) : (planError ? 1 : 0);
+
+  return (
+    <div style={{ ...styles.statusWrap, ...(statusMin ? styles.statusWrapMin : {}) }}>
+      <div style={styles.statusCard}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+          <div style={{ fontWeight: 900 }}>{t("Status", "Status")}</div>
+          <button type="button" style={styles.ghostBtn} onClick={() => setStatusMin(!statusMin)}>
+            {statusMin ? t("Expand", "Expand") : t("Minimize", "Minimize")}
+          </button>
+        </div>
+
+        {statusMin ? null : (
+          <>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 10 }}>
+              <Chip tone={coreOk ? "ok" : "bad"}>{coreOk ? "Core ✓" : "Core ✗"}</Chip>
+              <Chip tone={modelOk ? "ok" : "neutral"}>{modelOk ? "Model ✓" : "Model (opt)"}</Chip>
+              <Chip tone={productOk ? "ok" : "neutral"}>{productOk ? "Product ✓" : "Product (opt)"}</Chip>
+              <Chip>{`≈ ${totalDuration || 0}s`}</Chip>
+              <Chip>{`${t("Provider", "Provider")}: ${provider}`}</Chip>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.8, marginBottom: 8 }}>
+                {loadingPlan ? t("Generating…", "Generating…") : t("Idle", "Idle")}
+              </div>
+
+              <div style={styles.progressTrack}>
+                {loadingPlan ? (
+                  <div style={{ ...styles.progressBar, width: `${progress * 100}%` }}>
+                    <div style={styles.progressSheen} />
+                  </div>
+                ) : (
+                  <div style={{ ...styles.progressBar, width: planError ? "100%" : "0%" }} />
+                )}
+              </div>
+
+              <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+                <div>{t("Elapsed", "Elapsed")}: {msToClock(elapsedMs)}</div>
+                {loadingPlan ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={styles.spinner} />
+                    <span>{t("Loading", "Loading")}</span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            {planError ? <div style={styles.errorBox}>{planError}</div> : null}
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
-function CardHeader({ title, sub }) {
+/* ---------------------------
+   UI Atoms
+--------------------------- */
+function CardTitle({ title }) {
   return (
-    <div className="ugc-cardheader">
-      <div className="ugc-cardtitle">{title}</div>
-      {sub ? <div className="ugc-cardsub">{sub}</div> : null}
+    <div style={styles.cardHeader}>
+      <div style={styles.cardTitle}>{title}</div>
     </div>
   );
 }
@@ -870,47 +651,361 @@ function CardHeader({ title, sub }) {
 function Section({ title, children }) {
   return (
     <div style={{ marginTop: 14 }}>
-      <div className="ugc-sectiontitle">{title}</div>
-      <div style={{ display: "grid", gap: 10 }}>{children}</div>
+      <div style={styles.sectionTitle}>{title}</div>
+      <div style={{ display: "grid", gap: 10, marginTop: 10 }}>{children}</div>
     </div>
   );
-}
-
-function Grid2({ children }) {
-  return <div className="ugc-grid2">{children}</div>;
 }
 
 function Field({ label, children }) {
   return (
     <div>
-      <div className="ugc-label">{label}</div>
+      <div style={styles.label}>{label}</div>
       {children}
     </div>
   );
 }
 
 function Input(props) {
-  return <input {...props} className="ugc-input" />;
+  return <input {...props} style={styles.input} />;
 }
 
 function Select(props) {
-  return <select {...props} className="ugc-select" />;
+  return <select {...props} style={styles.select} />;
 }
 
 function Chip({ children, tone }) {
-  return <span className={`ugc-chip ${tone ? tone : ""}`}>{children}</span>;
+  const toneStyle =
+    tone === "ok"
+      ? { borderColor: "rgba(34,197,94,0.35)", background: "rgba(34,197,94,0.14)", color: "var(--fg)" }
+      : tone === "bad"
+      ? { borderColor: "rgba(239,68,68,0.35)", background: "rgba(239,68,68,0.14)", color: "var(--fg)" }
+      : { borderColor: "rgba(255,255,255,0.10)", background: "rgba(255,255,255,0.06)", color: "var(--fg)" };
+
+  return <span style={{ ...styles.chip, ...toneStyle }}>{children}</span>;
 }
 
-function fmtTime(sec) {
-  const s = Math.max(0, Number(sec || 0));
-  const mm = String(Math.floor(s / 60)).padStart(2, "0");
-  const ss = String(s % 60).padStart(2, "0");
-  return `${mm}:${ss}`;
+function Step({ label, active }) {
+  return <div style={{ ...styles.step, ...(active ? styles.stepActive : {}) }}>{label}</div>;
 }
 
-function escapeHtml(str) {
-  return String(str)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+/* ---------------------------
+   Styles (black-white-orange)
+--------------------------- */
+const styles = {
+  page: {
+    minHeight: "100vh",
+    paddingBottom: 120,
+    background: "radial-gradient(1200px 900px at 20% 10%, rgba(249,115,22,0.28), transparent 55%), radial-gradient(900px 700px at 80% 30%, rgba(249,115,22,0.18), transparent 50%), var(--bg)",
+    color: "var(--fg)"
+  },
+  topBar: {
+    position: "sticky",
+    top: 0,
+    zIndex: 30,
+    backdropFilter: "blur(14px)",
+    background: "rgba(0,0,0,0.35)",
+    borderBottom: "1px solid rgba(255,255,255,0.08)"
+  },
+  topBarInner: {
+    maxWidth: 720,
+    margin: "0 auto",
+    padding: "14px 14px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between"
+  },
+  title: { fontWeight: 950, fontSize: 18 },
+  content: { maxWidth: 720, margin: "0 auto", padding: 14 },
+
+  card: {
+    borderRadius: 18,
+    padding: 14,
+    background: "var(--card)",
+    border: "1px solid rgba(255,255,255,0.10)",
+    boxShadow: "0 18px 60px rgba(0,0,0,0.35)"
+  },
+  cardHeader: { paddingBottom: 10, borderBottom: "1px solid rgba(255,255,255,0.08)", marginBottom: 10 },
+  cardTitle: { fontWeight: 950, fontSize: 16 },
+
+  sectionTitle: { fontWeight: 900, fontSize: 13, opacity: 0.9 },
+  label: { fontSize: 12, fontWeight: 850, opacity: 0.85, marginBottom: 6 },
+
+  input: {
+    width: "100%",
+    padding: "12px 12px",
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.06)",
+    color: "var(--fg)",
+    outline: "none",
+    fontWeight: 700
+  },
+  select: {
+    width: "100%",
+    padding: "12px 12px",
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.06)",
+    color: "var(--fg)",
+    outline: "none",
+    fontWeight: 800
+  },
+
+  primaryBtn: {
+    width: "100%",
+    padding: "14px 14px",
+    borderRadius: 16,
+    border: "none",
+    background: "linear-gradient(180deg, rgba(249,115,22,1), rgba(234,88,12,1))",
+    color: "#0b0b0b",
+    fontWeight: 950
+  },
+  secondaryBtn: {
+    padding: "12px 14px",
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.06)",
+    color: "var(--fg)",
+    fontWeight: 900
+  },
+  ghostBtn: {
+    padding: "10px 12px",
+    borderRadius: 14,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.05)",
+    color: "var(--fg)",
+    fontWeight: 900
+  },
+
+  pill: {
+    display: "flex",
+    gap: 8,
+    alignItems: "center",
+    padding: 8,
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(255,255,255,0.05)"
+  },
+  pillBtn: {
+    padding: "8px 10px",
+    borderRadius: 999,
+    border: "none",
+    background: "transparent",
+    color: "var(--fg)",
+    fontWeight: 950,
+    cursor: "pointer"
+  },
+  pillBtnActive: {
+    background: "rgba(255,255,255,0.12)"
+  },
+
+  placeholder: {
+    padding: 12,
+    borderRadius: 14,
+    border: "1px dashed rgba(255,255,255,0.16)",
+    background: "rgba(255,255,255,0.05)",
+    opacity: 0.92
+  },
+
+  sceneCard: {
+    borderRadius: 18,
+    padding: 12,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(0,0,0,0.32)"
+  },
+  sceneBadge: {
+    fontWeight: 950,
+    fontSize: 12,
+    padding: "6px 10px",
+    borderRadius: 999,
+    background: "rgba(249,115,22,0.18)",
+    border: "1px solid rgba(249,115,22,0.22)"
+  },
+  miniLabel: { fontSize: 12, fontWeight: 900, opacity: 0.85, marginBottom: 6 },
+  miniBox: {
+    borderRadius: 14,
+    padding: 10,
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.10)",
+    fontWeight: 650,
+    fontSize: 13,
+    whiteSpace: "pre-wrap"
+  },
+  stepperRow: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 },
+  step: {
+    padding: "8px 10px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 950,
+    border: "1px solid rgba(255,255,255,0.10)",
+    background: "rgba(255,255,255,0.05)"
+  },
+  stepActive: {
+    borderColor: "rgba(249,115,22,0.30)",
+    background: "rgba(249,115,22,0.18)"
+  },
+
+  chip: {
+    fontSize: 12,
+    fontWeight: 950,
+    padding: "8px 10px",
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,0.10)"
+  },
+
+  errorBox: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: 14,
+    background: "rgba(239,68,68,0.14)",
+    border: "1px solid rgba(239,68,68,0.22)",
+    color: "var(--fg)",
+    fontWeight: 900
+  },
+
+  statusWrap: {
+    position: "fixed",
+    left: 0,
+    right: 0,
+    bottom: 86,
+    zIndex: 40,
+    padding: 12,
+    pointerEvents: "none"
+  },
+  statusWrapMin: { bottom: 86 },
+  statusCard: {
+    pointerEvents: "auto",
+    maxWidth: 720,
+    margin: "0 auto",
+    borderRadius: 18,
+    padding: 12,
+    // ✅ less transparent, more readable
+    background: "rgba(0,0,0,0.72)",
+    border: "1px solid rgba(255,255,255,0.12)",
+    boxShadow: "0 18px 60px rgba(0,0,0,0.50)"
+  },
+
+  progressTrack: {
+    height: 12,
+    borderRadius: 999,
+    background: "rgba(255,255,255,0.08)",
+    overflow: "hidden",
+    border: "1px solid rgba(255,255,255,0.10)"
+  },
+  progressBar: {
+    height: "100%",
+    borderRadius: 999,
+    background: "linear-gradient(90deg, rgba(249,115,22,1), rgba(255,255,255,0.22))",
+    position: "relative"
+  },
+  progressSheen: {
+    position: "absolute",
+    inset: 0,
+    background: "rgba(255,255,255,0.12)",
+    transform: "translateX(-120%)",
+    animation: "ugc_progress 1.2s linear infinite"
+  },
+
+  spinner: {
+    width: 14,
+    height: 14,
+    borderRadius: 999,
+    border: "2px solid rgba(255,255,255,0.20)",
+    borderTopColor: "rgba(249,115,22,1)",
+    display: "inline-block",
+    animation: "ugc_spin 0.9s linear infinite"
+  },
+
+  tabBar: {
+    position: "fixed",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 35,
+    padding: 12,
+    paddingBottom: "calc(12px + env(safe-area-inset-bottom))",
+    background: "rgba(0,0,0,0.55)",
+    backdropFilter: "blur(14px)",
+    borderTop: "1px solid rgba(255,255,255,0.10)"
+  },
+  tabBarInner: {
+    maxWidth: 520,
+    margin: "0 auto",
+    display: "flex",
+    gap: 10,
+    padding: 10,
+    borderRadius: 18,
+    background: "rgba(255,255,255,0.06)",
+    border: "1px solid rgba(255,255,255,0.10)"
+  },
+  tabBtn: {
+    flex: 1,
+    border: "none",
+    borderRadius: 14,
+    padding: "12px 10px",
+    fontWeight: 950,
+    cursor: "pointer",
+    background: "transparent",
+    color: "var(--fg)"
+  },
+  tabBtnActive: {
+    background: "rgba(255,255,255,0.12)"
+  },
+  credit: {
+    maxWidth: 520,
+    margin: "10px auto 0",
+    textAlign: "center",
+    fontSize: 12,
+    opacity: 0.7,
+    fontWeight: 800
+  },
+
+  toastWrap: {
+    position: "fixed",
+    left: 0,
+    right: 0,
+    top: 70,
+    zIndex: 50,
+    display: "flex",
+    justifyContent: "center",
+    pointerEvents: "none"
+  },
+  toast: {
+    pointerEvents: "auto",
+    maxWidth: 560,
+    width: "calc(100% - 24px)",
+    borderRadius: 16,
+    padding: 12,
+    border: "1px solid rgba(255,255,255,0.14)",
+    background: "rgba(0,0,0,0.80)",
+    boxShadow: "0 18px 60px rgba(0,0,0,0.55)"
+  },
+  toastOk: { borderColor: "rgba(34,197,94,0.35)" },
+  toastBad: { borderColor: "rgba(239,68,68,0.35)" }
+};
+
+/* Theme tokens */
+if (typeof document !== "undefined") {
+  const root = document.documentElement;
+  // defaults (dark)
+  if (!root.style.getPropertyValue("--bg")) {
+    root.style.setProperty("--bg", "#070708");
+    root.style.setProperty("--fg", "rgba(255,255,255,0.92)");
+    root.style.setProperty("--card", "rgba(0,0,0,0.46)");
+  }
+  // update on dataset change
+  const obs = new MutationObserver(() => {
+    const theme = root.dataset.theme || "dark";
+    if (theme === "light") {
+      root.style.setProperty("--bg", "#ffffff");
+      root.style.setProperty("--fg", "#0b0b0b");
+      root.style.setProperty("--card", "rgba(255,255,255,0.76)");
+    } else {
+      root.style.setProperty("--bg", "#070708");
+      root.style.setProperty("--fg", "rgba(255,255,255,0.92)");
+      root.style.setProperty("--card", "rgba(0,0,0,0.46)");
+    }
+  });
+  obs.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
 }
