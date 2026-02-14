@@ -264,9 +264,27 @@ function SettingsTab() {
   } = useStudio();
 
   const [p, setP] = React.useState(projectDraft);
-
+React.useEffect(() => {
+  setProjectDraft(p);
+}, [p, setProjectDraft]);
   const [analyzing, setAnalyzing] = React.useState(false);
   const [analysisInfo, setAnalysisInfo] = React.useState("");
+  const [toast, setToast] = React.useState(null);
+
+function showToast(payload) {
+  setToast(payload);
+  // auto dismiss 3.5s
+  setTimeout(() => setToast(null), 3500);
+}
+ function isGeminiQuotaError(msg) {
+  const m = String(msg || "").toLowerCase();
+  return (
+    m.includes("resource_exhausted") ||
+    m.includes("quota") ||
+    m.includes("exceeded your current quota") ||
+    m.includes("429")
+  );
+} 
 
   // loading UI
   const [progress, setProgress] = React.useState(0);
@@ -298,28 +316,34 @@ function SettingsTab() {
   }
 
   async function generatePlanOnce() {
-    if (!canGeneratePlan || loadingPlan) return;
+  if (!canGeneratePlan || loadingPlan) return;
 
-    setPlanError("");
-    setLoadingPlan(true);
+  setPlanError("");
+  setLoadingPlan(true);
 
-    // ETA rule: base 60s + 6s/scene (cap 150s)
-    const estimated = Math.min(150, 60 + Number(p.scene_count || 6) * 6);
-    setEtaSec(estimated);
-    setLeftSec(estimated);
-    setProgress(2);
+  // persist
+  setProjectDraft(p);
 
-    setProjectDraft(p);
+  const provider0 = (p.ai_brain || "bedrock").toLowerCase();
 
-    const provider = (p.ai_brain || "bedrock").toLowerCase();
+  // ETA
+  const estimated = Math.min(150, 60 + Number(p.scene_count || 6) * 6);
+  setEtaSec(estimated);
+  setLeftSec(estimated);
+  setProgress(2);
 
+  showToast({
+    type: "info",
+    title: "Generating plan",
+    message: `Provider: ${provider0.toUpperCase()} • ETA ~${estimated}s`
+  });
+
+  async function runPlan(provider) {
     const ctrl = new AbortController();
     const timeoutMs = estimated * 1000 + 15000;
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
 
-    const pv = setInterval(() => {
-      setProgress((x) => (x < 92 ? x + 1 : x));
-    }, 900);
+    const t0 = Date.now();
 
     try {
       const r = await fetch("/api/plan", {
@@ -337,26 +361,73 @@ function SettingsTab() {
         throw new Error(`Non-JSON response (${r.status}). Preview: ${String(raw).slice(0, 220)}`);
       }
 
-      if (!r.ok || !json?.ok) throw new Error(json?.error || `Plan failed (${r.status})`);
-      if (!json?.blueprint) throw new Error("Plan OK tapi blueprint kosong. Cek /api/plan response.");
-
-      setProgress(100);
-      setBlueprint(json.blueprint);
-      setTab("Scenes");
-    } catch (e) {
-      if (e?.name === "AbortError") {
-        setPlanError(`Timeout after ${Math.round(timeoutMs / 1000)}s. Server mungkin hang / route tidak kepanggil.`);
-      } else {
-        setPlanError(e?.message || String(e));
+      if (!r.ok || !json?.ok) {
+        throw new Error(json?.error || `Plan failed (${r.status})`);
       }
+      if (!json?.blueprint) {
+        throw new Error("Plan OK tapi blueprint kosong. Cek /api/plan response.");
+      }
+
+      const latencyMs = Date.now() - t0;
+      return { blueprint: json.blueprint, latencyMs };
     } finally {
       clearTimeout(timer);
-      clearInterval(pv);
-      setLoadingPlan(false);
-      setTimeout(() => setProgress(0), 400);
     }
   }
 
+  // progress “fake” biar hidup
+  const pv = setInterval(() => setProgress((x) => (x < 92 ? x + 1 : x)), 900);
+
+  try {
+    let result;
+
+    try {
+      result = await runPlan(provider0);
+    } catch (e) {
+      // Fallback rule: Gemini quota -> retry Bedrock once
+      const msg = e?.message || String(e);
+
+      if (provider0 === "gemini" && isGeminiQuotaError(msg)) {
+        showToast({
+          type: "info",
+          title: "Gemini quota hit",
+          message: "Auto fallback to BEDROCK…"
+        });
+
+        // retry once with bedrock
+        result = await runPlan("bedrock");
+      } else {
+        throw e;
+      }
+    }
+
+    setProgress(100);
+    setBlueprint(result.blueprint);
+    setTab("Scenes");
+
+    showToast({
+      type: "success",
+      title: "Plan generated",
+      message: `Latency: ${Math.round(result.latencyMs / 1000)}s • Provider: ${(provider0 === "gemini" ? "BEDROCK (fallback)" : provider0.toUpperCase())}`
+    });
+  } catch (e) {
+    const msg = e?.name === "AbortError"
+      ? `Timeout after ${estimated}s+. Server mungkin hang / route tidak kepanggil.`
+      : (e?.message || String(e));
+
+    setPlanError(msg);
+
+    showToast({
+      type: "error",
+      title: "Generate failed",
+      message: msg.slice(0, 160)
+    });
+  } finally {
+    clearInterval(pv);
+    setLoadingPlan(false);
+    setTimeout(() => setProgress(0), 400);
+  }
+}
   async function autoFillFromImages() {
     if (analyzing) return;
     if (!(p.model_ref_url || "").trim() || !(p.product_ref_url || "").trim()) return;
@@ -590,6 +661,7 @@ function SettingsTab() {
 
               <div style={{ marginTop: 10, fontSize: 12, color: "#6b7280", textAlign: "center" }}>
                 {t.tip}
+                <Toast toast={toast} onClose={() => setToast(null)} />
               </div>
             </div>
           </div>
