@@ -666,7 +666,7 @@ function SettingsTab() {
   return (
     <div style={{ display: "grid", gap: 12 }}>
       {/* 2-card responsive layout */}
-      <div style={styles.grid2}>
+      <div className="ugc-grid2" style={styles.grid2}>
         {/* Left card: settings */}
         <div style={styles.card}>
           <div style={styles.cardHeader}>
