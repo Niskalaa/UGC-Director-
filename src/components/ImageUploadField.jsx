@@ -24,9 +24,9 @@ export default function ImageUploadField({
   onUrl,
   projectId,
   kind, // "model" | "product"
-  optional = true,
   hideUrl = true,
-  showPreview = true
+  showPreview = true,
+  optional = true,
 }) {
   const inputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
@@ -41,14 +41,13 @@ export default function ImageUploadField({
   }
 
   async function resolveUrl(path) {
-    // Try public url first
+    // If bucket is public, publicUrl works
     const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-    const publicUrl = data?.publicUrl;
-    if (publicUrl) return publicUrl;
+    if (data?.publicUrl) return data.publicUrl;
 
-    // Fallback signed url
-    const { data: signed, error: signErr } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 60);
-    if (signErr) throw signErr;
+    // Otherwise create signed url
+    const { data: signed, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 60);
+    if (error) throw error;
     if (!signed?.signedUrl) throw new Error("Failed to create signed URL");
     return signed.signedUrl;
   }
@@ -77,11 +76,13 @@ export default function ImageUploadField({
     try {
       const uid = await getUidOrThrow();
       const ext = extFromFile(file);
+
+      // ✅ IMPORTANT: match common RLS policy pattern: users/<uid>/...
       const path = `users/${uid}/projects/${projectId}/refs/${kind}.${ext}`;
 
       const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
         upsert: true,
-        contentType: file.type || `image/${ext}`
+        contentType: file.type || `image/${ext}`,
       });
       if (upErr) throw upErr;
 
@@ -97,8 +98,9 @@ export default function ImageUploadField({
 
   return (
     <div style={{ display: "grid", gap: 8 }}>
-      <div style={{ fontSize: 12, fontWeight: 800 }}>
-        {label} {optional ? <span style={{ opacity: 0.7, fontWeight: 700 }}>(optional)</span> : null}
+      <div style={{ fontSize: 12, fontWeight: 900, opacity: 0.8 }}>
+        {label}{" "}
+        {optional ? <span style={{ fontWeight: 800, opacity: 0.6 }}>(optional)</span> : null}
       </div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
@@ -108,26 +110,19 @@ export default function ImageUploadField({
           disabled={uploading}
           style={{
             padding: "10px 12px",
-            borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.12)",
-            background: "transparent",
-            color: "inherit",
+            borderRadius: 14,
+            border: "1px solid rgba(255,255,255,0.14)",
+            background: "rgba(255,255,255,0.06)",
             fontWeight: 900,
-            cursor: uploading ? "not-allowed" : "pointer"
+            cursor: uploading ? "not-allowed" : "pointer",
           }}
         >
           {uploading ? "Uploading…" : "Upload"}
         </button>
 
-        <input
-          ref={inputRef}
-          type="file"
-          accept="image/*"
-          onChange={onPickFile}
-          style={{ display: "none" }}
-        />
+        <input ref={inputRef} type="file" accept="image/*" onChange={onPickFile} style={{ display: "none" }} />
 
-        <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.75 }}>
+        <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.65 }}>
           {valueUrl ? "Uploaded ✓" : "No image"}
         </div>
 
@@ -138,12 +133,11 @@ export default function ImageUploadField({
             disabled={uploading}
             style={{
               padding: "10px 12px",
-              borderRadius: 12,
-              border: "1px solid rgba(255,255,255,0.12)",
-              background: "transparent",
-              color: "inherit",
+              borderRadius: 14,
+              border: "1px solid rgba(255,255,255,0.14)",
+              background: "rgba(255,255,255,0.06)",
               fontWeight: 900,
-              cursor: uploading ? "not-allowed" : "pointer"
+              cursor: uploading ? "not-allowed" : "pointer",
             }}
           >
             Clear
@@ -157,14 +151,14 @@ export default function ImageUploadField({
             src={valueUrl}
             alt="preview"
             style={{
-              width: 72,
-              height: 72,
+              width: 78,
+              height: 78,
               objectFit: "cover",
-              borderRadius: 12,
-              border: "1px solid rgba(255,255,255,0.10)"
+              borderRadius: 14,
+              border: "1px solid rgba(255,255,255,0.12)",
             }}
           />
-          {!hideUrl ? <div style={{ fontSize: 12, wordBreak: "break-all", opacity: 0.8 }}>{valueUrl}</div> : null}
+          {!hideUrl ? <div style={{ fontSize: 12, wordBreak: "break-all" }}>{valueUrl}</div> : null}
         </div>
       ) : null}
 
