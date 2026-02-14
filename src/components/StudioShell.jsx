@@ -1,115 +1,136 @@
 // src/components/StudioShell.jsx
 import React, { useMemo, useState, useEffect } from "react";
 import ImageUploadField from "./ImageUploadField.jsx";
-import Toast from "./Toast.jsx";
 import { DEFAULT_PROJECT } from "../studio/studioStore.js";
 
 /* =========================
    Tabs
    ========================= */
-const TABS = ["Scenes", "Settings", "Export"];
+const TABS = ["Settings", "Scenes", "Export"];
 
 /* =========================
-   i18n (simple)
+   i18n
    ========================= */
 const STR = {
   id: {
     studio: "Studio",
-    scenes: "Scenes",
     settings: "Settings",
+    scenes: "Scenes",
     export: "Export",
     language: "Bahasa",
     createdBy: "Created by",
-    goSettings: "Go to Settings",
+    hintStable: "Tips: Bedrock paling stabil. Gemini free-tier sering limit 0 / quota.",
     noBlueprint: "Belum ada blueprint. Buka Settings → isi data → Generate Plan.",
     beatsMissing: "Blueprint ada, tapi beats tidak terbaca.",
     workflow: "Per-scene workflow: plan → image → approve → video → audio",
+    goSettings: "Ke Settings",
     generateImage: "Generate Image",
     editPrompt: "Edit Prompt",
 
-    // Settings
-    twoCardTitleLeft: "Settings",
-    twoCardTitleRight: "Status",
-    formatTiming: "Format & Timing",
     aiBrain: "AI Brain",
-    coreInputs: "Core Inputs",
-    assets: "Assets",
-    autoFill: "Auto-fill from Images",
-    analyzing: "Analyzing…",
-    generating: "Generating…",
-    generatePlan: "Generate Plan (once)",
     provider: "Provider",
     bedrock: "Bedrock (DeepSeek + Claude)",
     gemini: "Gemini (single-pass)",
+
+    coreInputs: "Core Inputs",
+    projectName: "Project name (opsional)",
+    brand: "Brand *",
+    productType: "Product type *",
+    material: "Material *",
+
+    formatTiming: "Format & Timing",
     platform: "Platform",
     aspectRatio: "Aspect ratio",
     sceneCount: "Scene count (max 10)",
     secondsPerScene: "Seconds per scene",
-    projectName: "Project name (optional)",
-    brand: "Brand *",
-    productType: "Product type *",
-    material: "Material *",
+    estimatedDuration: "Estimated duration",
+
+    assets: "Assets",
     modelRef: "Model reference *",
     productRef: "Product reference *",
-    estimatedDuration: "Estimated duration",
+
+    autoFill: "Image Analysis (Auto-fill)",
+    analyzing: "Analyzing…",
+    generating: "Generating…",
+    generatePlan: "Generate Plan",
     progress: "Progress",
     eta: "ETA",
     ok: "OK",
+
     geminiQuotaTitle: "Gemini quota hit",
     geminiQuotaMsg: "Auto fallback ke BEDROCK…",
     planGenerated: "Plan generated",
     generateFailed: "Generate failed",
-    missingAnalyze: "Endpoint /api/analyze belum ada atau error.",
-    statusHint: "Tips: Bedrock biasanya paling stabil. Gemini sering quota free-tier limit 0.",
+    analyzeMissing: "Endpoint /api/analyze belum ada atau error.",
+
+    statusTitle: "Status",
+    statusSubtitle: "Ringkasan readiness & kontrol generate",
+    coreOk: "Core ✓",
+    coreNo: "Core ✗",
+    modelOk: "Model ✓",
+    modelNo: "Model ✗",
+    productOk: "Product ✓",
+    productNo: "Product ✗",
   },
   en: {
     studio: "Studio",
-    scenes: "Scenes",
     settings: "Settings",
+    scenes: "Scenes",
     export: "Export",
     language: "Language",
     createdBy: "Created by",
-    goSettings: "Go to Settings",
+    hintStable: "Tip: Bedrock is most stable. Gemini free-tier often has 0 limit / quota.",
     noBlueprint: "No blueprint yet. Go to Settings → fill inputs → Generate Plan.",
     beatsMissing: "Blueprint exists, but beats can't be read.",
     workflow: "Per-scene workflow: plan → image → approve → video → audio",
+    goSettings: "Go to Settings",
     generateImage: "Generate Image",
     editPrompt: "Edit Prompt",
 
-    // Settings
-    twoCardTitleLeft: "Settings",
-    twoCardTitleRight: "Status",
-    formatTiming: "Format & Timing",
     aiBrain: "AI Brain",
-    coreInputs: "Core Inputs",
-    assets: "Assets",
-    autoFill: "Auto-fill from Images",
-    analyzing: "Analyzing…",
-    generating: "Generating…",
-    generatePlan: "Generate Plan (once)",
     provider: "Provider",
     bedrock: "Bedrock (DeepSeek + Claude)",
     gemini: "Gemini (single-pass)",
-    platform: "Platform",
-    aspectRatio: "Aspect ratio",
-    sceneCount: "Scene count (max 10)",
-    secondsPerScene: "Seconds per scene",
+
+    coreInputs: "Core Inputs",
     projectName: "Project name (optional)",
     brand: "Brand *",
     productType: "Product type *",
     material: "Material *",
+
+    formatTiming: "Format & Timing",
+    platform: "Platform",
+    aspectRatio: "Aspect ratio",
+    sceneCount: "Scene count (max 10)",
+    secondsPerScene: "Seconds per scene",
+    estimatedDuration: "Estimated duration",
+
+    assets: "Assets",
     modelRef: "Model reference *",
     productRef: "Product reference *",
-    estimatedDuration: "Estimated duration",
+
+    autoFill: "Image Analysis (Auto-fill)",
+    analyzing: "Analyzing…",
+    generating: "Generating…",
+    generatePlan: "Generate Plan",
     progress: "Progress",
     eta: "ETA",
     ok: "OK",
+
     geminiQuotaTitle: "Gemini quota hit",
     geminiQuotaMsg: "Auto fallback to BEDROCK…",
     planGenerated: "Plan generated",
     generateFailed: "Generate failed",
-    missingAnalyze: "/api/analyze endpoint missing or error.",
-    statusHint: "Tip: Bedrock is usually the most stable. Gemini often hits free-tier quota limit 0.",
+    analyzeMissing: "/api/analyze endpoint missing or error.",
+
+    statusTitle: "Status",
+    statusSubtitle: "Readiness summary & generate controls",
+    coreOk: "Core ✓",
+    coreNo: "Core ✗",
+    modelOk: "Model ✓",
+    modelNo: "Model ✗",
+    productOk: "Product ✓",
+    productNo: "Product ✗",
   }
 };
 
@@ -118,7 +139,7 @@ function useText(lang) {
 }
 
 /* =========================
-   Toast (inline)
+   Toast
    ========================= */
 function Toast({ toast, onClose, t }) {
   if (!toast) return null;
@@ -146,52 +167,13 @@ function Toast({ toast, onClose, t }) {
       : "#1e3a8a";
 
   return (
-    <div
-      style={{
-        position: "fixed",
-        left: 12,
-        right: 12,
-        bottom: "calc(120px + env(safe-area-inset-bottom))",
-        zIndex: 99999,
-        display: "flex",
-        justifyContent: "center",
-        pointerEvents: "none"
-      }}
-    >
-      <div
-        style={{
-          pointerEvents: "auto",
-          width: "100%",
-          maxWidth: 520,
-          borderRadius: 16,
-          padding: 12,
-          background: bg,
-          border: `1px solid ${border}`,
-          backdropFilter: "blur(14px)",
-          boxShadow: "0 10px 30px rgba(0,0,0,0.10)",
-          display: "flex",
-          gap: 10,
-          alignItems: "flex-start",
-          justifyContent: "space-between"
-        }}
-      >
+    <div style={styles.toastWrap}>
+      <div style={{ ...styles.toast, background: bg, border: `1px solid ${border}` }}>
         <div style={{ color, fontWeight: 900, fontSize: 13, lineHeight: 1.35 }}>
           <div style={{ fontWeight: 1000 }}>{toast.title || "Info"}</div>
           {toast.message ? <div style={{ fontWeight: 700, marginTop: 4 }}>{toast.message}</div> : null}
         </div>
-
-        <button
-          type="button"
-          onClick={onClose}
-          style={{
-            border: "1px solid rgba(0,0,0,0.10)",
-            background: "rgba(255,255,255,0.7)",
-            borderRadius: 12,
-            padding: "6px 10px",
-            fontWeight: 900,
-            cursor: "pointer"
-          }}
-        >
+        <button type="button" onClick={onClose} style={styles.toastBtn}>
           {t.ok}
         </button>
       </div>
@@ -200,7 +182,7 @@ function Toast({ toast, onClose, t }) {
 }
 
 /* =========================
-   Studio context
+   Context
    ========================= */
 const StudioContext = React.createContext(null);
 export function useStudio() {
@@ -208,40 +190,32 @@ export function useStudio() {
 }
 
 /* =========================
-   Main component
+   Main
    ========================= */
 export default function StudioShell() {
   const [tab, setTab] = useState("Settings");
-
-  // language
   const [lang, setLang] = useState("id");
   const t = useText(lang);
 
-  // global studio state
   const [projectDraft, setProjectDraft] = useState({ ...DEFAULT_PROJECT, ai_brain: "bedrock" });
   const [blueprint, setBlueprint] = useState(null);
 
-  // plan states
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [planError, setPlanError] = useState("");
 
-  // progress UI
   const [progress, setProgress] = useState(0);
   const [etaSec, setEtaSec] = useState(0);
   const [leftSec, setLeftSec] = useState(0);
 
-  // analyze UI
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisInfo, setAnalysisInfo] = useState("");
 
-  // toast
   const [toast, setToast] = useState(null);
   function showToast(payload) {
     setToast(payload);
     setTimeout(() => setToast(null), 3500);
   }
 
-  // ETA countdown
   useEffect(() => {
     if (!loadingPlan || !leftSec) return;
     const id = setInterval(() => setLeftSec((s) => (s > 0 ? s - 1 : 0)), 1000);
@@ -253,10 +227,13 @@ export default function StudioShell() {
     setTab,
     lang,
     setLang,
+    t,
+
     projectDraft,
     setProjectDraft,
     blueprint,
     setBlueprint,
+
     loadingPlan,
     setLoadingPlan,
     planError,
@@ -278,8 +255,8 @@ export default function StudioShell() {
   };
 
   const content = useMemo(() => {
-    if (tab === "Scenes") return <ScenesTab />;
     if (tab === "Settings") return <SettingsTab />;
+    if (tab === "Scenes") return <ScenesTab />;
     return <ExportTab />;
   }, [tab]);
 
@@ -291,22 +268,13 @@ export default function StudioShell() {
           <div style={styles.topBarInner}>
             <div style={styles.title}>{t.studio}</div>
 
-            {/* Language in top-right */}
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div style={{ fontSize: 12, fontWeight: 900, color: "rgba(17,24,39,0.6)" }}>{t.language}</div>
+            <div style={styles.topRight}>
+              <div style={styles.langLabel}>{t.language}</div>
               <div style={styles.langWrap}>
-                <button
-                  type="button"
-                  onClick={() => setLang("id")}
-                  style={{ ...styles.langBtn, ...(lang === "id" ? styles.langBtnActive : {}) }}
-                >
+                <button type="button" onClick={() => setLang("id")} style={{ ...styles.langBtn, ...(lang === "id" ? styles.langBtnActive : {}) }}>
                   ID
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setLang("en")}
-                  style={{ ...styles.langBtn, ...(lang === "en" ? styles.langBtnActive : {}) }}
-                >
+                <button type="button" onClick={() => setLang("en")} style={{ ...styles.langBtn, ...(lang === "en" ? styles.langBtnActive : {}) }}>
                   EN
                 </button>
               </div>
@@ -321,28 +289,18 @@ export default function StudioShell() {
         <div style={styles.tabBar}>
           <div style={styles.tabBarInner}>
             {TABS.map((tb) => (
-              <button
-                key={tb}
-                onClick={() => setTab(tb)}
-                style={{ ...styles.tabBtn, ...(tab === tb ? styles.tabBtnActive : {}) }}
-                type="button"
-              >
+              <button key={tb} onClick={() => setTab(tb)} type="button" style={{ ...styles.tabBtn, ...(tab === tb ? styles.tabBtnActive : {}) }}>
                 {tb === "Settings" ? t.settings : tb === "Scenes" ? t.scenes : t.export}
               </button>
             ))}
           </div>
         </div>
 
-        {/* credit floating above tabs */}
-        <div style={styles.credit}>
-          <a
-            href="https://x.com/adryndian"
-            target="_blank"
-            rel="noreferrer"
-            style={styles.creditLink}
-          >
-            {t.createdBy} @adryndian
-          </a>
+        {/* Static Credit (fixed, never scroll) */}
+        <div style={styles.creditFixed}>
+          <span style={styles.creditText}>
+            {t.createdBy} <b>@adryndian</b>
+          </span>
         </div>
 
         {/* toast */}
@@ -353,100 +311,13 @@ export default function StudioShell() {
 }
 
 /* =========================
-   Scenes tab
-   ========================= */
-function ScenesTab() {
-  const { blueprint, setTab, lang } = useStudio();
-  const t = useText(lang);
-
-  const beats =
-    blueprint?.storyboard?.beats ||
-    blueprint?.SEGMENT_3?.storyboard?.beats ||
-    blueprint?.segments?.storyboard?.beats ||
-    [];
-
-  return (
-    <div style={styles.card}>
-      <div style={styles.cardHeader}>
-        <div style={styles.cardTitle}>{t.scenes}</div>
-        <div style={styles.cardSub}>{t.workflow}</div>
-      </div>
-
-      {!blueprint ? (
-        <div style={styles.placeholder}>
-          {t.noBlueprint}
-          <div style={{ marginTop: 10 }}>
-            <button type="button" onClick={() => setTab("Settings")} style={styles.secondaryBtn}>
-              {t.goSettings}
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: "grid", gap: 12 }}>
-          {beats.length === 0 ? (
-            <div style={styles.placeholder}>{t.beatsMissing}</div>
-          ) : (
-            beats.map((b, idx) => (
-              <div key={b.id || idx} style={styles.sceneCard}>
-                <div style={styles.sceneTop}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                    <div style={styles.sceneBadge}>{b.id || `S${idx + 1}`}</div>
-                    <div style={{ fontWeight: 900 }}>{b.goal || "SCENE"}</div>
-                    <Chip>{b.time_window || "—"}</Chip>
-                  </div>
-                  <Chip>Draft</Chip>
-                </div>
-
-                <div style={styles.sceneGrid}>
-                  <div>
-                    <div style={styles.miniLabel}>Action</div>
-                    <div style={styles.miniBox}>{b.action || "—"}</div>
-                  </div>
-                  <div>
-                    <div style={styles.miniLabel}>On-screen</div>
-                    <div style={styles.miniBox}>{b.on_screen_text || "—"}</div>
-                  </div>
-                </div>
-
-                <div style={{ marginTop: 10 }}>
-                  <div style={styles.miniLabel}>Negative</div>
-                  <div style={styles.miniBox}>
-                    {(b.negative_prompt || []).slice(0, 8).join(", ") || "—"}
-                    {(b.negative_prompt || []).length > 8 ? "…" : ""}
-                  </div>
-                </div>
-
-                <div style={styles.stepperRow}>
-                  <Step label="Plan" active />
-                  <Step label="Image" />
-                  <Step label="Approve" />
-                  <Step label="Video" />
-                  <Step label="Audio" />
-                </div>
-
-                <div style={styles.sceneActions}>
-                  <button type="button" style={styles.primaryBtn} onClick={() => alert("Next: Generate Image per scene")}>
-                    {t.generateImage}
-                  </button>
-                  <button type="button" style={styles.secondaryBtn} onClick={() => alert("Next: Edit prompt per scene")}>
-                    {t.editPrompt}
-                  </button>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* =========================
-   Settings tab (2-card layout)
+   Settings (3 columns + status bottom)
    ========================= */
 function SettingsTab() {
   const {
     lang,
+    t,
+
     projectDraft,
     setProjectDraft,
     setBlueprint,
@@ -472,14 +343,9 @@ function SettingsTab() {
     showToast
   } = useStudio();
 
-  const t = useText(lang);
-
   const [p, setP] = useState(projectDraft);
 
-  // keep global draft synced
-  useEffect(() => {
-    setProjectDraft(p);
-  }, [p, setProjectDraft]);
+  useEffect(() => setProjectDraft(p), [p, setProjectDraft]);
 
   const totalDuration = Number(p.scene_count || 0) * Number(p.seconds_per_scene || 0);
 
@@ -508,8 +374,8 @@ function SettingsTab() {
   async function runPlan(provider) {
     const ctrl = new AbortController();
 
-    // ETA heuristic: base 60 + scenes*6 (cap 150)
-    const estimated = Math.min(150, 60 + Number(p.scene_count || 6) * 6);
+    // ETA heuristic
+    const estimated = Math.min(180, 55 + Number(p.scene_count || 6) * 7);
     const timeoutMs = estimated * 1000 + 15000;
 
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -548,11 +414,10 @@ function SettingsTab() {
 
     const provider0 = (p.ai_brain || "bedrock").toLowerCase();
 
-    // ETA & progress init
-    const estimated = Math.min(150, 60 + Number(p.scene_count || 6) * 6);
+    const estimated = Math.min(180, 55 + Number(p.scene_count || 6) * 7);
     setEtaSec(estimated);
     setLeftSec(estimated);
-    setProgress(2);
+    setProgress(3);
 
     showToast({
       type: "info",
@@ -560,8 +425,7 @@ function SettingsTab() {
       message: `${t.provider}: ${provider0.toUpperCase()} • ${t.eta}: ~${estimated}s`
     });
 
-    // fake progress tick
-    const pv = setInterval(() => setProgress((x) => (x < 92 ? x + 1 : x)), 900);
+    const pv = setInterval(() => setProgress((x) => (x < 92 ? x + 1 : x)), 850);
 
     try {
       let result;
@@ -572,14 +436,8 @@ function SettingsTab() {
       } catch (e) {
         const msg = e?.message || String(e);
 
-        // Gemini quota -> fallback to bedrock once
         if (provider0 === "gemini" && isGeminiQuotaError(msg)) {
-          showToast({
-            type: "info",
-            title: t.geminiQuotaTitle,
-            message: t.geminiQuotaMsg
-          });
-
+          showToast({ type: "info", title: t.geminiQuotaTitle, message: t.geminiQuotaMsg });
           result = await runPlan("bedrock");
           finalProviderLabel = "BEDROCK (fallback)";
         } else {
@@ -599,16 +457,11 @@ function SettingsTab() {
     } catch (e) {
       const msg =
         e?.name === "AbortError"
-          ? `Timeout. Server mungkin hang / route tidak kepanggil.`
+          ? "Timeout. Server mungkin hang / route tidak kepanggil."
           : (e?.message || String(e));
 
       setPlanError(msg);
-
-      showToast({
-        type: "error",
-        title: t.generateFailed,
-        message: msg.slice(0, 160)
-      });
+      showToast({ type: "error", title: t.generateFailed, message: msg.slice(0, 160) });
     } finally {
       clearInterval(pv);
       setLoadingPlan(false);
@@ -631,7 +484,10 @@ function SettingsTab() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model_ref_url: p.model_ref_url,
-          product_ref_url: p.product_ref_url
+          product_ref_url: p.product_ref_url,
+          // optional: hint context
+          platform: p.platform,
+          aspect_ratio: p.aspect_ratio
         })
       });
 
@@ -643,52 +499,90 @@ function SettingsTab() {
         throw new Error(`Non-JSON analyze response (${r.status}): ${String(raw).slice(0, 180)}`);
       }
 
-      if (!r.ok || !json?.ok) throw new Error(json?.error || `${t.missingAnalyze} (${r.status})`);
+      if (!r.ok || !json?.ok) throw new Error(json?.error || `${t.analyzeMissing} (${r.status})`);
 
       const f = json.fields || {};
+
       setP((prev) => ({
         ...prev,
         brand: prev.brand?.trim() ? prev.brand : (f.brand || ""),
         product_type: prev.product_type?.trim() ? prev.product_type : (f.product_type || ""),
-        material: prev.material?.trim() ? prev.material : (f.material || "")
+        material: prev.material?.trim() ? prev.material : (f.material || ""),
+        // optional suggestions
+        scene_count: prev.scene_count || (Number(f.suggested_scene_count) || prev.scene_count),
+        seconds_per_scene: prev.seconds_per_scene || (Number(f.suggested_seconds_per_scene) || prev.seconds_per_scene),
+        platform: prev.platform || (f.suggested_platform || prev.platform),
+        aspect_ratio: prev.aspect_ratio || (f.suggested_aspect_ratio || prev.aspect_ratio),
       }));
 
       setAnalysisInfo("Auto-fill ✓");
-      showToast({ type: "success", title: "Auto-fill", message: "Fields updated." });
+      showToast({ type: "success", title: "Image Analysis", message: "Fields updated." });
     } catch (e) {
-      setPlanError(e?.message || String(e));
-      showToast({ type: "error", title: "Auto-fill", message: (e?.message || String(e)).slice(0, 140) });
+      const msg = e?.message || String(e);
+      setPlanError(msg);
+      showToast({ type: "error", title: "Image Analysis", message: msg.slice(0, 140) });
     } finally {
       setAnalyzing(false);
     }
   }
 
   return (
-    <div style={{ display: "grid", gap: 12 }}>
-      {/* 2-card responsive layout */}
-      <div className="ugc-grid2" style={styles.grid2}>
-        {/* Left card: settings */}
+    <div style={{ display: "grid", gap: 14 }}>
+      {/* 3 columns row */}
+      <div className="ugc-grid3" style={styles.grid3}>
+        {/* Col 1 */}
         <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div style={styles.cardTitle}>{t.twoCardTitleLeft}</div>
-            <div style={styles.cardSub}>{t.statusHint}</div>
-          </div>
-
-          {/* AI Brain */}
+          <CardHeader title={t.aiBrain} sub={t.hintStable} />
           <Section title={t.aiBrain} sub={`${t.provider}: ${t.bedrock} / ${t.gemini}`}>
-            <Grid2>
-              <Field label={t.aiBrain}>
-                <Select value={p.ai_brain || "bedrock"} onChange={(e) => update("ai_brain", e.target.value)}>
-                  <option value="bedrock">{t.bedrock}</option>
-                  <option value="gemini">{t.gemini}</option>
-                </Select>
-              </Field>
-            </Grid2>
+            <Field label={t.aiBrain}>
+              <Select value={p.ai_brain || "bedrock"} onChange={(e) => update("ai_brain", e.target.value)}>
+                <option value="bedrock">{t.bedrock}</option>
+                <option value="gemini">{t.gemini}</option>
+              </Select>
+            </Field>
           </Section>
 
-          {/* Format & Timing */}
+          <Section title={t.coreInputs} sub=" ">
+            <Grid>
+              <Field label={t.projectName}>
+                <Input value={p.project_name || ""} onChange={(e) => update("project_name", e.target.value)} placeholder="UGC Project — Feb 2026" />
+              </Field>
+              <Field label={t.brand}>
+                <Input value={p.brand || ""} onChange={(e) => update("brand", e.target.value)} placeholder="Brand" />
+              </Field>
+              <Field label={t.productType}>
+                <Input value={p.product_type || ""} onChange={(e) => update("product_type", e.target.value)} placeholder="sunscreen / hoodie / coffee" />
+              </Field>
+              <Field label={t.material}>
+                <Input value={p.material || ""} onChange={(e) => update("material", e.target.value)} placeholder="cotton / gel / stainless" />
+              </Field>
+            </Grid>
+          </Section>
+        </div>
+
+        {/* Col 2 */}
+        <div style={styles.card}>
+          <CardHeader title={t.formatTiming} sub=" " />
+
+          {/* Image Analysis button ABOVE format&timing */}
+          <div style={styles.actionRowTop}>
+            <button
+              type="button"
+              disabled={analyzing || !(p.model_ref_url || "").trim() || !(p.product_ref_url || "").trim()}
+              onClick={autoFillFromImages}
+              style={{
+                ...styles.secondaryBtn,
+                width: "100%",
+                opacity: analyzing ? 0.6 : 1
+              }}
+            >
+              {analyzing ? t.analyzing : t.autoFill}
+            </button>
+            {analysisInfo ? <div style={styles.smallHint}>{analysisInfo}</div> : <div style={styles.smallHint}> </div>}
+          </div>
+
           <Section title={t.formatTiming} sub=" ">
-            <Grid2>
+            <Grid>
               <Field label={t.platform}>
                 <Select value={p.platform} onChange={(e) => update("platform", e.target.value)}>
                   <option value="tiktok">TikTok</option>
@@ -721,37 +615,20 @@ function SettingsTab() {
                   ))}
                 </Select>
               </Field>
-            </Grid2>
+            </Grid>
 
-            <MiniRow>
+            <div style={styles.hintRow}>
               <Chip>{t.estimatedDuration}: {totalDuration}s</Chip>
-            </MiniRow>
+              <Chip>{t.provider}: {(p.ai_brain || "bedrock").toUpperCase()}</Chip>
+            </div>
           </Section>
+        </div>
 
-          {/* Core */}
-          <Section title={t.coreInputs} sub=" ">
-            <Grid2>
-              <Field label={t.projectName}>
-                <Input value={p.project_name || ""} onChange={(e) => update("project_name", e.target.value)} placeholder="UGC Project — Feb 2026" />
-              </Field>
-
-              <Field label={t.brand}>
-                <Input value={p.brand || ""} onChange={(e) => update("brand", e.target.value)} placeholder="Brand" />
-              </Field>
-
-              <Field label={t.productType}>
-                <Input value={p.product_type || ""} onChange={(e) => update("product_type", e.target.value)} placeholder="sunscreen / hoodie / coffee" />
-              </Field>
-
-              <Field label={t.material}>
-                <Input value={p.material || ""} onChange={(e) => update("material", e.target.value)} placeholder="cotton / gel / stainless" />
-              </Field>
-            </Grid2>
-          </Section>
-
-          {/* Assets */}
-          <Section title={t.assets} sub="Upload → URL otomatis → (optional) auto-fill.">
-            <Grid2>
+        {/* Col 3 */}
+        <div style={styles.card}>
+          <CardHeader title={t.assets} sub="Upload → URL otomatis" />
+          <Section title={t.assets} sub=" ">
+            <Grid>
               <ImageUploadField
                 label={t.modelRef}
                 kind="model"
@@ -766,103 +643,168 @@ function SettingsTab() {
                 valueUrl={p.product_ref_url}
                 onUrl={(url) => update("product_ref_url", url)}
               />
-            </Grid2>
-
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-              <button
-                type="button"
-                disabled={analyzing || !(p.model_ref_url || "").trim() || !(p.product_ref_url || "").trim()}
-                onClick={autoFillFromImages}
-                style={{ ...styles.secondaryBtn, opacity: analyzing ? 0.6 : 1 }}
-              >
-                {analyzing ? t.analyzing : t.autoFill}
-              </button>
-
-              {analysisInfo ? <Chip>{analysisInfo}</Chip> : null}
-            </div>
+            </Grid>
           </Section>
         </div>
+      </div>
 
-        {/* Right card: status */}
-        <div style={styles.card}>
-          <div style={styles.cardHeader}>
-            <div style={styles.cardTitle}>{t.twoCardTitleRight}</div>
-            <div style={styles.cardSub}>
-              {t.provider}: {(p.ai_brain || "bedrock").toUpperCase()}
-            </div>
-          </div>
+      {/* Status card bottom (full width, centered rectangle inside) */}
+      <div style={styles.card}>
+        <CardHeader title={t.statusTitle} sub={t.statusSubtitle} />
 
-          {/* Status box */}
-          <div style={styles.statusBox}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-              <Chip>{(p.brand || "").trim() ? "Core ✓" : "Core ✗"}</Chip>
-              <Chip>{(p.model_ref_url || "").trim() ? "Model ✓" : "Model ✗"}</Chip>
-              <Chip>{(p.product_ref_url || "").trim() ? "Product ✓" : "Product ✗"}</Chip>
+        <div style={styles.statusOuter}>
+          <div style={styles.statusInner}>
+            <div style={styles.statusRow}>
+              <Chip tone={(p.brand || "").trim() ? "ok" : "bad"}>{(p.brand || "").trim() ? t.coreOk : t.coreNo}</Chip>
+              <Chip tone={(p.model_ref_url || "").trim() ? "ok" : "bad"}>{(p.model_ref_url || "").trim() ? t.modelOk : t.modelNo}</Chip>
+              <Chip tone={(p.product_ref_url || "").trim() ? "ok" : "bad"}>{(p.product_ref_url || "").trim() ? t.productOk : t.productNo}</Chip>
+              <Chip>{t.estimatedDuration}: {totalDuration}s</Chip>
             </div>
 
             <div style={{ marginTop: 12, display: "grid", gap: 10 }}>
               <div>
-                <div style={styles.miniLabel}>{t.progress}</div>
+                <div style={styles.labelSmall}>{t.progress}</div>
                 <div style={styles.progressOuter}>
                   <div style={{ ...styles.progressInner, width: `${Math.max(0, Math.min(100, progress))}%` }} />
                 </div>
               </div>
 
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <div style={styles.statusRow}>
                 <Chip>{t.eta}: {loadingPlan ? `${leftSec}s` : "-"}</Chip>
-                <Chip>{t.estimatedDuration}: {totalDuration}s</Chip>
+                <Chip>{t.provider}: {(p.ai_brain || "bedrock").toUpperCase()}</Chip>
               </div>
 
               <button
                 type="button"
                 style={{
                   ...styles.primaryBtn,
-                  opacity: canGeneratePlan && !loadingPlan ? 1 : 0.5,
-                  cursor: canGeneratePlan && !loadingPlan ? "pointer" : "not-allowed",
-                  width: "100%"
+                  width: "100%",
+                  opacity: canGeneratePlan && !loadingPlan ? 1 : 0.55,
+                  cursor: canGeneratePlan && !loadingPlan ? "pointer" : "not-allowed"
                 }}
                 disabled={!canGeneratePlan || loadingPlan}
                 onClick={generatePlanOnce}
               >
                 {loadingPlan ? t.generating : t.generatePlan}
               </button>
+
+              {planError ? <div style={styles.errorBox}>{planError}</div> : null}
             </div>
           </div>
+        </div>
+      </div>
 
-          {/* Error */}
-          {planError ? <div style={styles.errorBox}>{planError}</div> : null}
+      {/* Loading overlay */}
+      {loadingPlan ? (
+        <div style={styles.loadingOverlay}>
+          <div style={styles.loadingCard}>
+            <div style={styles.loadingTitle}>{t.generating}</div>
+            <div style={styles.loadingSub}>
+              {t.provider}: {(p.ai_brain || "bedrock").toUpperCase()} • {t.eta}: ~{etaSec}s
+            </div>
 
-          {/* Loading overlay */}
-          {loadingPlan ? (
-            <div style={styles.loadingOverlay}>
-              <div style={styles.loadingCard}>
-                <div style={{ fontWeight: 1000, fontSize: 14 }}>{t.generating}</div>
-                <div style={{ marginTop: 6, fontWeight: 800, color: "rgba(17,24,39,0.7)" }}>
-                  {t.provider}: {(p.ai_brain || "bedrock").toUpperCase()} • {t.eta}: ~{etaSec}s
+            <div style={{ marginTop: 12 }}>
+              <div style={styles.progressOuter}>
+                <div style={{ ...styles.progressInner, width: `${Math.max(0, Math.min(100, progress))}%` }} />
+              </div>
+              <div style={styles.loadingMeta}>
+                {t.progress}: {progress}% • {t.eta}: {leftSec}s
+              </div>
+            </div>
+
+            <div style={styles.spinnerRow}>
+              <div style={styles.spinner} />
+              <div style={styles.loadingHint}>Waiting for server response…</div>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+/* =========================
+   Scenes tab
+   ========================= */
+function ScenesTab() {
+  const { blueprint, setTab, lang } = useStudio();
+  const t = useText(lang);
+
+  const beats =
+    blueprint?.storyboard?.beats ||
+    blueprint?.SEGMENT_3?.storyboard?.beats ||
+    blueprint?.segments?.storyboard?.beats ||
+    [];
+
+  return (
+    <div style={styles.card}>
+      <CardHeader title={t.scenes} sub={t.workflow} />
+
+      {!blueprint ? (
+        <div style={styles.placeholder}>
+          {t.noBlueprint}
+          <div style={{ marginTop: 10 }}>
+            <button type="button" onClick={() => setTab("Settings")} style={styles.secondaryBtn}>
+              {t.goSettings}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: "grid", gap: 12 }}>
+          {beats.length === 0 ? (
+            <div style={styles.placeholder}>{t.beatsMissing}</div>
+          ) : (
+            beats.map((b, idx) => (
+              <div key={b.id || idx} style={styles.sceneCard}>
+                <div style={styles.sceneTop}>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                    <div style={styles.sceneBadge}>{b.id || `S${idx + 1}`}</div>
+                    <div style={{ fontWeight: 900, fontSize: 13 }}>{b.goal || "SCENE"}</div>
+                    <Chip>{b.time_window || "—"}</Chip>
+                  </div>
+                  <Chip>Draft</Chip>
+                </div>
+
+                <div style={styles.sceneGrid}>
+                  <div>
+                    <div style={styles.labelSmall}>Action</div>
+                    <div style={styles.miniBox}>{b.action || "—"}</div>
+                  </div>
+                  <div>
+                    <div style={styles.labelSmall}>On-screen</div>
+                    <div style={styles.miniBox}>{b.on_screen_text || "—"}</div>
+                  </div>
                 </div>
 
                 <div style={{ marginTop: 10 }}>
-                  <div style={styles.progressOuter}>
-                    <div style={{ ...styles.progressInner, width: `${Math.max(0, Math.min(100, progress))}%` }} />
-                  </div>
-                  <div style={{ marginTop: 10, fontSize: 12, fontWeight: 900, color: "rgba(17,24,39,0.65)" }}>
-                    {t.progress}: {progress}%
-                    {"  "}•{"  "}
-                    {t.eta}: {leftSec}s
+                  <div style={styles.labelSmall}>Negative</div>
+                  <div style={styles.miniBox}>
+                    {(b.negative_prompt || []).slice(0, 8).join(", ") || "—"}
+                    {(b.negative_prompt || []).length > 8 ? "…" : ""}
                   </div>
                 </div>
 
-                <div style={styles.spinnerRow}>
-                  <div style={styles.spinner} />
-                  <div style={{ fontSize: 12, fontWeight: 900, color: "rgba(17,24,39,0.6)" }}>
-                    Waiting for server response…
-                  </div>
+                <div style={styles.stepperRow}>
+                  <Step label="Plan" active />
+                  <Step label="Image" />
+                  <Step label="Approve" />
+                  <Step label="Video" />
+                  <Step label="Audio" />
+                </div>
+
+                <div style={styles.sceneActions}>
+                  <button type="button" style={styles.primaryBtn} onClick={() => alert("Next: Generate Image per scene")}>
+                    {t.generateImage}
+                  </button>
+                  <button type="button" style={styles.secondaryBtn} onClick={() => alert("Next: Edit prompt per scene")}>
+                    {t.editPrompt}
+                  </button>
                 </div>
               </div>
-            </div>
-          ) : null}
+            ))
+          )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
@@ -876,16 +818,11 @@ function ExportTab() {
 
   return (
     <div style={styles.card}>
-      <div style={styles.cardHeader}>
-        <div style={styles.cardTitle}>{t.export}</div>
-        <div style={styles.cardSub}>Download blueprint + assets per scene</div>
-      </div>
+      <CardHeader title={t.export} sub="Download blueprint + assets per scene" />
       {!blueprint ? (
         <div style={styles.placeholder}>{t.noBlueprint}</div>
       ) : (
-        <div style={styles.placeholder}>
-          Next step: tombol download JSON blueprint + per-scene downloads.
-        </div>
+        <div style={styles.placeholder}>Next step: tombol download JSON blueprint + per-scene downloads.</div>
       )}
     </div>
   );
@@ -894,96 +831,63 @@ function ExportTab() {
 /* =========================
    UI atoms
    ========================= */
-function Section({ title, sub, children }) {
+function CardHeader({ title, sub }) {
   return (
-    <div style={{ marginTop: 14 }}>
-      <div style={{ fontWeight: 1000, color: "#111827", marginBottom: 6 }}>{title}</div>
-      {sub ? <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10 }}>{sub}</div> : null}
-      <div style={{ display: "grid", gap: 12 }}>{children}</div>
+    <div style={styles.cardHeader}>
+      <div style={styles.cardTitle}>{title}</div>
+      {sub ? <div style={styles.cardSub}>{sub}</div> : null}
     </div>
   );
 }
 
-function Grid2({ children }) {
-  return <div style={{ display: "grid", gridTemplateColumns: "repeat(1, 1fr)", gap: 12 }}>{children}</div>;
+function Section({ title, sub, children }) {
+  return (
+    <div style={{ marginTop: 12 }}>
+      <div style={styles.sectionTitle}>{title}</div>
+      {sub ? <div style={styles.sectionSub}>{sub}</div> : null}
+      <div style={{ display: "grid", gap: 10 }}>{children}</div>
+    </div>
+  );
+}
+
+function Grid({ children }) {
+  return <div style={{ display: "grid", gap: 10 }}>{children}</div>;
 }
 
 function Field({ label, children }) {
   return (
     <div>
-      <div style={{ fontSize: 12, fontWeight: 900, marginBottom: 6, color: "#111827" }}>{label}</div>
+      <div style={styles.label}>{label}</div>
       {children}
     </div>
   );
 }
 
 function Input(props) {
-  return (
-    <input
-      {...props}
-      style={{
-        width: "100%",
-        padding: "12px 12px",
-        borderRadius: 14,
-        border: "1px solid rgba(0,0,0,0.12)",
-        background: "rgba(255,255,255,0.9)",
-        outline: "none",
-        fontWeight: 700
-      }}
-    />
-  );
+  return <input {...props} style={styles.input} />;
 }
 
 function Select(props) {
-  return (
-    <select
-      {...props}
-      style={{
-        width: "100%",
-        padding: "12px 12px",
-        borderRadius: 14,
-        border: "1px solid rgba(0,0,0,0.12)",
-        background: "rgba(255,255,255,0.9)",
-        outline: "none",
-        fontWeight: 900
-      }}
-    />
-  );
+  return <select {...props} style={styles.select} />;
 }
 
-function Chip({ children }) {
+function Chip({ children, tone }) {
+  const toneStyle =
+    tone === "ok"
+      ? { borderColor: "rgba(34,197,94,0.22)", background: "rgba(34,197,94,0.10)", color: "#14532d" }
+      : tone === "bad"
+      ? { borderColor: "rgba(239,68,68,0.22)", background: "rgba(239,68,68,0.10)", color: "#7f1d1d" }
+      : {};
   return (
-    <span
-      style={{
-        fontSize: 12,
-        fontWeight: 900,
-        padding: "8px 10px",
-        borderRadius: 999,
-        background: "rgba(255,255,255,0.65)",
-        border: "1px solid rgba(0,0,0,0.08)"
-      }}
-    >
+    <span style={{ ...styles.chip, ...toneStyle }}>
       {children}
     </span>
   );
 }
 
-function MiniRow({ children }) {
-  return <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>{children}</div>;
-}
-
 function Step({ label, active }) {
   return (
-    <div
-      style={{
-        padding: "8px 10px",
-        borderRadius: 999,
-        fontSize: 12,
-        fontWeight: 1000,
-        border: "1px solid rgba(0,0,0,0.08)",
-        background: active ? "rgba(249,115,22,0.18)" : "rgba(255,255,255,0.65)"
-      }}
-    >
+    <div style={{ ...styles.step, ...(active ? styles.stepActive : {}) }}>
       {label}
     </div>
   );
@@ -996,32 +900,34 @@ const styles = {
   page: {
     minHeight: "100vh",
     background: "linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(255,237,213,1) 100%)",
-    paddingBottom: 110
+    paddingBottom: 140 // room for tabs + credit
   },
 
   topBar: {
     position: "sticky",
     top: 0,
-    zIndex: 20,
+    zIndex: 50,
     backdropFilter: "blur(14px)",
     background: "rgba(255,255,255,0.55)",
     borderBottom: "1px solid rgba(0,0,0,0.06)"
   },
   topBarInner: {
-    maxWidth: 980,
+    maxWidth: 1180,
     margin: "0 auto",
-    padding: "14px 14px",
+    padding: "12px 14px",
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 10
   },
-  title: { fontWeight: 1000, color: "#111827", fontSize: 18 },
+  title: { fontWeight: 1000, color: "#111827", fontSize: 16 },
 
+  topRight: { display: "flex", alignItems: "center", gap: 8 },
+  langLabel: { fontSize: 12, fontWeight: 900, color: "rgba(17,24,39,0.6)" },
   langWrap: {
     display: "flex",
     gap: 6,
-    padding: 6,
+    padding: 5,
     borderRadius: 999,
     background: "rgba(255,255,255,0.65)",
     border: "1px solid rgba(0,0,0,0.06)"
@@ -1029,11 +935,12 @@ const styles = {
   langBtn: {
     border: "none",
     borderRadius: 999,
-    padding: "8px 10px",
+    padding: "7px 10px",
     fontWeight: 1000,
     cursor: "pointer",
     background: "transparent",
-    color: "rgba(17,24,39,0.7)"
+    color: "rgba(17,24,39,0.7)",
+    fontSize: 12
   },
   langBtnActive: {
     background: "rgba(255,255,255,0.92)",
@@ -1042,125 +949,106 @@ const styles = {
   },
 
   content: {
-    maxWidth: 980,
+    maxWidth: 1180,
     margin: "0 auto",
     padding: 14
   },
 
-  grid2: {
+  grid3: {
     display: "grid",
     gap: 12,
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))"
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))"
   },
 
   card: {
-    borderRadius: 18,
-    background: "rgba(255,255,255,0.65)",
+    borderRadius: 16,
+    background: "rgba(255,255,255,0.68)",
     backdropFilter: "blur(14px)",
     border: "1px solid rgba(255,255,255,0.5)",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.06)",
+    boxShadow: "0 10px 26px rgba(0,0,0,0.06)",
     padding: 14
   },
-
   cardHeader: {
-    marginBottom: 12,
+    marginBottom: 8,
     paddingBottom: 10,
     borderBottom: "1px solid rgba(0,0,0,0.06)"
   },
-  cardTitle: { fontWeight: 1000, fontSize: 16, color: "#111827" },
+  cardTitle: { fontWeight: 1000, fontSize: 14, color: "#111827" },
   cardSub: { marginTop: 4, fontSize: 12, color: "#6b7280", fontWeight: 800 },
 
-  placeholder: {
-    padding: 12,
-    borderRadius: 14,
-    border: "1px dashed rgba(0,0,0,0.12)",
-    color: "#374151",
-    background: "rgba(255,255,255,0.55)",
-    fontWeight: 800
-  },
+  sectionTitle: { fontWeight: 1000, fontSize: 12, color: "#111827" },
+  sectionSub: { marginTop: 4, fontSize: 11, color: "rgba(107,114,128,0.9)", fontWeight: 700, marginBottom: 8 },
 
-  tabBar: {
-    position: "fixed",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 30,
-    padding: 12,
-    paddingBottom: "calc(12px + env(safe-area-inset-bottom))"
-  },
-  tabBarInner: {
-    maxWidth: 520,
-    margin: "0 auto",
-    display: "flex",
-    gap: 10,
-    padding: 10,
-    borderRadius: 18,
-    background: "rgba(255,255,255,0.65)",
-    backdropFilter: "blur(16px)",
-    border: "1px solid rgba(255,255,255,0.5)",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.08)"
-  },
-  tabBtn: {
-    flex: 1,
-    border: "none",
+  label: { fontSize: 12, fontWeight: 900, marginBottom: 6, color: "#111827" },
+  labelSmall: { fontSize: 11, fontWeight: 900, marginBottom: 6, color: "rgba(17,24,39,0.8)" },
+
+  input: {
+    width: "100%",
+    padding: "11px 12px",
     borderRadius: 14,
-    padding: "12px 10px",
-    fontWeight: 1000,
-    cursor: "pointer",
-    background: "transparent",
+    border: "1px solid rgba(0,0,0,0.12)",
+    background: "rgba(255,255,255,0.92)",
+    outline: "none",
+    fontWeight: 800,
+    fontSize: 13,
     color: "#111827"
   },
-  tabBtnActive: {
+  select: {
+    width: "100%",
+    padding: "11px 12px",
+    borderRadius: 14,
+    border: "1px solid rgba(0,0,0,0.12)",
     background: "rgba(255,255,255,0.92)",
-    boxShadow: "0 6px 18px rgba(0,0,0,0.08)"
+    outline: "none",
+    fontWeight: 900,
+    fontSize: 13,
+    color: "#111827"
   },
 
-  credit: {
-    position: "fixed",
-    left: 0,
-    right: 0,
-    bottom: "calc(84px + env(safe-area-inset-bottom))",
-    display: "flex",
-    justifyContent: "center",
-    pointerEvents: "none",
-    zIndex: 25
-  },
-  creditLink: {
-    pointerEvents: "auto",
+  chip: {
     fontSize: 12,
     fontWeight: 900,
-    color: "rgba(17,24,39,0.55)",
-    textDecoration: "none",
-    background: "rgba(255,255,255,0.55)",
-    border: "1px solid rgba(0,0,0,0.06)",
-    padding: "6px 10px",
+    padding: "7px 10px",
     borderRadius: 999,
-    backdropFilter: "blur(12px)"
+    background: "rgba(255,255,255,0.65)",
+    border: "1px solid rgba(0,0,0,0.08)",
+    color: "#111827"
   },
 
   primaryBtn: {
     padding: "12px 14px",
-    borderRadius: 16,
+    borderRadius: 14,
     border: "none",
     background: "#f97316",
     color: "white",
-    fontWeight: 1000
+    fontWeight: 1000,
+    fontSize: 13
   },
   secondaryBtn: {
-    padding: "12px 14px",
-    borderRadius: 16,
+    padding: "11px 14px",
+    borderRadius: 14,
     border: "1px solid rgba(0,0,0,0.10)",
-    background: "rgba(255,255,255,0.7)",
+    background: "rgba(255,255,255,0.75)",
     fontWeight: 1000,
+    fontSize: 13,
     cursor: "pointer"
   },
 
-  statusBox: {
-    borderRadius: 18,
-    padding: 12,
+  actionRowTop: { display: "grid", gap: 8, marginTop: 8 },
+  smallHint: { fontSize: 11, fontWeight: 800, color: "rgba(17,24,39,0.55)" },
+
+  hintRow: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 },
+
+  statusOuter: { display: "flex", justifyContent: "center" },
+  statusInner: {
+    width: "100%",
+    maxWidth: 680,
+    borderRadius: 16,
+    padding: 14,
     border: "1px solid rgba(0,0,0,0.06)",
-    background: "rgba(255,255,255,0.55)"
+    background: "rgba(255,255,255,0.60)"
   },
+  statusRow: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" },
 
   progressOuter: {
     width: "100%",
@@ -1173,20 +1061,126 @@ const styles = {
   progressInner: {
     height: "100%",
     borderRadius: 999,
-    background: "rgba(249,115,22,0.65)",
+    background: "rgba(249,115,22,0.68)",
     transition: "width 220ms ease"
   },
 
   errorBox: {
-    marginTop: 12,
+    marginTop: 10,
     padding: 12,
     borderRadius: 14,
     background: "rgba(239,68,68,0.12)",
     border: "1px solid rgba(239,68,68,0.18)",
     color: "#b91c1c",
-    fontWeight: 1000
+    fontWeight: 1000,
+    fontSize: 12
   },
 
+  placeholder: {
+    padding: 12,
+    borderRadius: 14,
+    border: "1px dashed rgba(0,0,0,0.12)",
+    color: "#374151",
+    background: "rgba(255,255,255,0.55)",
+    fontWeight: 800,
+    fontSize: 12
+  },
+
+  tabBar: {
+    position: "fixed",
+    left: 0,
+    right: 0,
+    bottom: 22, // leave room for fixed credit
+    zIndex: 60,
+    padding: 12,
+    paddingBottom: "calc(10px + env(safe-area-inset-bottom))",
+    pointerEvents: "none"
+  },
+  tabBarInner: {
+    pointerEvents: "auto",
+    maxWidth: 520,
+    margin: "0 auto",
+    display: "flex",
+    gap: 10,
+    padding: 10,
+    borderRadius: 18,
+    background: "rgba(255,255,255,0.70)",
+    backdropFilter: "blur(16px)",
+    border: "1px solid rgba(255,255,255,0.55)",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.10)"
+  },
+  tabBtn: {
+    flex: 1,
+    border: "none",
+    borderRadius: 14,
+    padding: "11px 10px",
+    fontWeight: 1000,
+    cursor: "pointer",
+    background: "transparent",
+    color: "#111827",
+    fontSize: 13
+  },
+  tabBtnActive: {
+    background: "rgba(255,255,255,0.95)",
+    boxShadow: "0 6px 18px rgba(0,0,0,0.08)"
+  },
+
+  // static credit fixed at bottom
+  creditFixed: {
+    position: "fixed",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 55,
+    padding: "8px 12px",
+    paddingBottom: "calc(8px + env(safe-area-inset-bottom))",
+    display: "flex",
+    justifyContent: "center",
+    background: "rgba(255,255,255,0.40)",
+    backdropFilter: "blur(10px)",
+    borderTop: "1px solid rgba(0,0,0,0.06)"
+  },
+  creditText: {
+    fontSize: 12,
+    fontWeight: 800,
+    color: "rgba(17,24,39,0.55)"
+  },
+
+  // Toast
+  toastWrap: {
+    position: "fixed",
+    left: 12,
+    right: 12,
+    bottom: "calc(120px + env(safe-area-inset-bottom))",
+    zIndex: 99999,
+    display: "flex",
+    justifyContent: "center",
+    pointerEvents: "none"
+  },
+  toast: {
+    pointerEvents: "auto",
+    width: "100%",
+    maxWidth: 520,
+    borderRadius: 16,
+    padding: 12,
+    backdropFilter: "blur(14px)",
+    boxShadow: "0 10px 30px rgba(0,0,0,0.10)",
+    display: "flex",
+    gap: 10,
+    alignItems: "flex-start",
+    justifyContent: "space-between"
+  },
+  toastBtn: {
+    border: "1px solid rgba(0,0,0,0.10)",
+    background: "rgba(255,255,255,0.7)",
+    borderRadius: 12,
+    padding: "6px 10px",
+    fontWeight: 1000,
+    cursor: "pointer",
+    fontSize: 12
+  },
+
+  // Loading overlay
   loadingOverlay: {
     position: "fixed",
     inset: 0,
@@ -1201,18 +1195,16 @@ const styles = {
   loadingCard: {
     width: "100%",
     maxWidth: 520,
-    borderRadius: 18,
+    borderRadius: 16,
     padding: 14,
-    background: "rgba(255,255,255,0.85)",
+    background: "rgba(255,255,255,0.88)",
     border: "1px solid rgba(0,0,0,0.08)",
     boxShadow: "0 10px 30px rgba(0,0,0,0.10)"
   },
-  spinnerRow: {
-    marginTop: 12,
-    display: "flex",
-    gap: 10,
-    alignItems: "center"
-  },
+  loadingTitle: { fontWeight: 1000, fontSize: 14, color: "#111827" },
+  loadingSub: { marginTop: 6, fontWeight: 800, fontSize: 12, color: "rgba(17,24,39,0.65)" },
+  loadingMeta: { marginTop: 10, fontSize: 12, fontWeight: 900, color: "rgba(17,24,39,0.62)" },
+  spinnerRow: { marginTop: 12, display: "flex", gap: 10, alignItems: "center" },
   spinner: {
     width: 18,
     height: 18,
@@ -1221,10 +1213,11 @@ const styles = {
     borderTopColor: "rgba(249,115,22,0.9)",
     animation: "spin 0.9s linear infinite"
   },
+  loadingHint: { fontSize: 12, fontWeight: 900, color: "rgba(17,24,39,0.6)" },
 
-  // Scenes styles
+  // Scenes
   sceneCard: {
-    borderRadius: 18,
+    borderRadius: 16,
     padding: 12,
     border: "1px solid rgba(0,0,0,0.06)",
     background: "rgba(255,255,255,0.55)"
@@ -1239,7 +1232,6 @@ const styles = {
     border: "1px solid rgba(249,115,22,0.20)"
   },
   sceneGrid: { display: "grid", gridTemplateColumns: "1fr", gap: 10, marginTop: 10 },
-  miniLabel: { fontSize: 12, fontWeight: 1000, color: "#111827", marginBottom: 6 },
   miniBox: {
     borderRadius: 14,
     padding: 10,
@@ -1247,30 +1239,36 @@ const styles = {
     border: "1px solid rgba(0,0,0,0.06)",
     color: "#111827",
     fontWeight: 800,
-    fontSize: 13,
+    fontSize: 12,
     whiteSpace: "pre-wrap"
   },
   stepperRow: { display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 },
+  step: {
+    padding: "7px 10px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 1000,
+    border: "1px solid rgba(0,0,0,0.08)",
+    background: "rgba(255,255,255,0.65)"
+  },
+  stepActive: { background: "rgba(249,115,22,0.18)" },
   sceneActions: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 12 }
 };
 
 /* =========================
-   CSS keyframes injection
+   Inject keyframes + responsive grid
    ========================= */
 (function injectKeyframesOnce() {
   if (typeof document === "undefined") return;
-  const id = "ugc-spin-keyframes";
+  const id = "ugc-studio-style";
   if (document.getElementById(id)) return;
   const style = document.createElement("style");
   style.id = id;
   style.innerHTML = `
     @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-    @media (max-width: 860px) {
-      .ugc-grid2 { grid-template-columns: 1fr !important; }
+    @media (max-width: 980px) {
+      .ugc-grid3 { grid-template-columns: 1fr !important; }
     }
   `;
   document.head.appendChild(style);
 })();
-
-// patch: apply responsive class for grid2
-styles.grid2 = { ...styles.grid2, className: "ugc-grid2" };
