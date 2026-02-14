@@ -1485,22 +1485,6 @@ const styles = {
   },
 };
 
-// keyframes injection (for progress bar)
-if (typeof document !== "undefined") {
-  const id = "ugc_progress_keyframes";
-  if (!document.getElementById(id)) {
-    const s = document.createElement("style");
-    s.id = id;
-    s.innerHTML = `
-      @keyframes ugc_progress {
-        0% { transform: translateX(-120%); opacity: .85; }
-        50% { transform: translateX(120%); opacity: 1; }
-        100% { transform: translateX(320%); opacity: .85; }
-      }
-    `;
-    document.head.appendChild(s);
-  }
-}
 
 // Patch statusInner skin depending theme (cheap + safe)
 const _origStatusDock = styles.statusDock;
