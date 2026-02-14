@@ -915,8 +915,18 @@ function Section({ title, sub, children }) {
   );
 }
 
-function Grid({ children }) {
-  return <div style={{ display: "grid", gap: 10 }}>{children}</div>;
+function Grid2({ children }) {
+  return (
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "repeat(1, minmax(0, 1fr))",
+        gap: 12
+      }}
+    >
+      {children}
+    </div>
+  );
 }
 
 function Field({ label, children }) {
