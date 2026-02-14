@@ -7,13 +7,20 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+html, body {
+  height: 100%;
+}
+
 body {
   margin: 0;
   background: #fff;
+}
+
+/* Loading/progress animation */
 @keyframes ugc_progress {
-  0% { transform: translateX(-120%); opacity: .85; }
-  50% { transform: translateX(120%); opacity: 1; }
-  100% { transform: translateX(320%); opacity: .85; }
+  0%   { transform: translateX(-120%); opacity: .85; }
+  50%  { transform: translateX(120%);  opacity: 1; }
+  100% { transform: translateX(320%);  opacity: .85; }
 }
 /* ===== UGC Studio Theme ===== */
 :root {
