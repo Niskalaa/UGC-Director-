@@ -12,10 +12,9 @@ export default function LoginPage() {
 
   const next = useMemo(() => params.get("next") || "/studio", [params]);
 
-  // kalau sudah login, langsung ke studio
   React.useEffect(() => {
-    if (user) navigate("/studio", { replace: true });
-  }, [user, navigate]);
+    if (user) navigate(next, { replace: true });
+  }, [user, navigate, next]);
 
   const [mode, setMode] = useState<Mode>("signin");
   const [email, setEmail] = useState("");
@@ -30,18 +29,20 @@ export default function LoginPage() {
     setLoading(true);
 
     try {
-      if (!email || !password) throw new Error("Email dan password wajib diisi.");
+      const cleanEmail = email.trim().toLowerCase();
+      if (!cleanEmail || !password) throw new Error("Email dan password wajib diisi.");
 
       if (mode === "signup") {
         if (password !== password2) throw new Error("Password tidak sama.");
-        const { error } = await supabase.auth.signUp({ email, password });
+
+        const { error } = await supabase.auth.signUp({ email: cleanEmail, password });
         if (error) throw error;
 
-        // untuk MVP: setelah signup, tetap arahkan ke studio (kalau email verify off).
-        // kalau email verify on, user akan diminta cek email.
+        // Catatan: jika Supabase email confirmation ON, user harus verify dulu.
+        // Untuk MVP yang cepat, set confirm email = OFF.
         navigate(next, { replace: true });
       } else {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
+        const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
         if (error) throw error;
         navigate(next, { replace: true });
       }
