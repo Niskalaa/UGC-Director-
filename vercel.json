@@ -1,4 +1,7 @@
 {
+  "redirects": [
+    { "source": "/generator", "destination": "/studio", "permanent": true }
+  ],
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/$1" },
     { "source": "/(.*)", "destination": "/" }
