@@ -9,39 +9,13 @@ function extFromFile(file) {
   const name = (file?.name || "").toLowerCase();
   if (name.endsWith(".png")) return "png";
   if (name.endsWith(".webp")) return "webp";
-  if (name.endsWith(".jpeg")) return "jpg";
-  if (name.endsWith(".jpg")) return "jpg";
-  return "jpg";
+  if (name.endsWith(".jpeg")) return "jpeg";
+  if (name.endsWith(".jpg")) return "jpeg";
+  return "jpeg";
 }
 
 function safeMsg(e) {
   return e?.message || String(e);
-}
-
-async function getUidOrThrow() {
-  const { data, error } = await supabase.auth.getSession();
-  if (error) throw error;
-  const uid = data?.session?.user?.id;
-  if (!uid) throw new Error("Not logged in. Please login again.");
-  return uid;
-}
-
-async function resolveUrl(path) {
-  // Try public URL first (works if bucket is public)
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-  const publicUrl = data?.publicUrl;
-
-  // If bucket is private, publicUrl may exist but will 403 when loaded.
-  // Use signed URL fallback.
-  const { data: signed, error: signErr } = await supabase.storage
-    .from(BUCKET)
-    .createSignedUrl(path, 60 * 60); // 1 hour
-  if (!signErr && signed?.signedUrl) return signed.signedUrl;
-
-  // If signed url fails but publicUrl exists, return it anyway.
-  if (publicUrl) return publicUrl;
-
-  throw new Error("Failed to resolve file URL (public/signed).");
 }
 
 export default function ImageUploadField({
@@ -50,8 +24,6 @@ export default function ImageUploadField({
   onUrl,
   projectId,
   kind, // "model" | "product"
-
-  // UX options
   optional = true,
   hideUrl = true,
   showPreview = true
@@ -60,13 +32,33 @@ export default function ImageUploadField({
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState("");
 
+  async function getUidOrThrow() {
+    const { data, error } = await supabase.auth.getSession();
+    if (error) throw error;
+    const uid = data?.session?.user?.id;
+    if (!uid) throw new Error("Not logged in. Please login again.");
+    return uid;
+  }
+
+  async function resolveUrl(path) {
+    // Try public url first
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+    const publicUrl = data?.publicUrl;
+    if (publicUrl) return publicUrl;
+
+    // Fallback signed url
+    const { data: signed, error: signErr } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 60);
+    if (signErr) throw signErr;
+    if (!signed?.signedUrl) throw new Error("Failed to create signed URL");
+    return signed.signedUrl;
+  }
+
   async function onPickFile(e) {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setErr("");
 
-    // Validation
     if (!file.type?.startsWith("image/")) {
       setErr("File harus gambar (image/*).");
       if (inputRef.current) inputRef.current.value = "";
@@ -85,10 +77,7 @@ export default function ImageUploadField({
     try {
       const uid = await getUidOrThrow();
       const ext = extFromFile(file);
-
-      // ✅ RLS-friendly path
-      const safeProjectId = projectId || "local";
-      const path = `users/${uid}/projects/${safeProjectId}/refs/${kind}.${ext}`;
+      const path = `users/${uid}/projects/${projectId}/refs/${kind}.${ext}`;
 
       const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
         upsert: true,
@@ -108,31 +97,38 @@ export default function ImageUploadField({
 
   return (
     <div style={{ display: "grid", gap: 8 }}>
-      <div style={{ fontSize: 12, fontWeight: 800, color: "#111827" }}>
-        {label} {optional ? <span style={{ fontWeight: 700, color: "#6b7280" }}>(optional)</span> : null}
+      <div style={{ fontSize: 12, fontWeight: 800 }}>
+        {label} {optional ? <span style={{ opacity: 0.7, fontWeight: 700 }}>(optional)</span> : null}
       </div>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button
           type="button"
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
           style={{
             padding: "10px 12px",
-            borderRadius: 14,
-            border: "1px solid rgba(0,0,0,0.10)",
-            background: "rgba(255,255,255,0.7)",
+            borderRadius: 12,
+            border: "1px solid rgba(255,255,255,0.12)",
+            background: "transparent",
+            color: "inherit",
             fontWeight: 900,
             cursor: uploading ? "not-allowed" : "pointer"
           }}
         >
-          {uploading ? "Uploading…" : "Upload Image"}
+          {uploading ? "Uploading…" : "Upload"}
         </button>
 
-        <input ref={inputRef} type="file" accept="image/*" onChange={onPickFile} style={{ display: "none" }} />
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          onChange={onPickFile}
+          style={{ display: "none" }}
+        />
 
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#6b7280" }}>
-          {valueUrl ? "Uploaded ✓" : "No image yet"}
+        <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.75 }}>
+          {valueUrl ? "Uploaded ✓" : "No image"}
         </div>
 
         {valueUrl ? (
@@ -142,9 +138,10 @@ export default function ImageUploadField({
             disabled={uploading}
             style={{
               padding: "10px 12px",
-              borderRadius: 14,
-              border: "1px solid rgba(0,0,0,0.10)",
-              background: "rgba(255,255,255,0.7)",
+              borderRadius: 12,
+              border: "1px solid rgba(255,255,255,0.12)",
+              background: "transparent",
+              color: "inherit",
               fontWeight: 900,
               cursor: uploading ? "not-allowed" : "pointer"
             }}
@@ -160,20 +157,18 @@ export default function ImageUploadField({
             src={valueUrl}
             alt="preview"
             style={{
-              width: 88,
-              height: 88,
+              width: 72,
+              height: 72,
               objectFit: "cover",
-              borderRadius: 14,
-              border: "1px solid rgba(0,0,0,0.08)"
+              borderRadius: 12,
+              border: "1px solid rgba(255,255,255,0.10)"
             }}
           />
-          {!hideUrl ? (
-            <div style={{ fontSize: 12, wordBreak: "break-all", color: "#374151" }}>{valueUrl}</div>
-          ) : null}
+          {!hideUrl ? <div style={{ fontSize: 12, wordBreak: "break-all", opacity: 0.8 }}>{valueUrl}</div> : null}
         </div>
       ) : null}
 
-      {err ? <div style={{ fontSize: 12, fontWeight: 800, color: "#b91c1c" }}>{err}</div> : null}
+      {err ? <div style={{ fontSize: 12, fontWeight: 900, color: "#ef4444" }}>{err}</div> : null}
     </div>
   );
 }
