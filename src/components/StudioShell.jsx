@@ -704,4 +704,26 @@ const styles = {
     color: "#b91c1c",
     fontWeight: 800
   }
+  credit: {
+  position: "fixed",
+  left: 0,
+  right: 0,
+  bottom: "calc(84px + env(safe-area-inset-bottom))",
+  display: "flex",
+  justifyContent: "center",
+  pointerEvents: "none",
+  zIndex: 25
+},
+creditLink: {
+  pointerEvents: "auto",
+  fontSize: 12,
+  fontWeight: 800,
+  color: "rgba(17,24,39,0.55)",
+  textDecoration: "none",
+  background: "rgba(255,255,255,0.55)",
+  border: "1px solid rgba(0,0,0,0.06)",
+  padding: "6px 10px",
+  borderRadius: 999,
+  backdropFilter: "blur(12px)"
+}
 };
