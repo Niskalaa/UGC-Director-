@@ -2,7 +2,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import GeneratorPage from "./pages/GeneratorPage.jsx";
-import "./global.css";
+import "./style/global.css";
 
 function Home() {
   return (
