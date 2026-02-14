@@ -9,12 +9,10 @@ export const DEFAULT_PROJECT = {
   scene_count: 6,
   seconds_per_scene: 8,
 
-  // assets
   model_ref_url: "",
   product_ref_url: "",
   scene_bg_urls: [],
 
-  // tone
   target_audience: "",
   tone: "natural gen-z",
   pronoun: "gue",
@@ -22,6 +20,5 @@ export const DEFAULT_PROJECT = {
   pace: "normal",
   motion_default: "medium",
 
-  // brain
   ai_brain: "bedrock",
 };
