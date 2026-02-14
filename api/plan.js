@@ -105,10 +105,17 @@ async function planWithBedrock(project) {
 
   // Claude 4.5: WAJIB inference profile (sesuai error kamu)
   const CLAUDE_MODEL =
-    process.env.BEDROCK_CLAUDE_INFERENCE_PROFILE_ARN ||
-    process.env.BEDROCK_CLAUDE_INFERENCE_PROFILE_ID ||
-    process.env.BEDROCK_CLAUDE_MODEL_ID ||
-    "anthropic.claude-sonnet-4-5-20250929-v1:0";
+  process.env.BEDROCK_CLAUDE_INFERENCE_PROFILE_ARN ||
+  process.env.BEDROCK_CLAUDE_INFERENCE_PROFILE_ID;
+
+if (!CLAUDE_MODEL) {
+  throw new Error(
+    "Missing Claude inference profile. Set BEDROCK_CLAUDE_INFERENCE_PROFILE_ARN (recommended) or BEDROCK_CLAUDE_INFERENCE_PROFILE_ID in Vercel env."
+ console.log("[planWithBedrock] REGION", REGION);
+console.log("[planWithBedrock] DEEPSEEK_MODEL", DEEPSEEK_MODEL);
+console.log("[planWithBedrock] CLAUDE_MODEL", CLAUDE_MODEL);
+  );
+}
 
   // Guard keras: kalau masih base id, stop & kasih instruksi jelas
   if (isClaude45BaseId(CLAUDE_MODEL)) {
