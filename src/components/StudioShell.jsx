@@ -525,7 +525,7 @@ const styles = {
     minHeight: "100vh",
     background:
       "linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(255,237,213,1) 100%)",
-    paddingBottom: 86 // space for tabbar
+    paddingBottom: 110 // space for tabbar
   },
   topBar: {
     position: "sticky",
@@ -572,14 +572,14 @@ const styles = {
     background: "rgba(255,255,255,0.55)"
   },
   tabBar: {
-    position: "fixed",
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 30,
-    padding: 12,
-    pointerEvents: "auto"
-  },
+  position: "fixed",
+  left: 0,
+  right: 0,
+  bottom: 0,
+  zIndex: 30,
+  padding: 12,
+  paddingBottom: "calc(12px + env(safe-area-inset-bottom))"
+},
   tabBarInner: {
     maxWidth: 520,
     margin: "0 auto",
