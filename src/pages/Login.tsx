@@ -22,10 +22,12 @@ export default function LoginPage() {
   const [password2, setPassword2] = useState("");
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setErr(null);
+    setInfo(null);
     setLoading(true);
 
     try {
@@ -35,17 +37,26 @@ export default function LoginPage() {
       if (mode === "signup") {
         if (password !== password2) throw new Error("Password tidak sama.");
 
-        const { error } = await supabase.auth.signUp({ email: cleanEmail, password });
+        const { data, error } = await supabase.auth.signUp({ email: cleanEmail, password });
         if (error) throw error;
 
-        // Catatan: jika Supabase email confirmation ON, user harus verify dulu.
-        // Untuk MVP yang cepat, set confirm email = OFF.
-        navigate(next, { replace: true });
-      } else {
-        const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
-        if (error) throw error;
-        navigate(next, { replace: true });
+        // Kalau email confirmation ON, session belum aktif → jangan redirect ke /studio.
+        if (!data?.session) {
+          setInfo("Akun dibuat. Cek email untuk verifikasi dulu, lalu Sign In.");
+          setMode("signin");
+          return;
+        }
+
+        // Kalau confirm OFF, session langsung ada → biarkan useEffect yang redirect.
+        return;
       }
+
+      // signin
+      const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
+      if (error) throw error;
+
+      // Jangan navigate di sini. useEffect akan redirect saat user sudah masuk.
+      return;
     } catch (e: any) {
       setErr(e?.message || String(e));
     } finally {
@@ -57,21 +68,29 @@ export default function LoginPage() {
     <div style={styles.page}>
       <div style={styles.card}>
         <div style={{ marginBottom: 14 }}>
-          <div style={styles.title}>Sign in</div>
+          <div style={styles.title}>{mode === "signup" ? "Sign up" : "Sign in"}</div>
           <div style={styles.sub}>Access your Studio workspace</div>
         </div>
 
         <div style={styles.segmentWrap}>
           <button
             style={{ ...styles.segmentBtn, ...(mode === "signin" ? styles.segmentActive : {}) }}
-            onClick={() => setMode("signin")}
+            onClick={() => {
+              setMode("signin");
+              setErr(null);
+              setInfo(null);
+            }}
             type="button"
           >
             Sign In
           </button>
           <button
             style={{ ...styles.segmentBtn, ...(mode === "signup" ? styles.segmentActive : {}) }}
-            onClick={() => setMode("signup")}
+            onClick={() => {
+              setMode("signup");
+              setErr(null);
+              setInfo(null);
+            }}
             type="button"
           >
             Sign Up
@@ -113,6 +132,7 @@ export default function LoginPage() {
             </>
           )}
 
+          {info && <div style={styles.info}>{info}</div>}
           {err && <div style={styles.error}>{err}</div>}
 
           <button style={styles.primaryBtn} disabled={loading} type="submit">
@@ -131,7 +151,7 @@ const styles: Record<string, React.CSSProperties> = {
     alignItems: "center",
     justifyContent: "center",
     padding: 18,
-    background: "linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(255,237,213,1) 100%)"
+    background: "linear-gradient(180deg, rgba(255,255,255,1) 0%, rgba(255,237,213,1) 100%)",
   },
   card: {
     width: "100%",
@@ -141,7 +161,7 @@ const styles: Record<string, React.CSSProperties> = {
     background: "rgba(255,255,255,0.65)",
     backdropFilter: "blur(14px)",
     border: "1px solid rgba(255,255,255,0.5)",
-    boxShadow: "0 10px 30px rgba(0,0,0,0.08)"
+    boxShadow: "0 10px 30px rgba(0,0,0,0.08)",
   },
   title: { fontSize: 22, fontWeight: 800, color: "#111827" },
   sub: { fontSize: 13, color: "#6b7280", marginTop: 4 },
@@ -151,7 +171,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 6,
     borderRadius: 14,
     background: "rgba(255,255,255,0.6)",
-    border: "1px solid rgba(0,0,0,0.06)"
+    border: "1px solid rgba(0,0,0,0.06)",
   },
   segmentBtn: {
     flex: 1,
@@ -160,11 +180,11 @@ const styles: Record<string, React.CSSProperties> = {
     border: "none",
     background: "transparent",
     fontWeight: 700,
-    cursor: "pointer"
+    cursor: "pointer",
   },
   segmentActive: {
     background: "rgba(255,255,255,0.9)",
-    boxShadow: "0 6px 18px rgba(0,0,0,0.06)"
+    boxShadow: "0 6px 18px rgba(0,0,0,0.06)",
   },
   label: { display: "block", fontSize: 12, fontWeight: 700, marginTop: 12, marginBottom: 6, color: "#111827" },
   input: {
@@ -173,7 +193,7 @@ const styles: Record<string, React.CSSProperties> = {
     borderRadius: 12,
     border: "1px solid rgba(0,0,0,0.12)",
     outline: "none",
-    background: "rgba(255,255,255,0.9)"
+    background: "rgba(255,255,255,0.9)",
   },
   primaryBtn: {
     width: "100%",
@@ -184,7 +204,16 @@ const styles: Record<string, React.CSSProperties> = {
     background: "#f97316",
     color: "white",
     fontWeight: 800,
-    cursor: "pointer"
+    cursor: "pointer",
+  },
+  info: {
+    marginTop: 12,
+    padding: 10,
+    borderRadius: 12,
+    background: "rgba(59,130,246,0.12)",
+    color: "#1d4ed8",
+    fontSize: 13,
+    fontWeight: 600,
   },
   error: {
     marginTop: 12,
@@ -193,6 +222,6 @@ const styles: Record<string, React.CSSProperties> = {
     background: "rgba(239,68,68,0.12)",
     color: "#b91c1c",
     fontSize: 13,
-    fontWeight: 600
-  }
+    fontWeight: 600,
+  },
 };
