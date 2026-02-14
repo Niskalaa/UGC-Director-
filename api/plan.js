@@ -49,7 +49,10 @@ async function planWithBedrock(project) {
   process.env.BEDROCK_DEEPSEEK_INFERENCE_PROFILE_ARN ||
   process.env.BEDROCK_DEEPSEEK_MODEL_ID ||
   "deepseek.r1-v1:0";
-  const CLAUDE_MODEL = process.env.BEDROCK_CLAUDE_MODEL_ID || "anthropic.claude-sonnet-4-5-20250929-v1:0";
+  const CLAUDE_MODEL =
+  process.env.BEDROCK_CLAUDE_INFERENCE_PROFILE_ARN ||
+  process.env.BEDROCK_CLAUDE_MODEL_ID ||
+  "anthropic.claude-sonnet-4-5-20250929-v1:0";
 
   // init client once per request (ok for Vercel)
   const br = new BedrockRuntimeClient({ region: REGION });
