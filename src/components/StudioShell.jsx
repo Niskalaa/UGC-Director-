@@ -202,36 +202,65 @@ function SettingsTab() {
   }
 
   async function generatePlanOnce() {
-    if (!canGeneratePlan || loadingPlan) return;
+  if (!canGeneratePlan || loadingPlan) return;
 
-    setPlanError("");
-    setLoadingPlan(true);
+  setPlanError("");
+  setLoadingPlan(true);
+
+  // persist draft globally
+  setProjectDraft(p);
+
+  const provider = (p.ai_brain || "bedrock").toLowerCase();
+
+  // timeout guard biar ga stuck selamanya
+  const ctrl = new AbortController();
+  const timeoutMs = 90000; // 90s (Bedrock bisa lama). Naikkan kalau perlu.
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+
+  const t0 = Date.now();
+
+  try {
+    const r = await fetch("/api/plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, project: p }),
+      signal: ctrl.signal
+    });
+
+    // ambil text dulu (lebih robust daripada r.json langsung)
+    const raw = await r.text();
+    let json = null;
 
     try {
-      // persist draft globally
-      setProjectDraft(p);
-
-      const provider = (p.ai_brain || "bedrock").toLowerCase();
-
-      const r = await fetch("/api/plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider, project: p })
-      });
-
-      const json = await r.json().catch(() => ({}));
-      if (!r.ok || !json?.ok) {
-        throw new Error(json?.error || `Plan failed (${r.status})`);
-      }
-
-      setBlueprint(json.blueprint);
-      setTab("Scenes");
+      json = raw ? JSON.parse(raw) : null;
     } catch (e) {
-      setPlanError(e?.message || String(e));
-    } finally {
-      setLoadingPlan(false);
+      // kalau server balikin HTML / teks, kasih preview biar kebaca errornya
+      const preview = String(raw).slice(0, 220);
+      throw new Error(`Non-JSON response (${r.status}). Preview: ${preview}`);
     }
+
+    if (!r.ok || !json?.ok) {
+      throw new Error(json?.error || `Plan failed (${r.status})`);
+    }
+
+    if (!json?.blueprint) {
+      throw new Error("Plan OK tapi blueprint kosong. Cek /api/plan response.");
+    }
+
+    setBlueprint(json.blueprint);
+    setTab("Scenes");
+  } catch (e) {
+    if (e?.name === "AbortError") {
+      setPlanError(`Timeout after ${Math.round(timeoutMs / 1000)}s. Server mungkin hang / route tidak kepanggil.`);
+    } else {
+      setPlanError(e?.message || String(e));
+    }
+  } finally {
+    clearTimeout(timer);
+    setLoadingPlan(false);
+    console.log("Plan latency(ms):", Date.now() - t0, "provider:", provider);
   }
+}
 
   return (
     <div style={styles.card}>
