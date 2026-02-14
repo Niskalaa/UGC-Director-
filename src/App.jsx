@@ -7,7 +7,15 @@ import { useAuth } from "./auth/AuthProvider";
 
 function LoginRoute() {
   const { user, loading } = useAuth();
-  if (loading) return null; // biar tidak flicker
+  function LoginRoute() {
+  const { user, loading } = useAuth();
+  if (loading) {
+    return (
+      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <div style={{ fontWeight: 800 }}>Loading…</div>
+      </div>
+    );
+  }
   return user ? <Navigate to="/studio" replace /> : <LoginPage />;
 }
 
