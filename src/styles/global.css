@@ -52,7 +52,7 @@ body {
   color: var(--fg);
 }
 
-.ugc-page { min-height: 100vh; padding-bottom: 140px; }
+.ugc-page { min-height: 100vh; padding-bottom: 260px; }
 
 .ugc-topbar {
   position: sticky; top: 0; z-index: 50;
