@@ -30,13 +30,9 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        {/* Smart default */}
         <Route path="/" element={<IndexRoute />} />
-
-        {/* Login public */}
         <Route path="/login" element={<LoginRoute />} />
 
-        {/* Studio protected */}
         <Route
           path="/studio/*"
           element={
@@ -46,10 +42,7 @@ export default function App() {
           }
         />
 
-        {/* Legacy route */}
         <Route path="/generator" element={<Navigate to="/studio" replace />} />
-
-        {/* Fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
