@@ -1,9 +1,9 @@
 // src/studio/studioStore.js
 export const DEFAULT_PROJECT = {
-  project_id: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : "local",
-  ...
-};
-export const DEFAULT_PROJECT = {
+  project_id: (typeof crypto !== "undefined" && crypto.randomUUID)
+    ? crypto.randomUUID()
+    : "local",
+
   project_name: "",
   brand: "",
   product_type: "",
