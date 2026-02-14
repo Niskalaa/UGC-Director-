@@ -1,6 +1,7 @@
 import React, { ReactNode, ErrorInfo, Component } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./src/App";
+import "./src/styles/global.css";
 import { AuthProvider } from "./src/auth/AuthProvider";
 
 console.log("System: Booting v2.3...");
