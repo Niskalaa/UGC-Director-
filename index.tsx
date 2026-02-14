@@ -1,53 +1,15 @@
 import React, { ReactNode, ErrorInfo, Component } from "react";
-import React, { ReactNode, ErrorInfo, Component } from "react";
 import { createRoot } from "react-dom/client";
-import App from "./src/App.jsx";
-import { AuthProvider } from "./src/auth/AuthProvider"; // ✅ pastikan path benar
+import App from "./src/App.jsx"; // ✅ pastikan path ini benar
 
 console.log("System: Booting...");
 
-class ErrorBoundary extends Component<{ children?: ReactNode }, { hasError: boolean; error: Error | null }> {
-  state = { hasError: false, error: null };
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
-  }
-  componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("React Error Boundary:", error, info);
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{ padding: 24, fontFamily: "system-ui", color: "#b91c1c" }}>
-          <h2>System Failure</h2>
-          <pre style={{ whiteSpace: "pre-wrap" }}>{String(this.state.error)}</pre>
-          <button onClick={() => window.location.reload()}>Reload</button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
+type EBState = { hasError: boolean; error: Error | null };
 
-const container = document.getElementById("root");
-if (!container) throw new Error("Root element #root missing");
+class ErrorBoundary extends Component<{ children?: ReactNode }, EBState> {
+  state: EBState = { hasError: false, error: null };
 
-createRoot(container).render(
-  <React.StrictMode>
-    <ErrorBoundary>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
-    </ErrorBoundary>
-  </React.StrictMode>
-);import { createRoot } from "react-dom/client";
-import App from "./src/App.jsx"; // ✅ pakai router app baru
-
-console.log("System: Booting...");
-
-class ErrorBoundary extends Component<{ children?: ReactNode }, { hasError: boolean; error: Error | null }> {
-  state = { hasError: false, error: null };
-
-  static getDerivedStateFromError(error: Error) {
+  static getDerivedStateFromError(error: Error): EBState {
     return { hasError: true, error };
   }
 
@@ -69,10 +31,10 @@ class ErrorBoundary extends Component<{ children?: ReactNode }, { hasError: bool
   }
 }
 
-const container = document.getElementById("root");
-if (!container) throw new Error("Root element #root missing");
+const rootEl = document.getElementById("root");
+if (!rootEl) throw new Error('Root element "#root" missing');
 
-createRoot(container).render(
+createRoot(rootEl).render(
   <React.StrictMode>
     <ErrorBoundary>
       <App />
