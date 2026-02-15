@@ -132,35 +132,36 @@ button {
 /* =========================
    Topbar
    ========================= */
-.ugc-topbar {
-  position: sticky;
-  top: 0;
-  z-index: 50;
-  backdrop-filter: blur(14px);
-  background: linear-gradient(180deg, var(--topbar), rgba(0,0,0,0));
-  border-bottom: 1px solid var(--stroke);
+.ugc-topbar button{
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.06);
+  color: var(--fg);
+  padding: 8px 10px;
+  border-radius: 999px;
+  font-weight: 900;
+  font-size: 12px;
 }
 
-.ugc-topbar-inner {
-  max-width: 920px;
-  margin: 0 auto;
-  padding: 14px 14px;
-  display: flex;
+:root[data-theme="light"] .ugc-topbar button{
+  background: rgba(255,255,255,0.75);
+}
+
+.ugc-topbar-inner{
+  display: grid;                 /* ✅ ganti flex → grid lebih stabil */
+  grid-template-columns: 1fr auto;
   align-items: center;
-  justify-content: space-between;
   gap: 10px;
-  flex-wrap: wrap;            /* ✅ ADD */
 }
 
 .ugc-title { min-width: 110px; }
 
-.ugc-top-actions {
+.ugc-top-actions{
   display: flex;
+  justify-content: flex-end;
   align-items: center;
-  gap: 10px;
   flex-wrap: wrap;
-  justify-content: flex-end;  /* ✅ ADD */
-  row-gap: 10px;              /* ✅ ADD */
+  gap: 10px;
+  row-gap: 10px;
 }
 
 /* =========================
@@ -213,14 +214,28 @@ button {
 /* =========================
    Buttons + Pills
    ========================= */
-.ugc-btn {
-  border-radius: 14px;
-  padding: 12px 14px;
+.ugc-pill{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 999px;
   border: 1px solid var(--stroke);
-  background: var(--pill);
+  background: rgba(255,255,255,0.06);
+}
+
+:root[data-theme="light"] .ugc-pill{
+  background: rgba(255,255,255,0.75);
+}
+
+.ugc-pill-btn{
+  border: 1px solid var(--stroke);
+  background: transparent;
   color: var(--fg);
+  padding: 8px 10px;
+  border-radius: 999px;
   font-weight: 900;
-  cursor: pointer;
+  font-size: 12px;
 }
 
 .ugc-btn.small { padding: 10px 12px; font-size: 12px; }
