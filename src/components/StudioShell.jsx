@@ -577,7 +577,7 @@ return (
     {blueprint && (
       <div className="ugc-card compact" style={{ marginTop: 12 }}>
         <div className="ugc-chiprow">
-          <span className="ugc-chip ok">✓ Blueprint Ready</span>
+          <span className="ugc-chip ok">Blueprint Ready</span>
           <span className="ugc-chip">Beats: {scenes.length}</span>
           {meta && <span className="ugc-chip">{meta.duration_seconds}s</span>}
         </div>
@@ -620,12 +620,10 @@ return (
           const isGeneratingImage = generatingImages[beat.id];
           const negatives = beat.negative_prompt || [];
           
-          // Natural prompt (simplified for display)
           const naturalPrompt = beat.action || beat.visual_prompt || "Scene description";
           
           return (
             <div key={beat.id} className="ugc-scene-card">
-              {/* Header */}
               <div className="ugc-scene-header">
                 <div className="ugc-scene-meta">
                   <span className="ugc-chip ok">{beat.id}</span>
@@ -654,7 +652,6 @@ return (
                 </div>
               </div>
               
-              {/* Image */}
               {hasImage ? (
                 <div className="ugc-scene-image">
                   <img src={hasImage} alt={beat.id} />
@@ -677,7 +674,6 @@ return (
                 </div>
               )}
               
-              {/* Prompt */}
               {isExpanded && (
                 <div className="ugc-scene-prompt">
                   {isJsonMode ? (
@@ -725,7 +721,6 @@ return (
       </div>
     )}
     
-    {/* Expert Controls */}
     {scenes.length > 0 && (
       <div className="ugc-card compact" style={{ marginTop: 12 }}>
         <button
@@ -850,7 +845,6 @@ return (
       })}
     </div>
     
-    {/* Expert Controls */}
     {scenes.length > 0 && (
       <div className="ugc-card compact" style={{ marginTop: 12 }}>
         <button
@@ -944,7 +938,6 @@ return (
       )}
     </div>
     
-    {/* Expert Controls */}
     <div className="ugc-card compact" style={{ marginTop: 12 }}>
       <button
         className="ugc-expert-toggle"
@@ -1012,7 +1005,6 @@ default: return <SettingsTab />;
 
 return (
 <div className="ugc-page">
-{/* Topbar */}
 <div className="ugc-topbar">
 <div className="ugc-topbar-inner">
 <div className="ugc-title">UGC Studio</div>
@@ -1040,10 +1032,8 @@ return (
     </div>
   </div>
   
-  {/* Main Content */}
   {currentTab}
   
-  {/* Bottom Tabbar */}
   <div className="ugc-tabbar">
     <div className="ugc-tabbar-inner">
       {TABS.map((t) => (
