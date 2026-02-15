@@ -105,14 +105,28 @@ export default function ImageUploadField({
       let lastError = null;
 
       for (const p of candidates) {
-        try {
-          finalPath = await tryUpload(p, file, ct);
-          break;
-        } catch (e2) {
-          lastError = e2;
-          // lanjut coba path berikutnya
-        }
-      }
+  try {
+    console.log("[upload] trying:", p);
+
+    const { error: upErr } = await supabase.storage.from(BUCKET).upload(p, file, {
+      upsert: true,
+      contentType: ct,
+    });
+    if (upErr) throw upErr;
+
+    console.log("[upload] success:", p);
+    finalPath = p;
+    break;
+  } catch (e2) {
+    console.log("[upload] failed:", p, e2);
+    lastError = e2;
+  }
+}
+
+if (!finalPath) {
+  console.log("[upload] all candidates failed. lastError:", lastError);
+  throw lastError || new Error("Upload failed");
+}
 
       if (!finalPath) throw lastError || new Error("Upload failed");
 
