@@ -2,29 +2,41 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 
+import "./styles/global.css";
+
+// ✅ Auth
+import { AuthProvider } from "./auth/AuthProvider.tsx"; // jika path berbeda, sesuaikan
+
+// ✅ Pages
 import StudioPage from "./pages/Studio.jsx";
+import LoginPage from "./pages/Login.tsx";
 import GeneratorPage from "./pages/GeneratorPage.jsx";
 
-import "./styles/global.css";
-import { supabase } from "./lib/supabaseClient";
-window.supabase = supabase;
+// (Optional) Home kecil — boleh hapus
+function Home() {
+  return <Navigate to="/studio" replace />;
+}
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
-    <BrowserRouter>
-      <Routes>
-        {/* default */}
-        <Route path="/" element={<Navigate to="/studio" replace />} />
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Home />} />
 
-        {/* main app */}
-        <Route path="/studio" element={<StudioPage />} />
+          {/* ✅ Auth routes */}
+          <Route path="/login" element={<LoginPage />} />
 
-        {/* optional legacy */}
-        <Route path="/generator" element={<GeneratorPage />} />
+          {/* ✅ Main app */}
+          <Route path="/studio" element={<StudioPage />} />
 
-        {/* fallback */}
-        <Route path="*" element={<Navigate to="/studio" replace />} />
-      </Routes>
-    </BrowserRouter>
+          {/* optional legacy */}
+          <Route path="/generator" element={<GeneratorPage />} />
+
+          {/* ✅ fallback */}
+          <Route path="*" element={<Navigate to="/studio" replace />} />
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   </React.StrictMode>
 );
