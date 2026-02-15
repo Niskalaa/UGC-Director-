@@ -46,7 +46,9 @@ export default function ImageUploadField({
     if (data?.publicUrl) return data.publicUrl;
 
     // Otherwise create signed url
-    const { data: signed, error } = await supabase.storage.from(BUCKET).createSignedUrl(path, 60 * 60);
+    const { data: signed, error } = await supabase.storage
+      .from(BUCKET)
+      .createSignedUrl(path, 60 * 60);
     if (error) throw error;
     if (!signed?.signedUrl) throw new Error("Failed to create signed URL");
     return signed.signedUrl;
@@ -74,10 +76,13 @@ export default function ImageUploadField({
     setUploading(true);
 
     try {
+      if (typeof onUrl !== "function") throw new Error("onUrl prop is missing");
+      if (!projectId) throw new Error("projectId is missing");
+
       const uid = await getUidOrThrow();
       const ext = extFromFile(file);
 
-      // ✅ IMPORTANT: match common RLS policy pattern: users/<uid>/...
+      // ✅ Common RLS policy pattern: users/<uid>/...
       const path = `users/${uid}/projects/${projectId}/refs/${kind}.${ext}`;
 
       const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
@@ -98,47 +103,48 @@ export default function ImageUploadField({
 
   return (
     <div style={{ display: "grid", gap: 8 }}>
-      <div style={{ fontSize: 12, fontWeight: 900, opacity: 0.8 }}>
+      <div className="ugc-label" style={{ marginBottom: 0 }}>
         {label}{" "}
-        {optional ? <span style={{ fontWeight: 800, opacity: 0.6 }}>(optional)</span> : null}
+        {optional ? (
+          <span style={{ fontWeight: 800, opacity: 0.65 }}>(optional)</span>
+        ) : null}
       </div>
 
       <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         <button
           type="button"
+          className="ugc-btn small"
           onClick={() => inputRef.current?.click()}
           disabled={uploading}
-          style={{
-            padding: "10px 12px",
-            borderRadius: 14,
-            border: "1px solid rgba(255,255,255,0.14)",
-            background: "rgba(255,255,255,0.06)",
-            fontWeight: 900,
-            cursor: uploading ? "not-allowed" : "pointer",
-          }}
         >
-          {uploading ? "Uploading…" : "Upload"}
+          {uploading ? (
+            <span style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+              <span className="ugc-spinner" />
+              Uploading…
+            </span>
+          ) : (
+            "Upload"
+          )}
         </button>
 
-        <input ref={inputRef} type="file" accept="image/*" onChange={onPickFile} style={{ display: "none" }} />
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          onChange={onPickFile}
+          style={{ display: "none" }}
+        />
 
-        <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.65 }}>
+        <span className="ugc-muted" style={{ fontSize: 12 }}>
           {valueUrl ? "Uploaded ✓" : "No image"}
-        </div>
+        </span>
 
         {valueUrl ? (
           <button
             type="button"
-            onClick={() => onUrl("")}
+            className="ugc-btn small"
+            onClick={() => onUrl?.("")}
             disabled={uploading}
-            style={{
-              padding: "10px 12px",
-              borderRadius: 14,
-              border: "1px solid rgba(255,255,255,0.14)",
-              background: "rgba(255,255,255,0.06)",
-              fontWeight: 900,
-              cursor: uploading ? "not-allowed" : "pointer",
-            }}
           >
             Clear
           </button>
@@ -147,22 +153,36 @@ export default function ImageUploadField({
 
       {valueUrl && showPreview ? (
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <img
-            src={valueUrl}
-            alt="preview"
+          <div
             style={{
               width: 78,
               height: 78,
-              objectFit: "cover",
               borderRadius: 14,
-              border: "1px solid rgba(255,255,255,0.12)",
+              overflow: "hidden",
+              border: "1px solid var(--stroke)",
+              background: "rgba(255,255,255,0.04)",
             }}
-          />
-          {!hideUrl ? <div style={{ fontSize: 12, wordBreak: "break-all" }}>{valueUrl}</div> : null}
+          >
+            <img
+              src={valueUrl}
+              alt="preview"
+              style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            />
+          </div>
+
+          {!hideUrl ? (
+            <div style={{ fontSize: 12, wordBreak: "break-all", opacity: 0.8 }}>
+              {valueUrl}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
-      {err ? <div style={{ fontSize: 12, fontWeight: 900, color: "#ef4444" }}>{err}</div> : null}
+      {err ? (
+        <div className="ugc-error" style={{ marginTop: 0 }}>
+          {err}
+        </div>
+      ) : null}
     </div>
   );
 }
