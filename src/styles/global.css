@@ -1,7 +1,6 @@
 /* =========================
    Base Reset
    ========================= */
-
 :root {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -12,7 +11,10 @@
   box-sizing: border-box;
 }
 
-html, body { height: 100%; }
+html,
+body {
+  height: 100%;
+}
 
 body {
   margin: 0;
@@ -22,9 +24,9 @@ body {
 /* =========================
    Animations
    ========================= */
-
 @keyframes ugc-spin { to { transform: rotate(360deg); } }
 
+/* shimmer/progress for minimized state */
 @keyframes ugc-progress {
   0%   { transform: translateX(-120%); opacity: .85; }
   50%  { transform: translateX(120%);  opacity: 1; }
@@ -32,90 +34,101 @@ body {
 }
 
 /* =========================
-   UGC Studio Theme Tokens
-   - ONE source of truth
-   - Default = light
-   - data-theme="dark" overrides
+   Theme Tokens (ONE source)
+   Default = light
+   html[data-theme="dark"] overrides
    ========================= */
 
 /* LIGHT (default) */
 :root {
   --bg: #fff7ed;
+  --fg: rgba(17, 24, 39, 0.78);      /* soft black */
+  --muted: rgba(17, 24, 39, 0.52);
 
-  /* ✅ soften black text */
-  --fg: rgba(17, 24, 39, 0.78);
-  --muted: rgba(17, 24, 39, 0.50);
+  --card: rgba(255, 255, 255, 0.86);
+  --card2: rgba(255, 255, 255, 0.78);
+  --stroke: rgba(0, 0, 0, 0.10);
 
-  --card: rgba(255,255,255,0.86);
-  --card2: rgba(255,255,255,0.78);
-  --stroke: rgba(0,0,0,0.10);
+  --topbar: rgba(255, 255, 255, 0.70);
+  --input: rgba(255, 255, 255, 0.92);
+  --pill: rgba(255, 255, 255, 0.78);
 
-  --topbar: rgba(255,255,255,0.70);
-  --input: rgba(255,255,255,0.92);
-  --pill: rgba(255,255,255,0.75);
+  --sceneBg: rgba(255, 255, 255, 0.62);
+  --rowBg: rgba(255, 255, 255, 0.72);
 
-  --sceneBg: rgba(255,255,255,0.60);
-  --rowBg: rgba(255,255,255,0.70);
-
-  --statusCard: rgba(255,255,255,0.92);
-  --bottomTabs: rgba(255,255,255,0.85);
+  --statusCard: rgba(255, 255, 255, 0.92);
+  --bottomTabs: rgba(255, 255, 255, 0.88);
 
   --orange: #f97316;
-  --shadow: 0 18px 60px rgba(0,0,0,0.12);
+  --shadow: 0 18px 60px rgba(0, 0, 0, 0.12);
 
-  --progressTrack: rgba(0,0,0,0.06);
+  --progressTrack: rgba(0, 0, 0, 0.06);
 }
 
 /* DARK */
-:root[data-theme="dark"] {
+html[data-theme="dark"] {
   --bg: #050507;
+  --fg: rgba(245, 245, 246, 0.92);
+  --muted: rgba(255, 255, 255, 0.70);
 
-  --fg: rgba(245,245,246,0.92);
-  --muted: rgba(255,255,255,0.70);
+  --card: rgba(16, 16, 18, 0.86);
+  --card2: rgba(16, 16, 18, 0.72);
+  --stroke: rgba(255, 255, 255, 0.12);
 
-  --card: rgba(16,16,18,0.86);
-  --card2: rgba(16,16,18,0.78);
-  --stroke: rgba(255,255,255,0.10);
+  --topbar: rgba(16, 16, 18, 0.62);
+  --input: rgba(255, 255, 255, 0.06);
+  --pill: rgba(255, 255, 255, 0.06);
 
-  --topbar: rgba(16,16,18,0.72);
-  --input: rgba(255,255,255,0.06);
-  --pill: rgba(255,255,255,0.06);
+  --sceneBg: rgba(255, 255, 255, 0.04);
+  --rowBg: rgba(255, 255, 255, 0.05);
 
-  --sceneBg: rgba(255,255,255,0.05);
-  --rowBg: rgba(255,255,255,0.05);
-
-  --statusCard: rgba(10,10,14,0.86);
-  --bottomTabs: rgba(10,10,14,0.72);
+  --statusCard: rgba(12, 12, 14, 0.92);
+  --bottomTabs: rgba(12, 12, 14, 0.88);
 
   --orange: #f97316;
-  --shadow: 0 18px 70px rgba(0,0,0,0.55);
+  --shadow: 0 18px 70px rgba(0, 0, 0, 0.55);
 
-  --progressTrack: rgba(255,255,255,0.08);
+  --progressTrack: rgba(255, 255, 255, 0.08);
 }
 
 /* =========================
-   Page + Topbar
+   Base layout
    ========================= */
-
 body {
   background:
-    radial-gradient(1200px 700px at 70% 20%, rgba(249,115,22,0.18), transparent 60%),
+    radial-gradient(1200px 700px at 70% 20%, rgba(249,115,22,0.16), transparent 60%),
     radial-gradient(900px 600px at 30% 90%, rgba(249,115,22,0.10), transparent 55%),
     var(--bg);
   color: var(--fg);
 }
 
-.ugc-page { min-height: 100vh; padding-bottom: 260px; }
+a { color: inherit; }
 
+/* prevent “button looks like plain text” on iOS */
+button {
+  font-family: inherit;
+}
+
+/* page padding bottom to make room for dock + tabbar + credit */
+.ugc-page {
+  min-height: 100vh;
+  padding-bottom: 190px;
+}
+
+/* =========================
+   Topbar
+   ========================= */
 .ugc-topbar {
-  position: sticky; top: 0; z-index: 50;
+  position: sticky;
+  top: 0;
+  z-index: 50;
   backdrop-filter: blur(14px);
-  background: var(--topbar);
+  background: linear-gradient(180deg, var(--topbar), rgba(0,0,0,0));
   border-bottom: 1px solid var(--stroke);
 }
 
 .ugc-topbar-inner {
-  max-width: 720px;
+  max-width: 920px;
   margin: 0 auto;
   padding: 14px 14px;
   display: flex;
@@ -124,41 +137,23 @@ body {
   gap: 10px;
 }
 
-.ugc-title { font-weight: 900; font-size: 18px; letter-spacing: -0.2px; }
+.ugc-title {
+  font-weight: 900;
+  font-size: 18px;
+  letter-spacing: -0.2px;
+}
 
-.ugc-top-actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ugc-top-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 
 /* =========================
-   Pills + Buttons + Inputs
+   Container + Cards
    ========================= */
-
-.ugc-pill {
-  display: flex; gap: 8px; align-items: center;
-  padding: 8px 10px;
-  border-radius: 999px;
-  background: var(--pill);
-  border: 1px solid var(--stroke);
-}
-
-.ugc-pill-label { font-size: 12px; font-weight: 800; opacity: 0.8; }
-
-.ugc-pill-btn {
-  border: 1px solid var(--stroke);
-  background: transparent;
-  color: var(--fg);
-  padding: 8px 10px;
-  border-radius: 999px;
-  font-weight: 900;
-  font-size: 12px;
-  cursor: pointer;
-}
-
-.ugc-pill-btn.active {
-  background: rgba(249,115,22,0.20);
-  border-color: rgba(249,115,22,0.35);
-}
-
-.ugc-container { max-width: 720px; margin: 0 auto; padding: 14px; }
+.ugc-container { max-width: 920px; margin: 0 auto; padding: 14px; }
 
 .ugc-card {
   border-radius: 18px;
@@ -175,6 +170,12 @@ body {
 .ugc-sectiontitle { font-weight: 900; font-size: 13px; margin-bottom: 8px; color: var(--muted); }
 .ugc-label { font-size: 12px; font-weight: 900; margin-bottom: 6px; color: var(--muted); }
 
+.ugc-grid2 { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 720px) { .ugc-grid2 { grid-template-columns: 1fr 1fr; } }
+
+.ugc-grid3 { display: grid; grid-template-columns: 1fr; gap: 12px; }
+@media (min-width: 860px) { .ugc-grid3 { grid-template-columns: 1fr 1fr 1fr; } }
+
 .ugc-input, .ugc-select {
   width: 100%;
   padding: 12px 12px;
@@ -183,40 +184,10 @@ body {
   background: var(--input);
   color: var(--fg);
   outline: none;
-  font-weight: 700;
+  font-weight: 800;
 }
-
-.ugc-grid2 {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 12px;
-}
-@media (min-width: 720px) { .ugc-grid2 { grid-template-columns: 1fr 1fr; } }
-
-.ugc-btn {
-  border-radius: 14px;
-  padding: 12px 14px;
-  border: 1px solid var(--stroke);
-  background: rgba(255,255,255,0.06);
-  color: var(--fg);
-  font-weight: 900;
-  cursor: pointer;
-}
-
-:root:not([data-theme="dark"]) .ugc-btn { background: rgba(255,255,255,0.92); }
-
-.ugc-btn.primary {
-  background: var(--orange);
-  border-color: rgba(249,115,22,0.55);
-  color: #111;
-}
-
-.ugc-btn.small { padding: 10px 12px; font-size: 12px; }
-.ugc-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
 .ugc-row-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-
-.ugc-muted { color: var(--muted); font-weight: 700; font-size: 13px; }
 
 .ugc-muted-box {
   padding: 12px;
@@ -227,11 +198,46 @@ body {
 }
 
 /* =========================
-   Scenes
+   Buttons + Pills
    ========================= */
+.ugc-btn {
+  border-radius: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--stroke);
+  background: var(--pill);
+  color: var(--fg);
+  font-weight: 900;
+  cursor: pointer;
+}
 
+.ugc-btn.small { padding: 10px 12px; font-size: 12px; }
+
+.ugc-btn.primary {
+  background: var(--orange);
+  border-color: rgba(249,115,22,0.55);
+  color: rgba(17,24,39,0.92);
+}
+html[data-theme="dark"] .ugc-btn.primary { color: #111; }
+
+.ugc-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.ugc-chiprow { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.ugc-chip {
+  font-size: 12px;
+  font-weight: 900;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.06);
+}
+
+.ugc-chip.ok { border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.14); }
+.ugc-chip.bad { border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.14); }
+
+/* =========================
+   Scenes list
+   ========================= */
 .ugc-list { display: grid; gap: 12px; }
-
 .ugc-scene {
   border-radius: 16px;
   border: 1px solid var(--stroke);
@@ -240,7 +246,6 @@ body {
 }
 
 .ugc-scene-top { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
-
 .ugc-badge {
   font-size: 12px;
   font-weight: 900;
@@ -250,60 +255,32 @@ body {
   border: 1px solid rgba(249,115,22,0.28);
 }
 
-.ugc-scene-title { font-weight: 900; }
-
 .ugc-row { margin-top: 10px; }
 .ugc-row-label { font-size: 12px; font-weight: 900; color: var(--muted); margin-bottom: 6px; }
-
 .ugc-row-val {
   border: 1px solid var(--stroke);
   background: var(--rowBg);
   border-radius: 14px;
   padding: 10px;
-  font-weight: 700;
+  font-weight: 750;
   font-size: 13px;
   white-space: pre-wrap;
 }
 
-/* chips */
-.ugc-chiprow { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.ugc-chip {
-  font-size: 12px;
-  font-weight: 900;
-  padding: 8px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--stroke);
-  background: rgba(255,255,255,0.04);
-}
-.ugc-chip.ok { border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.14); }
-.ugc-chip.bad { border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.14); }
-
-/* error */
-.ugc-error {
-  margin-top: 12px;
-  padding: 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(239,68,68,0.25);
-  background: rgba(239,68,68,0.12);
-  color: var(--fg);
-  font-weight: 900;
-}
-
 /* =========================
-   Status Dock
+   Status Dock (above credit+tabbar)
    ========================= */
-
 .ugc-status {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 84px;
+  bottom: 92px; /* 64 tabbar + ~28 credit gap */
   z-index: 60;
   padding: 10px 12px;
 }
 
 .ugc-status-inner {
-  max-width: 720px;
+  max-width: 920px;
   margin: 0 auto;
   border-radius: 18px;
   padding: 12px;
@@ -311,8 +288,6 @@ body {
   border: 1px solid var(--stroke);
   box-shadow: var(--shadow);
 }
-
-.ugc-status.collapsed .ugc-status-inner { padding: 10px 12px; }
 
 .ugc-status-head {
   display: flex;
@@ -324,7 +299,7 @@ body {
 
 .ugc-status-title { font-weight: 900; font-size: 14px; }
 
-.ugc-progress { margin-top: 10px; }
+/* progress */
 .ugc-progress-track {
   height: 10px;
   border-radius: 999px;
@@ -332,25 +307,39 @@ body {
   border: 1px solid var(--stroke);
   overflow: hidden;
 }
+
 .ugc-progress-bar {
   height: 100%;
   background: var(--orange);
   width: 0%;
   transition: width 180ms linear;
 }
-.ugc-progress-meta {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-top: 8px;
-  font-weight: 800;
-  font-size: 12px;
-  color: var(--muted);
+
+.ugc-progress-mini {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--progressTrack);
+  border: 1px solid var(--stroke);
+  overflow: hidden;
+  position: relative;
+}
+
+.ugc-progress-mini::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: -2px;
+  width: 40%;
+  height: 12px;
+  background: rgba(249,115,22,0.65);
+  filter: blur(0.2px);
+  animation: ugc-progress 1.2s linear infinite;
 }
 
 /* spinner */
 .ugc-spinner {
-  width: 14px; height: 14px;
+  width: 14px;
+  height: 14px;
   border-radius: 999px;
   border: 2px solid rgba(249,115,22,0.28);
   border-top-color: var(--orange);
@@ -359,34 +348,74 @@ body {
 }
 
 /* =========================
-   Bottom credit + toast
+   Bottom Tabbar
    ========================= */
+.ugc-tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 70;
+  padding: 12px;
+  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+}
 
+.ugc-tabbar-inner {
+  max-width: 520px;
+  margin: 0 auto;
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border-radius: 18px;
+  background: var(--bottomTabs);
+  border: 1px solid var(--stroke);
+  backdrop-filter: blur(14px);
+}
+
+.ugc-tab {
+  flex: 1;
+  border: 1px solid var(--stroke);
+  background: transparent;
+  color: var(--fg);
+  border-radius: 14px;
+  padding: 12px 10px;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.ugc-tab.active {
+  background: rgba(249,115,22,0.18);
+  border-color: rgba(249,115,22,0.30);
+}
+
+/* =========================
+   Credit (NOT sticking to bottom, sits above tabbar)
+   ========================= */
 .ugc-credit {
   position: fixed;
-  left: 0; right: 0;
-  bottom: 64px;
+  left: 0;
+  right: 0;
+  bottom: 72px; /* above tabbar */
   text-align: center;
   font-weight: 900;
   font-size: 12px;
-  color: rgba(0,0,0,0.45);
+  color: var(--muted);
   pointer-events: none;
 }
-:root[data-theme="dark"] .ugc-credit { color: rgba(255,255,255,0.55); }
 
+/* toast */
 .ugc-toast {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
-  bottom: 150px;
+  bottom: 165px;
   z-index: 90;
   padding: 10px 12px;
   border-radius: 999px;
   font-weight: 900;
   font-size: 12px;
   border: 1px solid var(--stroke);
-  background: var(--card);
-  box-shadow: var(--shadow);
+  background: var(--statusCard);
 }
 .ugc-toast.ok { border-color: rgba(34,197,94,0.35); }
 .ugc-toast.bad { border-color: rgba(239,68,68,0.35); }
