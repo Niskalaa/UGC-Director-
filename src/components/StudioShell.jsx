@@ -273,16 +273,34 @@ export default function StudioShell({ onLogout }) {
   
   // Generate image for scene
   const handleGenerateImage = useCallback(async (sceneId, prompt) => {
-    setGeneratingImages(prev => ({ ...prev, [sceneId]: true }));
+  setGeneratingImages(prev => ({ ...prev, [sceneId]: true }));
+  
+  try {
+    const payload = {
+      type: "image",
+      brief: prompt,              // ✅ FIXED
+      negative: "",               // ✅ FIXED
+      settings: {                 // ✅ FIXED
+        quality: "standard",
+        aspect_ratio: "9:16",
+        seed: Math.floor(Math.random() * 1000000)
+      }
+    };
     
-    try {
-      const result = await postJson("/api/jobs", {
-        type: "image",
-        prompt: prompt,
-        negative_prompt: "",
-        model_id: process.env.BEDROCK_IMAGE_MODEL_ID || "stability.sd3-large-v1:0",
-        ...expertParams.image
-      });
+    const result = await postJson("/api/jobs", payload);
+    
+    if (result.image_url) {
+      setSceneImages(prev => ({ ...prev, [sceneId]: result.image_url }));
+    }
+    
+  } catch (err) {
+    console.error(`[StudioShell] Error:`, err);
+    setError(`Image failed: ${err.message || err}`);
+  } finally {
+    setGeneratingImages(prev => ({ ...prev, [sceneId]: false }));
+  }
+}, []);
+
       
       if (result.ok && result.job_id) {
         // Poll for result
@@ -300,15 +318,51 @@ export default function StudioShell({ onLogout }) {
   
   // Generate video for scene
   const handleGenerateVideo = useCallback(async (sceneId, prompt) => {
-    setGeneratingVideos(prev => ({ ...prev, [sceneId]: true }));
+  setGeneratingVideos(prev => ({ ...prev, [sceneId]: true }));
+  
+  try {
+    const payload = {
+      type: "video",
+      brief: prompt,              // ✅ FIXED
+      negative: "",               // ✅ FIXED
+      settings: {                 // ✅ FIXED
+        video_seconds: 5,
+        aspect_ratio: "9:16",
+        seed: Math.floor(Math.random() * 1000000)
+      }
+    };
     
-    try {
-      const result = await postJson("/api/jobs", {
-        type: "video",
-        prompt: prompt,
-        model_id: process.env.BEDROCK_VIDEO_MODEL_ID || "luma.ray-2-turbo-v1",
-        ...expertParams.video
-      });
+    const result = await postJson("/api/jobs", payload);
+    
+    // Poll your existing /api/jobs/[id]
+    let attempts = 0;
+    while (attempts < 60) {
+      await new Promise(r => setTimeout(r, 5000));
+      attempts++;
+      
+      const status = await fetch(`/api/jobs/${result.id}`);
+      const data = await status.json();
+      
+      if (data.status === "done" && data.video_url) {
+        setSceneVideos(prev => ({ ...prev, [sceneId]: data.video_url }));
+        return;
+      }
+      
+      if (data.status === "failed") {
+        throw new Error(data.error || "Video failed");
+      }
+    }
+    
+    throw new Error("Timeout");
+    
+  } catch (err) {
+    console.error(`[StudioShell] Error:`, err);
+    setError(`Video failed: ${err.message || err}`);
+  } finally {
+    setGeneratingVideos(prev => ({ ...prev, [sceneId]: false }));
+  }
+}, []);
+
       
       if (result.ok && result.job_id) {
         const pollResult = await pollJobStatus(result.job_id);
@@ -324,26 +378,6 @@ export default function StudioShell({ onLogout }) {
   }, [expertParams.video]);
   
   // Poll job status helper
-  async function pollJobStatus(jobId, maxAttempts = 60) {
-    for (let i = 0; i < maxAttempts; i++) {
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
-      try {
-        const response = await fetch(`/api/jobs/${jobId}`);
-        const result = await response.json();
-        
-        if (result.status === "completed") {
-          return result;
-        } else if (result.status === "failed") {
-          throw new Error(result.error || "Job failed");
-        }
-      } catch (err) {
-        console.error("[StudioShell] Polling error:", err);
-      }
-    }
-    
-    throw new Error("Job timeout");
-  }
   
   // Clear blueprint
   const handleClearBlueprint = useCallback(() => {
