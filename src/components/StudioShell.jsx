@@ -5,12 +5,11 @@ import { DEFAULT_PROJECT } from "../studio/studioStore.js";
 
 /**
  * Key fixes:
- * - Read scenes from: ugc_blueprint_v1.creative_specs.scenes (your latest blueprint.json)
- * - Fallbacks: storyboard.beats, segments.storyboard.beats (old formats)
- * - Status bar can minimize/expand
- * - Success toast on generate
- * - Dark/Light mode via CSS variables (no external libs)
- * - Loading animation guaranteed (inject keyframes)
+ * - ✅ FIX scenes parser: supports your blueprint schema: blueprint.vo.scenes[]
+ * - ✅ Keep support for legacy: ugc_blueprint_v1.creative_specs.scenes + storyboard.beats
+ * - ✅ Light/Dark palette consistent via CSS variables (no hardcoded black overlays)
+ * - ✅ Status drawer & credits follow theme
+ * - ✅ Loading animation injected
  */
 
 const TABS = ["Settings", "Scenes", "Export"];
@@ -129,56 +128,109 @@ function safeJsonParseLoose(content) {
 }
 
 /** Normalize multiple blueprint schemas into one scenes array */
-function extractScenes(blueprint, secondsPerScene = 8) {
+function extractScenes(blueprint, defaultSecondsPerScene = 8) {
   if (!blueprint) return [];
 
-  // ✅ NEW schema (your uploaded file)
-  const v1 = blueprint?.ugc_blueprint_v1;
-  const v1Scenes = v1?.creative_specs?.scenes;
-  const v1VO = v1?.voiceover_specs?.scenes;
+  // 1) normalize: string -> object (if ever happens)
+  let bp = blueprint;
+  try {
+    if (typeof bp === "string") bp = safeJsonParseLoose(bp);
+  } catch {}
+
+  // 2) unwrap common wrapper
+  if (bp?.blueprint) bp = bp.blueprint;
+
+  // ✅ CASE A: YOUR CURRENT SCHEMA (vo.scenes)
+  const voScenes = bp?.vo?.scenes;
+  if (Array.isArray(voScenes) && voScenes.length) {
+    let cursor = 0;
+    return voScenes.map((s, idx) => {
+      const n = s?.scene_number ?? idx + 1;
+      const dur = Number(s?.duration_seconds ?? defaultSecondsPerScene ?? 8);
+      const start = cursor;
+      const end = cursor + dur;
+      cursor = end;
+
+      const onScreen =
+        s?.text_overlay?.primary ||
+        s?.text_overlay?.secondary ||
+        s?.on_screen_text ||
+        s?.onscreen_text ||
+        "";
+
+      return {
+        id: `S${n}`,
+        scene_number: n,
+        time_window: `${start}s–${end}s`,
+        goal: s?.title || "SCENE",
+        action: s?.description || "",
+        on_screen_text: onScreen,
+        camera: s?.camera_angle || "",
+        motion: s?.motion || "",
+        vo_text: s?.voiceover?.text || "",
+        vo_srt: "",
+        raw: s,
+      };
+    });
+  }
+
+  // ✅ CASE B: legacy/newer schemas (keep compatibility)
+  const v1 = bp?.ugc_blueprint_v1 || bp?.ugcBlueprintV1 || null;
+  const v1Scenes = v1?.creative_specs?.scenes || v1?.creativeSpecs?.scenes;
+  const v1VO = v1?.voiceover_specs?.scenes || v1?.voiceoverSpecs?.scenes;
 
   if (Array.isArray(v1Scenes) && v1Scenes.length) {
     return v1Scenes.map((s, idx) => {
       const n = idx + 1;
-      const start = (n - 1) * Number(secondsPerScene || 8);
-      const end = start + Number(secondsPerScene || 8);
-      const vo = Array.isArray(v1VO) ? v1VO.find((x) => x?.scene_number === s?.scene_number) : null;
+      const start = (n - 1) * Number(defaultSecondsPerScene || 8);
+      const end = start + Number(defaultSecondsPerScene || 8);
+      const sn = s?.scene_number ?? s?.sceneNumber ?? n;
+
+      const vo = Array.isArray(v1VO)
+        ? v1VO.find((x) => (x?.scene_number ?? x?.sceneNumber ?? x?.number) === sn)
+        : null;
 
       return {
         id: `S${n}`,
-        scene_number: s?.scene_number ?? n,
+        scene_number: sn,
         time_window: `${start}s–${end}s`,
-        goal: s?.scene_type || "SCENE",
-        action: s?.visual_description || "",
-        on_screen_text: s?.onscreen_text || "",
+        goal: s?.scene_type || s?.sceneType || "SCENE",
+        action: s?.visual_description || s?.visualDescription || "",
+        on_screen_text: s?.onscreen_text || s?.onScreenText || "",
         camera: s?.camera || "",
-        vo_text: vo?.vo_text || "",
+        vo_text: vo?.vo_text || vo?.voText || "",
         vo_srt: vo?.srt || "",
         raw: s,
       };
     });
   }
 
-  // fallback: old storyboard beats
+  // ✅ CASE C: fallback storyboard beats
   const beats =
-    blueprint?.storyboard?.beats ||
-    blueprint?.SEGMENT_3?.storyboard?.beats ||
-    blueprint?.segments?.storyboard?.beats ||
+    bp?.storyboard?.beats ||
+    bp?.SEGMENT_3?.storyboard?.beats ||
+    bp?.segments?.storyboard?.beats ||
+    bp?.creative_specs?.storyboard?.beats ||
     [];
 
   if (Array.isArray(beats) && beats.length) {
-    return beats.map((b, idx) => ({
-      id: b?.id || `S${idx + 1}`,
-      scene_number: idx + 1,
-      time_window: b?.time_window || "",
-      goal: b?.goal || "SCENE",
-      action: b?.action || "",
-      on_screen_text: b?.on_screen_text || "",
-      camera: b?.camera || "",
-      vo_text: b?.vo_text || "",
-      vo_srt: b?.srt || "",
-      raw: b,
-    }));
+    return beats.map((b, idx) => {
+      const n = idx + 1;
+      const start = (n - 1) * Number(defaultSecondsPerScene || 8);
+      const end = start + Number(defaultSecondsPerScene || 8);
+      return {
+        id: b?.id || `S${n}`,
+        scene_number: n,
+        time_window: b?.time_window || `${start}s–${end}s`,
+        goal: b?.goal || "SCENE",
+        action: b?.action || "",
+        on_screen_text: b?.on_screen_text || b?.text_overlay || "",
+        camera: b?.camera || "",
+        vo_text: b?.vo_text || b?.vo || "",
+        vo_srt: b?.srt || "",
+        raw: b,
+      };
+    });
   }
 
   return [];
@@ -267,7 +319,7 @@ export default function StudioShell({ onLogout }) {
     return <SettingsTab />;
   }, [tab]);
 
-  // Inject keyframes so loading always works even if CSS import missing
+  // Inject keyframes + theme variables so loading always works even if CSS import missing
   const styleKeyframes = (
     <style>{`
       @keyframes ugc-spin { to { transform: rotate(360deg); } }
@@ -280,10 +332,24 @@ export default function StudioShell({ onLogout }) {
         --border: rgba(255,255,255,0.12);
         --text: rgba(255,255,255,0.92);
         --muted: rgba(255,255,255,0.60);
+
         --orange: #f97316;
         --orange2: rgba(249,115,22,0.18);
         --shadow: 0 18px 60px rgba(0,0,0,0.45);
+
+        /* ✅ theme-able surfaces (fix light mode mess) */
+        --topbar: rgba(0,0,0,0.25);
+        --field: rgba(0,0,0,0.16);
+        --soft: rgba(0,0,0,0.10);
+        --soft2: rgba(0,0,0,0.18);
+        --drawer: rgba(15,15,18,0.92);
+        --footer: rgba(0,0,0,0.35);
+
+        --btn: rgba(255,255,255,0.06);
+        --btn2: rgba(255,255,255,0.08);
+        --progressTrack: rgba(255,255,255,0.06);
       }
+
       :root[data-theme="light"]{
         --bg: #fff7ed;
         --panel: rgba(0,0,0,0.045);
@@ -291,9 +357,22 @@ export default function StudioShell({ onLogout }) {
         --border: rgba(0,0,0,0.10);
         --text: rgba(0,0,0,0.88);
         --muted: rgba(0,0,0,0.55);
+
         --orange: #f97316;
         --orange2: rgba(249,115,22,0.18);
         --shadow: 0 18px 60px rgba(0,0,0,0.12);
+
+        /* ✅ light equivalents */
+        --topbar: rgba(255,255,255,0.65);
+        --field: rgba(255,255,255,0.78);
+        --soft: rgba(255,255,255,0.60);
+        --soft2: rgba(255,255,255,0.72);
+        --drawer: rgba(255,255,255,0.88);
+        --footer: rgba(255,255,255,0.65);
+
+        --btn: rgba(255,255,255,0.70);
+        --btn2: rgba(255,255,255,0.82);
+        --progressTrack: rgba(0,0,0,0.05);
       }
 
       body{ background: var(--bg); color: var(--text); }
@@ -350,7 +429,19 @@ export default function StudioShell({ onLogout }) {
           provider={(projectDraft.ai_brain || "bedrock").toUpperCase()}
           canGenerate={canGenerate(projectDraft)}
           error={planError}
-          onGenerate={() => generatePlan({ projectDraft, setProjectDraft, setBlueprint, setTab, setLoadingPlan, setPlanError, abortRef, showToast, t })}
+          onGenerate={() =>
+            generatePlan({
+              projectDraft,
+              setProjectDraft,
+              setBlueprint,
+              setTab,
+              setLoadingPlan,
+              setPlanError,
+              abortRef,
+              showToast,
+              t,
+            })
+          }
           onCancel={() => {
             try {
               abortRef.current?.abort?.();
@@ -390,7 +481,17 @@ export default function StudioShell({ onLogout }) {
    ========================= */
 
 function SettingsTab() {
-  const { projectDraft, setProjectDraft, setBlueprint, setTab, loadingPlan, setLoadingPlan, planError, setPlanError, lang } = useStudio();
+  const {
+    projectDraft,
+    setProjectDraft,
+    setBlueprint,
+    setTab,
+    loadingPlan,
+    setLoadingPlan,
+    planError,
+    setPlanError,
+    lang,
+  } = useStudio();
   const t = i18n[lang] || i18n.id;
 
   const [p, setP] = useState(projectDraft);
@@ -416,7 +517,7 @@ function SettingsTab() {
       const r = await fetch("/api/scrape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url, lang: (lang || "id") }),
+        body: JSON.stringify({ url, lang: lang || "id" }),
       });
 
       const raw = await r.text();
@@ -427,11 +528,11 @@ function SettingsTab() {
       const f = json.fields || {};
       setP((prev) => ({
         ...prev,
-        brand: prev.brand?.trim() ? prev.brand : (f.brand || ""),
-        product_type: prev.product_type?.trim() ? prev.product_type : (f.product_type || ""),
-        material: prev.material?.trim() ? prev.material : (f.material || ""),
-        tone: prev.tone?.trim() ? prev.tone : (f.tone || ""),
-        target_audience: prev.target_audience?.trim() ? prev.target_audience : (f.target_audience || ""),
+        brand: prev.brand?.trim() ? prev.brand : f.brand || "",
+        product_type: prev.product_type?.trim() ? prev.product_type : f.product_type || "",
+        material: prev.material?.trim() ? prev.material : f.material || "",
+        tone: prev.tone?.trim() ? prev.tone : f.tone || "",
+        target_audience: prev.target_audience?.trim() ? prev.target_audience : f.target_audience || "",
       }));
 
       setAutoInfo("✓");
@@ -465,11 +566,11 @@ function SettingsTab() {
       const f = json.fields || {};
       setP((prev) => ({
         ...prev,
-        brand: prev.brand?.trim() ? prev.brand : (f.brand || ""),
-        product_type: prev.product_type?.trim() ? prev.product_type : (f.product_type || ""),
-        material: prev.material?.trim() ? prev.material : (f.material || ""),
-        tone: prev.tone?.trim() ? prev.tone : (f.tone || ""),
-        target_audience: prev.target_audience?.trim() ? prev.target_audience : (f.target_audience || ""),
+        brand: prev.brand?.trim() ? prev.brand : f.brand || "",
+        product_type: prev.product_type?.trim() ? prev.product_type : f.product_type || "",
+        material: prev.material?.trim() ? prev.material : f.material || "",
+        tone: prev.tone?.trim() ? prev.tone : f.tone || "",
+        target_audience: prev.target_audience?.trim() ? prev.target_audience : f.target_audience || "",
       }));
 
       setAutoInfo("✓");
@@ -499,11 +600,7 @@ function SettingsTab() {
         <div style={styles.inlineRow}>
           <div style={{ flex: 1 }}>
             <Field label={t.productUrl}>
-              <Input
-                value={p.product_page_url || ""}
-                onChange={(e) => update("product_page_url", e.target.value)}
-                placeholder="https://..."
-              />
+              <Input value={p.product_page_url || ""} onChange={(e) => update("product_page_url", e.target.value)} placeholder="https://..." />
             </Field>
           </div>
           <button type="button" onClick={autoFillFromLink} disabled={analyzing || !(p.product_page_url || "").trim()} style={styles.secondaryBtn}>
@@ -629,8 +726,7 @@ function SettingsTab() {
           </button>
         </div>
 
-        {/* Generate is controlled by Status drawer button,
-            but we keep a fallback button here (some users prefer it) */}
+        {/* Optional fallback button (Status drawer is primary) */}
         <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button
             type="button"
@@ -934,10 +1030,8 @@ function canGenerate(p) {
   for (const k of required) {
     if (p[k] === undefined || p[k] === null || String(p[k]).trim() === "") return false;
   }
-  // IMPORTANT: assets optional on UI, but plan.js currently requires model_ref_url & product_ref_url.
-  // If you truly want optional assets, you MUST also relax plan.js check.
-  // For now we allow generate if BOTH URLs exist OR user chooses Gemini and only link-based flow.
-  // We'll keep strict with your current backend: require both.
+
+  // Backend currently requires both URLs
   if (!String(p.model_ref_url || "").trim() || !String(p.product_ref_url || "").trim()) return false;
 
   return true;
@@ -1026,7 +1120,7 @@ const styles = {
     top: 0,
     zIndex: 50,
     backdropFilter: "blur(14px)",
-    background: "rgba(0,0,0,0.25)",
+    background: "var(--topbar)",
     borderBottom: "1px solid var(--border)",
   },
   topBarInner: {
@@ -1070,7 +1164,7 @@ const styles = {
     borderRadius: 14,
     border: "1px dashed var(--border)",
     color: "var(--muted)",
-    background: "rgba(0,0,0,0.10)",
+    background: "var(--soft)",
     fontWeight: 800,
     fontSize: 12,
   },
@@ -1100,7 +1194,7 @@ const styles = {
     padding: "10px 10px",
     borderRadius: 12,
     border: "1px solid var(--border)",
-    background: "rgba(0,0,0,0.16)",
+    background: "var(--field)",
     color: "var(--text)",
     outline: "none",
     fontWeight: 800,
@@ -1111,7 +1205,7 @@ const styles = {
     padding: "10px 10px",
     borderRadius: 12,
     border: "1px solid var(--border)",
-    background: "rgba(0,0,0,0.16)",
+    background: "var(--field)",
     color: "var(--text)",
     outline: "none",
     fontWeight: 900,
@@ -1131,7 +1225,7 @@ const styles = {
     padding: "10px 12px",
     borderRadius: 14,
     border: "1px solid var(--border)",
-    background: "rgba(255,255,255,0.06)",
+    background: "var(--btn)",
     color: "var(--text)",
     fontWeight: 900,
     fontSize: 13,
@@ -1141,7 +1235,7 @@ const styles = {
     padding: "8px 10px",
     borderRadius: 999,
     border: "1px solid var(--border)",
-    background: "rgba(255,255,255,0.06)",
+    background: "var(--btn)",
     color: "var(--text)",
     fontWeight: 900,
     fontSize: 12,
@@ -1152,7 +1246,7 @@ const styles = {
     borderRadius: 14,
     padding: 10,
     border: "1px solid var(--border)",
-    background: "rgba(255,255,255,0.05)",
+    background: "var(--panel)",
   },
   badge: {
     fontWeight: 900,
@@ -1168,13 +1262,13 @@ const styles = {
     padding: "6px 9px",
     borderRadius: 999,
     border: "1px solid var(--border)",
-    background: "rgba(255,255,255,0.06)",
+    background: "var(--btn)",
   },
   miniLabel: { fontSize: 11.5, fontWeight: 900, color: "var(--muted)", marginBottom: 6 },
   miniBox: {
     borderRadius: 12,
     padding: 9,
-    background: "rgba(0,0,0,0.18)",
+    background: "var(--soft2)",
     border: "1px solid var(--border)",
     color: "var(--text)",
     fontWeight: 750,
@@ -1188,7 +1282,7 @@ const styles = {
     borderRadius: 14,
     background: "rgba(239,68,68,0.12)",
     border: "1px solid rgba(239,68,68,0.22)",
-    color: "rgba(255,255,255,0.92)",
+    color: "var(--text)",
     fontWeight: 900,
     fontSize: 12,
   },
@@ -1200,7 +1294,7 @@ const styles = {
     padding: "7px 10px",
     borderRadius: 999,
     border: "1px solid var(--border)",
-    background: "rgba(255,255,255,0.06)",
+    background: "var(--btn)",
   },
   togglePills: { display: "flex", gap: 6 },
   togglePill: {
@@ -1213,7 +1307,7 @@ const styles = {
     fontSize: 12,
   },
   togglePillActive: {
-    background: "rgba(255,255,255,0.10)",
+    background: "var(--btn2)",
     borderColor: "rgba(249,115,22,0.30)",
   },
 
@@ -1232,7 +1326,7 @@ const styles = {
     margin: "0 auto",
     borderRadius: 16,
     border: "1px solid var(--border)",
-    background: "rgba(15,15,18,0.92)", // ✅ less transparent
+    background: "var(--drawer)",
     boxShadow: "var(--shadow)",
     padding: 12,
     marginLeft: 12,
@@ -1251,7 +1345,7 @@ const styles = {
   progressBar: {
     height: 10,
     borderRadius: 999,
-    background: "rgba(255,255,255,0.06)",
+    background: "var(--progressTrack)",
     border: "1px solid var(--border)",
     overflow: "hidden",
     marginTop: 8,
@@ -1282,11 +1376,12 @@ const styles = {
     alignItems: "center",
     justifyContent: "center",
     borderTop: "1px solid var(--border)",
-    background: "rgba(0,0,0,0.35)",
+    background: "var(--footer)",
     backdropFilter: "blur(10px)",
     zIndex: 55,
     fontSize: 12,
     fontWeight: 800,
+    color: "var(--text)",
   },
 
   toastWrap: {
@@ -1304,7 +1399,8 @@ const styles = {
     borderRadius: 999,
     border: "1px solid var(--border)",
     padding: "10px 12px",
-    background: "rgba(255,255,255,0.08)",
+    background: "var(--btn2)",
     backdropFilter: "blur(10px)",
+    color: "var(--text)",
   },
 };
