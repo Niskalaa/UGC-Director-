@@ -263,11 +263,14 @@ export default function StudioShell({ onLogout }) {
             <div>
               <div className="ugc-label">Product Type *</div>
               <input
-                className="ugc-input"
-                value={draft.product_type || ""}
-                onChange={(e) => updateDraft("product_type", e.target.value)}
-                placeholder="e.g., Baju tidur"
-              />
+  key="brand-input"
+  className="ugc-input"
+  value={draft.brand || ""}
+  onChange={(e) => {
+    setDraft(prev => ({...prev, brand: e.target.value}));
+  }}
+/>
+
             </div>
             
             <div>
@@ -323,10 +326,13 @@ export default function StudioShell({ onLogout }) {
             <div>
               <div className="ugc-label">Scene Count</div>
               <select
-                className="ugc-select"
-                value={draft.scene_count || 4}
-                onChange={(e) => updateDraft("scene_count", Number(e.target.value))}
-              >
+  className="ugc-select"
+  value={draft.scene_count || 4}
+  onChange={(e) => {
+    setDraft(prev => ({...prev, scene_count: Number(e.target.value)}));
+  }}
+>
+
                 {[3, 4, 5, 6].map((n) => (
                   <option key={n} value={n}>{n} beats</option>
                 ))}
@@ -388,13 +394,13 @@ export default function StudioShell({ onLogout }) {
           
           <div className="ugc-row-actions" style={{ marginTop: 20 }}>
             <button
-  type="button"
-  className="ugc-btn"
-  onClick={() => {
-    if (window.confirm("Clear current blueprint? This cannot be undone.")) {
+               type="button"
+               className="ugc-btn"
+               onClick={() => {
+      if (window.confirm("Clear current blueprint? This cannot be undone.")) {
       setBlueprint(null);
       localStorage.removeItem(LS_BLUEPRINT);
-    }
+      }
   }}
   disabled={generating || !blueprint}
 >
