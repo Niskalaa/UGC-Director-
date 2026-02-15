@@ -1,570 +1,573 @@
-// src/components/StudioShell.jsx
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import ImageUploadField from "./ImageUploadField.jsx";
-import { DEFAULT_PROJECT } from "../studio/studioStore.js";
 
-const LS_THEME = "ugc_theme"; // "dark" | "light"
-const LS_LANG = "ugc_lang";   // "id" | "en"
-const TABS = ["Settings", "Scenes", "Export"];
+const LS_BLUEPRINT = "ugc.blueprint.v1";
+const LS_DRAFT = "ugc.draft.v1";
 
-const i18n = {
-  id: {
-    studio: "Studio",
-    settings: "Settings",
-    scenes: "Scenes",
-    export: "Export",
-    language: "Bahasa",
-    light: "Light",
-    dark: "Dark",
-    logout: "Logout",
-    provider: "AI Brain",
-    autofillLink: "Product page URL (optional)",
-    autofillBtn: "Auto-fill from Link",
-    analyzing: "Analyzing…",
-    formatTiming: "Format & Timing",
-    platform: "Platform",
-    aspectRatio: "Aspect ratio",
-    sceneCount: "Scene count",
-    secondsPerScene: "Seconds / scene",
-    core: "Core",
-    brand: "Brand *",
-    productType: "Product type *",
-    material: "Material *",
-    tone: "Tone (optional)",
-    targetAudience: "Target audience (optional)",
-    assets: "Assets (optional)",
-    modelRef: "Model reference (optional)",
-    productRef: "Product reference (optional)",
-    saveDraft: "Save Draft",
-    generate: "Generate Plan",
-    generating: "Generating…",
-    status: "Status",
-    show: "Show",
-    minimize: "Minimize",
-    noBlueprint: "No blueprint yet. Generate it in Settings.",
-    openJson: "Open JSON",
-    downloadJson: "Download JSON",
-    providerLabel: "Provider",
-  },
-  en: {
-    studio: "Studio",
-    settings: "Settings",
-    scenes: "Scenes",
-    export: "Export",
-    language: "Language",
-    light: "Light",
-    dark: "Dark",
-    logout: "Logout",
-    provider: "AI Brain",
-    autofillLink: "Product page URL (optional)",
-    autofillBtn: "Auto-fill from Link",
-    analyzing: "Analyzing…",
-    formatTiming: "Format & Timing",
-    platform: "Platform",
-    aspectRatio: "Aspect ratio",
-    sceneCount: "Scene count",
-    secondsPerScene: "Seconds / scene",
-    core: "Core",
-    brand: "Brand *",
-    productType: "Product type *",
-    material: "Material *",
-    tone: "Tone (optional)",
-    targetAudience: "Target audience (optional)",
-    assets: "Assets (optional)",
-    modelRef: "Model reference (optional)",
-    productRef: "Product reference (optional)",
-    saveDraft: "Save Draft",
-    generate: "Generate Plan",
-    generating: "Generating…",
-    status: "Status",
-    show: "Show",
-    minimize: "Minimize",
-    noBlueprint: "No blueprint yet. Generate it in Settings.",
-    openJson: "Open JSON",
-    downloadJson: "Download JSON",
-    providerLabel: "Provider",
-  },
-};
-
-function safeJsonParseLoose(raw) {
+function safeJsonParse(s) {
   try {
-    return JSON.parse(raw);
+    return JSON.parse(s);
   } catch {
-    const m = String(raw).match(/\{[\s\S]*\}$/);
-    if (m) {
-      try { return JSON.parse(m[0]); } catch {}
-    }
     return null;
   }
 }
 
-function escapeHtml(s) {
-  return String(s)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
+function clip(s, n = 180) {
+  if (!s) return "";
+  return s.length > n ? s.slice(0, n - 1) + "…" : s;
 }
 
-/** ========= blueprint parser (support multiple formats) ========= */
-function extractScenes(bp) {
-  if (!bp) return [];
-  // newest: ugc_blueprint_v1.creative_specs.scenes
-  const a = bp?.ugc_blueprint_v1?.creative_specs?.scenes;
-  if (Array.isArray(a)) return a;
+/**
+ * Normalize many blueprint shapes into a single scenes array.
+ * Supports:
+ * - blueprint.vo.scenes[]  (your uploaded blueprint.json)
+ * - blueprint.storyboard.beats[]
+ * - blueprint.beats[]
+ * - blueprint.scenes[]
+ */
+function extractScenes(blueprint) {
+  if (!blueprint) return [];
 
-  // older: creative_specs.scenes
-  const b = bp?.creative_specs?.scenes;
-  if (Array.isArray(b)) return b;
+  // 1) VO scenes (your current schema)
+  const voScenes = blueprint?.vo?.scenes;
+  if (Array.isArray(voScenes) && voScenes.length) {
+    return voScenes.map((s, idx) => ({
+      id: s.id || `S${idx + 1}`,
+      idx,
+      start: s.start_seconds ?? idx * 8,
+      end: s.end_seconds ?? (idx + 1) * 8,
+      shot: s.camera_angle || s.shot_type || "",
+      on_screen: s.on_screen || "",
+      visual_prompt:
+        s.visual_prompt ||
+        [
+          s.description ? `Scene: ${s.description}` : "",
+          s.camera_angle ? `Camera: ${s.camera_angle}` : "",
+          s.style ? `Style: ${s.style}` : "",
+          s.environment ? `Environment: ${s.environment}` : "",
+          s.lighting ? `Lighting: ${s.lighting}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+    }));
+  }
 
-  // storyboard beats
-  const beats = bp?.storyboard?.beats;
-  if (Array.isArray(beats)) return beats.map((x, i) => ({ ...x, id: x.id || `S${i + 1}` }));
+  // 2) beats
+  const beats =
+    blueprint?.storyboard?.beats ||
+    blueprint?.beats ||
+    blueprint?.storyboard?.scenes ||
+    blueprint?.scenes;
 
-  const beats2 = bp?.segments?.storyboard?.beats;
-  if (Array.isArray(beats2)) return beats2.map((x, i) => ({ ...x, id: x.id || `S${i + 1}` }));
+  if (Array.isArray(beats) && beats.length) {
+    return beats.map((b, idx) => ({
+      id: b.id || b.scene_id || `S${idx + 1}`,
+      idx,
+      start: b.start_seconds ?? idx * 8,
+      end: b.end_seconds ?? (idx + 1) * 8,
+      shot: b.camera_angle || b.shot || b.shot_type || "",
+      on_screen: b.on_screen || b.onscreen_text || "",
+      visual_prompt: b.visual_prompt || b.image_prompt || b.prompt || b.description || "",
+    }));
+  }
 
   return [];
 }
 
-function LangToggle({ lang, setLang }) {
-  const t = i18n[lang] || i18n.id;
-  return (
-    <div className="ugc-pill">
-      <span className="ugc-pill-label">{t.language}</span>
-      <button
-        type="button"
-        className={`ugc-pill-btn ${lang === "id" ? "active" : ""}`}
-        onClick={() => setLang("id")}
-      >
-        ID
-      </button>
-      <button
-        type="button"
-        className={`ugc-pill-btn ${lang === "en" ? "active" : ""}`}
-        onClick={() => setLang("en")}
-      >
-        EN
-      </button>
-    </div>
-  );
-}
-
-function ThemeToggle({ theme, setTheme }) {
-  const next = theme === "dark" ? "light" : "dark";
-  return (
-    <button type="button" className="ugc-pill-btn" onClick={() => setTheme(next)}>
-      {next === "dark" ? "Dark" : "Light"}
-    </button>
-  );
-}
-
-function OpenDownloadBlueprintButtons({ blueprint, t }) {
-  function openJson() {
-    const w = window.open("", "_blank");
-    if (!w) return;
-    const html = `
-      <pre style="white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; padding:16px;">
-${escapeHtml(JSON.stringify(blueprint, null, 2))}
-      </pre>`;
-    w.document.write(html);
-    w.document.close();
-  }
-
-  function downloadJson() {
-    const blob = new Blob([JSON.stringify(blueprint, null, 2)], { type: "application/json" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "blueprint.json";
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-  }
-
-  return (
-    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-      <button type="button" className="ugc-btn small" onClick={openJson}>
-        {t.openJson}
-      </button>
-      <button type="button" className="ugc-btn small" onClick={downloadJson}>
-        {t.downloadJson}
-      </button>
-    </div>
-  );
+async function postJson(url, body) {
+  const r = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await r.text();
+  const data = safeJsonParse(text) ?? { raw: text };
+  if (!r.ok) throw new Error(data?.error || `HTTP ${r.status}`);
+  return data;
 }
 
 export default function StudioShell({ onLogout }) {
-  const [tab, setTab] = useState("Settings");
-  const [lang, setLang] = useState(() => localStorage.getItem(LS_LANG) || "id");
-  const [theme, setTheme] = useState(() => localStorage.getItem(LS_THEME) || "dark");
-
-  const [projectDraft, setProjectDraft] = useState(() => {
-    try {
-      const raw = localStorage.getItem(DEFAULT_PROJECT);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
+  const [theme, setTheme] = useState(() => {
+    const t = document.documentElement.getAttribute("data-theme");
+    return t === "dark" ? "dark" : "light";
   });
 
-  const [blueprint, setBlueprint] = useState(() => {
-    try {
-      const raw = localStorage.getItem(`${DEFAULT_PROJECT}::blueprint`);
-      return raw ? JSON.parse(raw) : null;
-    } catch {
-      return null;
-    }
-  });
+  const [lang, setLang] = useState("ID");
 
-  const [loadingPlan, setLoadingPlan] = useState(false);
-  const [planError, setPlanError] = useState("");
-  const [statusOpen, setStatusOpen] = useState(false);
+  const [tab, setTab] = useState("settings"); // settings | scenes | export
 
-  const t = i18n[lang] || i18n.id;
-
-  // persist lang/theme
-  useEffect(() => {
-    localStorage.setItem(LS_LANG, lang);
-  }, [lang]);
-
-  useEffect(() => {
-    localStorage.setItem(LS_THEME, theme);
-    document.documentElement.dataset.theme = theme;
-  }, [theme]);
-
-  // persist drafts
-  useEffect(() => {
-    try {
-      localStorage.setItem(DEFAULT_PROJECT, JSON.stringify(projectDraft || {}));
-    } catch {}
-  }, [projectDraft]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(`${DEFAULT_PROJECT}::blueprint`, JSON.stringify(blueprint || null));
-    } catch {}
-  }, [blueprint]);
-
+  const [draft, setDraft] = useState(() => safeJsonParse(localStorage.getItem(LS_DRAFT)) || {});
+  const [blueprint, setBlueprint] = useState(() => safeJsonParse(localStorage.getItem(LS_BLUEPRINT)));
   const scenes = useMemo(() => extractScenes(blueprint), [blueprint]);
 
-  async function generatePlan() {
-    setPlanError("");
-    setLoadingPlan(true);
+  // UI state
+  const [toast, setToast] = useState(null);
+  const [err, setErr] = useState("");
+
+  // Status dock
+  const [collapsed, setCollapsed] = useState(true);
+  const [statusText, setStatusText] = useState("Ready — BEDROCK");
+  const [isWorking, setIsWorking] = useState(false);
+
+  // Auto-fill from link
+  const [productUrl, setProductUrl] = useState(draft?.product_url || "");
+  const [autoFillLoading, setAutoFillLoading] = useState(false);
+
+  // assets
+  const modelRefUrl = draft?.model_ref_url || "";
+  const productRefUrl = draft?.product_ref_url || "";
+
+  // per-scene image results
+  const [sceneImages, setSceneImages] = useState(() => ({})); // { [sceneId]: {status, image_url, job_id, error} }
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
+    localStorage.setItem(LS_DRAFT, JSON.stringify({ ...draft, product_url: productUrl }));
+  }, [draft, productUrl]);
+
+  function pushToast(msg, kind = "ok") {
+    setToast({ msg, kind });
+    setTimeout(() => setToast(null), 2200);
+  }
+
+  async function onAutoFillFromLink() {
+    setErr("");
+    setAutoFillLoading(true);
     try {
+      if (!productUrl) throw new Error("Masukkan product page URL dulu.");
+
+      /**
+       * NOTE:
+       * Browser tidak bisa scrape halaman e-commerce langsung (CORS).
+       * Tombol ini harus hit endpoint server.
+       *
+       * Kamu bisa bikin endpoint misalnya:
+       * - POST /api/scrape { url }
+       * Return minimal: { brand, product_type, material, target_audience, ... }
+       *
+       * Di sini aku panggil /api/scrape (kalau belum ada, error-nya jelas).
+       */
+      const data = await postJson("/api/scrape", { url: productUrl });
+
+      setDraft((d) => ({
+        ...d,
+        ...(data?.fields || data || {}),
+      }));
+
+      pushToast("Auto-fill berhasil.");
+    } catch (e) {
+      setErr(String(e?.message || e));
+    } finally {
+      setAutoFillLoading(false);
+    }
+  }
+
+  async function onGeneratePlan() {
+    setErr("");
+    setIsWorking(true);
+    setStatusText("Generating plan…");
+    try {
+      // minimal payload, sesuaikan dengan backend /api/plan kamu
       const payload = {
-        project: projectDraft,
-        provider: (projectDraft?.provider || "bedrock").toLowerCase(),
-        lang,
+        project: {
+          brand: draft?.brand || "",
+          product_type: draft?.product_type || "",
+          material: draft?.material || "",
+          tone: draft?.tone || "",
+          audience: draft?.audience || "",
+          platform: draft?.platform || "TikTok",
+          aspect_ratio: draft?.aspect_ratio || "9:16",
+          scene_count: Number(draft?.scene_count || 4),
+          seconds_per_scene: Number(draft?.seconds_per_scene || 8),
+          product_url: productUrl || "",
+        },
+        provider: draft?.provider || "bedrock",
+        assets: {
+          model_ref_url: modelRefUrl || null,
+          product_ref_url: productRefUrl || null,
+        },
       };
 
-      const r = await fetch("/api/plan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+      const data = await postJson("/api/plan", payload);
+      localStorage.setItem(LS_BLUEPRINT, JSON.stringify(data));
+      setBlueprint(data);
+
+      pushToast("Plan generated.");
+      setTab("scenes");
+      setStatusText("Plan ready — BEDROCK");
+    } catch (e) {
+      setErr(String(e?.message || e));
+      setStatusText("Failed — check error");
+    } finally {
+      setIsWorking(false);
+    }
+  }
+
+  async function onGenerateImageForScene(scene) {
+    setErr("");
+    setIsWorking(true);
+    setStatusText(`Generating image for ${scene.id}…`);
+    try {
+      const brief =
+        scene.visual_prompt ||
+        `Scene ${scene.id}: ${scene.on_screen || ""}\nCamera: ${scene.shot || ""}\nStyle: photorealistic`;
+
+      const data = await postJson("/api/jobs", {
+        type: "image",
+        brief,
+        settings: { aspect_ratio: draft?.aspect_ratio || "9:16" },
       });
 
-      const raw = await r.text();
-      const json = raw ? safeJsonParseLoose(raw) : null;
+      // jobs.js returns { id, status, image_url }
+      setSceneImages((m) => ({
+        ...m,
+        [scene.id]: {
+          status: data?.status || "done",
+          image_url: data?.image_url || null,
+          job_id: data?.id || null,
+          error: null,
+        },
+      }));
 
-      if (!r.ok || !json) throw new Error(json?.error || `Plan failed (${r.status})`);
-      setBlueprint(json);
-      setTab("Scenes");
-      setStatusOpen(false);
+      pushToast(`Image done for ${scene.id}`);
+      setStatusText("Ready — BEDROCK");
     } catch (e) {
-      setPlanError(e?.message || String(e));
+      setSceneImages((m) => ({
+        ...m,
+        [scene.id]: { status: "failed", image_url: null, job_id: null, error: String(e?.message || e) },
+      }));
+      setErr(String(e?.message || e));
+      setStatusText("Failed — check error");
     } finally {
-      setLoadingPlan(false);
+      setIsWorking(false);
     }
   }
 
-  function SettingsTab() {
-    const p = projectDraft || {};
-    const setP = (fn) => setProjectDraft((prev) => (typeof fn === "function" ? fn(prev || {}) : fn));
-
-    function update(key, value) {
-      setP((prev) => ({ ...(prev || {}), [key]: value }));
-    }
-
-    return (
-      <div className="ugc-container">
-        <div className="ugc-card">
-          <div className="ugc-cardheader">
-            <div className="ugc-cardtitle">{t.settings}</div>
-            <div className="ugc-cardsub">{t.formatTiming}</div>
-          </div>
-
-          <div className="ugc-grid2">
-            <div>
-              <div className="ugc-label">{t.secondsPerScene}</div>
-              <select
-                className="ugc-select"
-                value={p.seconds_per_scene || "8s"}
-                onChange={(e) => update("seconds_per_scene", e.target.value)}
-              >
-                <option value="6s">6s</option>
-                <option value="8s">8s</option>
-                <option value="10s">10s</option>
-              </select>
-            </div>
-
-            <div>
-              <div className="ugc-label">{t.sceneCount}</div>
-              <select
-                className="ugc-select"
-                value={String(p.scene_count || 4)}
-                onChange={(e) => update("scene_count", Number(e.target.value))}
-              >
-                {[3, 4, 5, 6].map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <div className="ugc-label">{t.brand}</div>
-              <input
-                className="ugc-input"
-                value={p.brand || ""}
-                onChange={(e) => update("brand", e.target.value)}
-                placeholder="Zalora"
-              />
-            </div>
-
-            <div>
-              <div className="ugc-label">{t.productType}</div>
-              <input
-                className="ugc-input"
-                value={p.product_type || ""}
-                onChange={(e) => update("product_type", e.target.value)}
-                placeholder="Baju koko"
-              />
-            </div>
-
-            <div>
-              <div className="ugc-label">{t.material}</div>
-              <input
-                className="ugc-input"
-                value={p.material || ""}
-                onChange={(e) => update("material", e.target.value)}
-                placeholder="Katun"
-              />
-            </div>
-
-            <div>
-              <div className="ugc-label">{t.tone}</div>
-              <input
-                className="ugc-input"
-                value={p.tone || ""}
-                onChange={(e) => update("tone", e.target.value)}
-                placeholder="natural gen-z"
-              />
-            </div>
-
-            <div>
-              <div className="ugc-label">{t.targetAudience}</div>
-              <input
-                className="ugc-input"
-                value={p.target_audience || ""}
-                onChange={(e) => update("target_audience", e.target.value)}
-                placeholder="pria 18-34"
-              />
-            </div>
-
-            <div>
-              <div className="ugc-label">{t.autofillLink}</div>
-              <input
-                className="ugc-input"
-                value={p.product_page_url || ""}
-                onChange={(e) => update("product_page_url", e.target.value)}
-                placeholder="https://..."
-              />
-            </div>
-          </div>
-
-          <div style={{ height: 12 }} />
-
-          <div className="ugc-label">{t.assets}</div>
-
-          <div className="ugc-grid2">
-            <div>
-              <div className="ugc-label">{t.modelRef}</div>
-              <ImageUploadField
-                kind="model"
-                projectId={DEFAULT_PROJECT}
-                value={p.model_ref_url || ""}
-                onUrl={(url) => update("model_ref_url", url)}
-              />
-            </div>
-
-            <div>
-              <div className="ugc-label">{t.productRef}</div>
-              <ImageUploadField
-                kind="product"
-                projectId={DEFAULT_PROJECT}
-                value={p.product_ref_url || ""}
-                onUrl={(url) => update("product_ref_url", url)}
-              />
-            </div>
-          </div>
-
-          {planError ? <div style={{ marginTop: 12 }} className="ugc-muted-box">{planError}</div> : null}
-
-          <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <button type="button" className="ugc-btn" onClick={() => setBlueprint(null)}>
-              {t.saveDraft}
-            </button>
-
-            <button
-              type="button"
-              className="ugc-btn primary"
-              onClick={generatePlan}
-              disabled={loadingPlan}
-            >
-              {loadingPlan ? t.generating : t.generate}
-            </button>
-          </div>
-        </div>
-      </div>
-    );
+  // Save draft helpers
+  function setDraftField(k, v) {
+    setDraft((d) => ({ ...d, [k]: v }));
   }
-
-  function ScenesTab() {
-    return (
-      <div className="ugc-container">
-        <div className="ugc-card">
-          <div className="ugc-cardheader">
-            <div className="ugc-cardtitle">{t.scenes}</div>
-            <div className="ugc-cardsub">plan → image → approve → video → audio</div>
-          </div>
-
-          {!blueprint ? (
-            <div className="ugc-muted-box">{t.noBlueprint}</div>
-          ) : scenes.length === 0 ? (
-            <div className="ugc-muted-box">Blueprint exists, but scenes/beats not readable.</div>
-          ) : (
-            <div style={{ display: "grid", gap: 12 }}>
-              {scenes.map((s, idx) => {
-                const id = s.id || `S${idx + 1}`;
-                const title = s.on_screen || s.title || s.headline || `Scene ${idx + 1}`;
-                const cam = s.camera_angle || s.shot || s.camera || "";
-                const range = s.time_range || s.time || s.duration || "";
-                return (
-                  <div key={id} className="ugc-card" style={{ padding: 12, boxShadow: "none" }}>
-                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                      <span className="ugc-chip ok">{id}</span>
-                      <span style={{ fontWeight: 900 }}>{String(title)}</span>
-                      {range ? <span className="ugc-chip">{String(range)}</span> : null}
-                      {cam ? <span className="ugc-chip">{String(cam)}</span> : null}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          {blueprint ? (
-            <div style={{ marginTop: 12 }}>
-              <OpenDownloadBlueprintButtons blueprint={blueprint} t={t} />
-            </div>
-          ) : null}
-        </div>
-      </div>
-    );
-  }
-
-  function ExportTab() {
-    return (
-      <div className="ugc-container">
-        <div className="ugc-card">
-          <div className="ugc-cardheader">
-            <div className="ugc-cardtitle">{t.export}</div>
-            <div className="ugc-cardsub">Blueprint JSON</div>
-          </div>
-
-          {blueprint ? (
-            <OpenDownloadBlueprintButtons blueprint={blueprint} t={t} />
-          ) : (
-            <div className="ugc-muted-box">{t.noBlueprint}</div>
-          )}
-        </div>
-      </div>
-    );
-  }
-
-  const content = useMemo(() => {
-    if (tab === "Scenes") return <ScenesTab />;
-    if (tab === "Export") return <ExportTab />;
-    return <SettingsTab />;
-  }, [tab, blueprint, scenes, loadingPlan, planError, lang]);
-
-  // status chips (dummy values; nanti bisa kamu hook ke progress real)
-  const chips = [
-    { label: "Core ✓", ok: true },
-    { label: "Model ×", ok: false },
-    { label: "Product ×", ok: false },
-    { label: "≈ 32s", ok: null },
-  ];
 
   return (
     <div className="ugc-page">
       {/* Topbar */}
       <div className="ugc-topbar">
         <div className="ugc-topbar-inner">
-          <div className="ugc-title">{t.studio}</div>
+          <div className="ugc-title">Studio</div>
 
           <div className="ugc-top-actions">
-            <LangToggle lang={lang} setLang={setLang} />
-            <ThemeToggle theme={theme} setTheme={setTheme} />
-            {typeof onLogout === "function" ? (
-              <button type="button" className="ugc-pill-btn" onClick={onLogout}>
-                {t.logout}
+            <div className="ugc-pill">
+              <span className="ugc-pill-label">Language</span>
+              <button className={"ugc-pill-btn " + (lang === "ID" ? "active" : "")} onClick={() => setLang("ID")}>
+                ID
               </button>
-            ) : null}
+              <button className={"ugc-pill-btn " + (lang === "EN" ? "active" : "")} onClick={() => setLang("EN")}>
+                EN
+              </button>
+            </div>
+
+            <button
+              className="ugc-pill-btn"
+              onClick={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+              title="Toggle theme"
+            >
+              {theme === "dark" ? "Light" : "Dark"}
+            </button>
+
+            <button className="ugc-pill-btn" onClick={onLogout}>
+              Logout
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Main content */}
-      {content}
+      <div className="ugc-container">
+        {err ? <div className="ugc-error">{err}</div> : null}
+
+        {/* SETTINGS */}
+        {tab === "settings" && (
+          <div className="ugc-card">
+            <div className="ugc-cardheader">
+              <div className="ugc-cardtitle">Settings</div>
+              <div className="ugc-cardsub">Generate plan → render image per scene</div>
+            </div>
+
+            <div className="ugc-grid2">
+              <div>
+                <div className="ugc-label">Product page URL (optional)</div>
+                <input
+                  className="ugc-input"
+                  value={productUrl}
+                  onChange={(e) => setProductUrl(e.target.value)}
+                  placeholder="https://..."
+                />
+                <div style={{ height: 10 }} />
+                <button className={"ugc-btn " + (autoFillLoading ? "loading" : "")} onClick={onAutoFillFromLink} disabled={autoFillLoading}>
+                  {autoFillLoading ? "Auto-filling…" : "Auto-fill from Link"}
+                </button>
+              </div>
+
+              <div>
+                <div className="ugc-label">AI Brain</div>
+                <select className="ugc-select" value={draft?.provider || "bedrock"} onChange={(e) => setDraftField("provider", e.target.value)}>
+                  <option value="bedrock">Bedrock</option>
+                  <option value="gemini">Gemini</option>
+                </select>
+              </div>
+
+              <div>
+                <div className="ugc-label">Platform</div>
+                <select className="ugc-select" value={draft?.platform || "TikTok"} onChange={(e) => setDraftField("platform", e.target.value)}>
+                  <option value="TikTok">TikTok</option>
+                  <option value="Reels">Reels</option>
+                  <option value="Shorts">Shorts</option>
+                </select>
+              </div>
+
+              <div>
+                <div className="ugc-label">Aspect ratio</div>
+                <select
+                  className="ugc-select"
+                  value={draft?.aspect_ratio || "9:16"}
+                  onChange={(e) => setDraftField("aspect_ratio", e.target.value)}
+                >
+                  <option value="9:16">9:16</option>
+                  <option value="1:1">1:1</option>
+                  <option value="4:5">4:5</option>
+                </select>
+              </div>
+
+              <div>
+                <div className="ugc-label">Scene count</div>
+                <select className="ugc-select" value={draft?.scene_count || 4} onChange={(e) => setDraftField("scene_count", e.target.value)}>
+                  <option value={4}>4</option>
+                  <option value={5}>5</option>
+                  <option value={6}>6</option>
+                </select>
+              </div>
+
+              <div>
+                <div className="ugc-label">Seconds / scene</div>
+                <select
+                  className="ugc-select"
+                  value={draft?.seconds_per_scene || 8}
+                  onChange={(e) => setDraftField("seconds_per_scene", e.target.value)}
+                >
+                  <option value={6}>6s</option>
+                  <option value={8}>8s</option>
+                  <option value={10}>10s</option>
+                </select>
+              </div>
+
+              <div>
+                <div className="ugc-label">Brand *</div>
+                <input className="ugc-input" value={draft?.brand || ""} onChange={(e) => setDraftField("brand", e.target.value)} />
+              </div>
+
+              <div>
+                <div className="ugc-label">Product type *</div>
+                <input className="ugc-input" value={draft?.product_type || ""} onChange={(e) => setDraftField("product_type", e.target.value)} />
+              </div>
+
+              <div>
+                <div className="ugc-label">Material *</div>
+                <input className="ugc-input" value={draft?.material || ""} onChange={(e) => setDraftField("material", e.target.value)} />
+              </div>
+
+              <div>
+                <div className="ugc-label">Tone (optional)</div>
+                <input className="ugc-input" value={draft?.tone || ""} onChange={(e) => setDraftField("tone", e.target.value)} />
+              </div>
+
+              <div>
+                <div className="ugc-label">Target audience (optional)</div>
+                <input className="ugc-input" value={draft?.audience || ""} onChange={(e) => setDraftField("audience", e.target.value)} />
+              </div>
+            </div>
+
+            <div style={{ height: 12 }} />
+            <div className="ugc-sectiontitle">Assets (optional)</div>
+
+            <div className="ugc-grid2">
+              <div>
+                <div className="ugc-label">Model reference (optional)</div>
+                <ImageUploadField
+                  label="Model reference"
+                  projectId={draft?.project_id || "default"}
+                  kind="model"
+                  value={modelRefUrl}
+                  onUrl={(url) => setDraftField("model_ref_url", url)}
+                />
+              </div>
+
+              <div>
+                <div className="ugc-label">Product reference (optional)</div>
+                <ImageUploadField
+                  label="Product reference"
+                  projectId={draft?.project_id || "default"}
+                  kind="product"
+                  value={productRefUrl}
+                  onUrl={(url) => setDraftField("product_ref_url", url)}
+                />
+              </div>
+            </div>
+
+            <div className="ugc-generate">
+              <button className="ugc-btn" onClick={() => pushToast("Draft saved.")}>
+                Save Draft
+              </button>
+              <button className="ugc-btn primary" onClick={onGeneratePlan} disabled={isWorking}>
+                {isWorking ? "Generating…" : "Generate Plan"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* SCENES */}
+        {tab === "scenes" && (
+          <div className="ugc-card">
+            <div className="ugc-cardheader">
+              <div className="ugc-cardtitle">Scenes</div>
+              <div className="ugc-cardsub">plan → image → approve → video → audio</div>
+            </div>
+
+            {!blueprint ? (
+              <div className="ugc-muted-box">No blueprint yet. Generate it in Settings.</div>
+            ) : scenes.length === 0 ? (
+              <div className="ugc-muted-box">
+                Blueprint exists, but scenes not readable. (Tip: pastikan blueprint punya <b>vo.scenes</b> atau <b>storyboard.beats</b>)
+              </div>
+            ) : (
+              <div className="ugc-list">
+                {scenes.map((s) => {
+                  const img = sceneImages[s.id];
+                  return (
+                    <div className="ugc-scene" key={s.id}>
+                      <div className="ugc-scene-top">
+                        <span className="ugc-badge">{s.id}</span>
+                        <div className="ugc-scene-title">SCENE</div>
+                        <span className="ugc-chip">
+                          {String(s.start)}s–{String(s.end)}s
+                        </span>
+                        {s.shot ? <span className="ugc-chip">{s.shot}</span> : null}
+                      </div>
+
+                      <div className="ugc-row">
+                        <div className="ugc-row-label">On-screen</div>
+                        <div className="ugc-row-val">{s.on_screen || "-"}</div>
+                      </div>
+
+                      <div className="ugc-row">
+                        <div className="ugc-row-label">visual_prompt</div>
+                        <div className="ugc-row-val" style={{ whiteSpace: "pre-wrap" }}>
+                          {clip(s.visual_prompt, 420) || "-"}
+                        </div>
+                      </div>
+
+                      <div style={{ display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap", alignItems: "center" }}>
+                        <button className="ugc-btn primary" onClick={() => onGenerateImageForScene(s)} disabled={isWorking}>
+                          Generate Image
+                        </button>
+
+                        {img?.status === "failed" ? <span className="ugc-muted">Failed</span> : null}
+                        {img?.status && img?.status !== "failed" ? <span className="ugc-muted">{img.status}</span> : null}
+                      </div>
+
+                      {img?.image_url ? (
+                        <div style={{ marginTop: 12 }}>
+                          <img
+                            src={img.image_url}
+                            alt={`${s.id} result`}
+                            style={{ width: "100%", borderRadius: 14, border: "1px solid var(--stroke)" }}
+                          />
+                        </div>
+                      ) : null}
+
+                      {img?.error ? <div className="ugc-error">{img.error}</div> : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* EXPORT */}
+        {tab === "export" && (
+          <div className="ugc-card">
+            <div className="ugc-cardheader">
+              <div className="ugc-cardtitle">Export</div>
+              <div className="ugc-cardsub">Open / download blueprint JSON</div>
+            </div>
+
+            {!blueprint ? (
+              <div className="ugc-muted-box">No blueprint yet.</div>
+            ) : (
+              <div className="ugc-row-actions">
+                <button
+                  className="ugc-btn"
+                  onClick={() => {
+                    const blob = new Blob([JSON.stringify(blueprint, null, 2)], { type: "application/json" });
+                    const url = URL.createObjectURL(blob);
+                    window.open(url, "_blank");
+                  }}
+                >
+                  Open JSON
+                </button>
+
+                <button
+                  className="ugc-btn"
+                  onClick={() => {
+                    const blob = new Blob([JSON.stringify(blueprint, null, 2)], { type: "application/json" });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = "blueprint.json";
+                    a.click();
+                  }}
+                >
+                  Download JSON
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* Status Dock */}
-      <div className={`ugc-status ${statusOpen ? "" : "collapsed"}`}>
+      <div className={"ugc-status " + (collapsed ? "collapsed" : "")}>
         <div className="ugc-status-inner">
           <div className="ugc-status-head">
-            <div className="ugc-status-title">{t.status}</div>
-            <button
-              type="button"
-              className="ugc-btn small"
-              onClick={() => setStatusOpen((v) => !v)}
-            >
-              {statusOpen ? t.minimize : t.show}
+            <div className="ugc-status-title">Status</div>
+            <button className="ugc-btn small" onClick={() => setCollapsed((v) => !v)}>
+              {collapsed ? "Show" : "Minimize"}
             </button>
           </div>
 
-          {/* collapsed view: keep animation */}
-          {!statusOpen ? (
+          {collapsed ? (
             <div className="ugc-progress">
-              <div className="ugc-progress-track">
-                <div className="ugc-progress-shimmer" />
+              <div className={"ugc-progress-track " + (isWorking ? "indeterminate" : "")} />
+              <div className="ugc-progress-meta">
+                <span className="ugc-muted">{statusText}</span>
+                <span className="ugc-muted">{draft?.provider ? String(draft.provider).toUpperCase() : "BEDROCK"}</span>
               </div>
             </div>
           ) : (
             <>
               <div className="ugc-chiprow">
-                {chips.map((c, i) => (
-                  <span
-                    key={i}
-                    className={`ugc-chip ${
-                      c.ok === true ? "ok" : c.ok === false ? "bad" : ""
-                    }`}
-                  >
-                    {c.label}
-                  </span>
-                ))}
-                <span className="ugc-chip">{t.providerLabel}: BEDROCK</span>
+                <span className={"ugc-chip " + (blueprint ? "ok" : "")}>Core {blueprint ? "✓" : "×"}</span>
+                <span className={"ugc-chip " + (modelRefUrl ? "ok" : "")}>Model {modelRefUrl ? "✓" : "×"}</span>
+                <span className={"ugc-chip " + (productRefUrl ? "ok" : "")}>Product {productRefUrl ? "✓" : "×"}</span>
+                <span className="ugc-chip">≈ 32s</span>
               </div>
 
-              <div className="ugc-progress">
-                <div className="ugc-progress-track">
-                  <div className="ugc-progress-shimmer" />
+              <div style={{ marginTop: 10 }} className="ugc-progress">
+                <div className={"ugc-progress-track " + (isWorking ? "indeterminate" : "")} />
+                <div className="ugc-progress-meta">
+                  <span>Progress</span>
+                  <span>{statusText}</span>
                 </div>
               </div>
             </>
@@ -572,24 +575,24 @@ export default function StudioShell({ onLogout }) {
         </div>
       </div>
 
-      {/* Credit */}
-      <div className="ugc-credit">Created by @adryndian</div>
-
-      {/* Bottom Navigation (moved from top) */}
+      {/* Bottom Tabbar */}
       <div className="ugc-tabbar">
         <div className="ugc-tabbar-inner">
-          {TABS.map((x) => (
-            <button
-              key={x}
-              type="button"
-              className={`ugc-tab ${tab === x ? "active" : ""}`}
-              onClick={() => setTab(x)}
-            >
-              {x === "Settings" ? t.settings : x === "Scenes" ? t.scenes : t.export}
-            </button>
-          ))}
+          <button className={"ugc-tab " + (tab === "settings" ? "active" : "")} onClick={() => setTab("settings")}>
+            Settings
+          </button>
+          <button className={"ugc-tab " + (tab === "scenes" ? "active" : "")} onClick={() => setTab("scenes")}>
+            Scenes
+          </button>
+          <button className={"ugc-tab " + (tab === "export" ? "active" : "")} onClick={() => setTab("export")}>
+            Export
+          </button>
         </div>
       </div>
+
+      <div className="ugc-credit">Created by @adryndian</div>
+
+      {toast ? <div className={"ugc-toast " + toast.kind}>{toast.msg}</div> : null}
     </div>
   );
 }
