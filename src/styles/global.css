@@ -7,7 +7,6 @@ UGC STUDIO - GLOBAL.CSS (COMPLETELY REVISED)
 - New components (scenes grid, expert controls, etc)
   ======================================================================= */
 
-/* ––––– BASE RESETS ––––– */
 :root {
 -webkit-font-smoothing: antialiased;
 -moz-osx-font-smoothing: grayscale;
@@ -55,31 +54,23 @@ button {
 user-select: none;
 }
 
-/* ––––– THEME VARIABLES ––––– */
 :root {
 –bg: #fff7ed;
 –fg: #0b0b0f;
 –muted: rgba(0, 0, 0, 0.58);
 –muted2: rgba(0, 0, 0, 0.42);
-
 –card: rgba(255, 255, 255, 0.86);
 –card2: rgba(255, 255, 255, 0.72);
-
 –stroke: rgba(0, 0, 0, 0.10);
 –stroke2: rgba(0, 0, 0, 0.14);
-
 –topbar: rgba(255, 255, 255, 0.62);
 –bottomTabs: rgba(255, 255, 255, 0.82);
-
 –inputBg: rgba(0, 0, 0, 0.03);
 –inputBg2: rgba(0, 0, 0, 0.05);
-
 –orange: #f97316;
 –orange2: rgba(249, 115, 22, 0.18);
-
 –radius-card: 16px;
 –radius-pill: 999px;
-
 –containerMax: 920px;
 –tabbar-h: 86px;
 }
@@ -89,44 +80,35 @@ user-select: none;
 –fg: #f5f5f6;
 –muted: rgba(255, 255, 255, 0.70);
 –muted2: rgba(255, 255, 255, 0.55);
-
 –card: rgba(16, 16, 18, 0.86);
 –card2: rgba(16, 16, 18, 0.70);
-
 –stroke: rgba(255, 255, 255, 0.10);
 –stroke2: rgba(255, 255, 255, 0.14);
-
 –topbar: rgba(16, 16, 18, 0.55);
 –bottomTabs: rgba(16, 16, 18, 0.80);
-
 –inputBg: rgba(255, 255, 255, 0.06);
 –inputBg2: rgba(255, 255, 255, 0.08);
-
 –orange: #f97316;
 –orange2: rgba(249, 115, 22, 0.18);
 }
 
-/* ––––– BACKGROUND GLOW ––––– */
 body {
 background: radial-gradient(1200px 700px at 70% 18%, rgba(249, 115, 22, 0.16), transparent 60%),
 radial-gradient(900px 600px at 30% 92%, rgba(249, 115, 22, 0.10), transparent 55%),
 var(–bg);
 }
 
-/* ––––– PAGE SHELL ––––– */
 .ugc-page {
 min-height: 100vh;
 padding-bottom: calc(var(–tabbar-h) + 20px);
 }
 
-/* ––––– CONTAINER ––––– */
 .ugc-container {
 max-width: var(–containerMax);
 margin: 0 auto;
 padding: 10px 12px;
 }
 
-/* ––––– CARDS (COMPACT) ––––– */
 .ugc-card {
 border-radius: var(–radius-card);
 padding: 12px;
@@ -188,7 +170,6 @@ padding: 8px;
 background: rgba(255, 255, 255, 0.03);
 }
 
-/* ––––– TOPBAR ––––– */
 .ugc-topbar {
 position: sticky;
 top: 0;
@@ -232,7 +213,6 @@ overflow-x: auto;
 }
 }
 
-/* ––––– PILLS ––––– */
 .ugc-pill-btn {
 border: 1px solid var(–stroke);
 background: transparent;
@@ -250,7 +230,6 @@ background: var(–orange2);
 border-color: rgba(249, 115, 22, 0.35);
 }
 
-/* ––––– FORMS ––––– */
 .ugc-label {
 font-size: 11px;
 font-weight: 900;
@@ -296,7 +275,6 @@ border-color: rgba(249, 115, 22, 0.55);
 box-shadow: 0 0 0 3px rgba(249, 115, 22, 0.10);
 }
 
-/* Input Group */
 .ugc-input-group {
 display: flex;
 gap: 8px;
@@ -312,7 +290,6 @@ flex: 0 0 auto;
 min-width: 90px;
 }
 
-/* Grid */
 .ugc-grid2 {
 display: grid;
 grid-template-columns: 1fr;
@@ -329,7 +306,6 @@ grid-template-columns: 1fr 1fr;
 grid-column: 1 / -1;
 }
 
-/* ––––– BUTTONS ––––– */
 .ugc-btn {
 border-radius: 12px;
 padding: 10px 12px;
@@ -388,7 +364,6 @@ flex-wrap: wrap;
 align-items: center;
 }
 
-/* ––––– CHIPS ––––– */
 .ugc-chiprow {
 display: flex;
 gap: 8px;
@@ -430,7 +405,6 @@ border-color: rgba(249, 115, 22, 0.35);
 background: rgba(249, 115, 22, 0.14);
 }
 
-/* ––––– ERRORS ––––– */
 .ugc-error {
 margin-top: 10px;
 padding: 10px;
@@ -452,7 +426,6 @@ color: #b91c1c;
 background: rgba(239, 68, 68, 0.10);
 }
 
-/* ––––– SPINNER ––––– */
 @keyframes spin {
 to {
 transform: rotate(360deg);
@@ -469,7 +442,6 @@ display: inline-block;
 animation: spin 0.7s linear infinite;
 }
 
-/* ––––– SCENES GRID (NEW) ––––– */
 .ugc-scenes-grid {
 display: grid;
 gap: 10px;
@@ -481,7 +453,6 @@ grid-template-columns: 1fr 1fr;
 }
 }
 
-/* Scene Card */
 .ugc-scene-card {
 border-radius: 14px;
 border: 1px solid var(–stroke);
@@ -515,7 +486,6 @@ display: flex;
 gap: 6px;
 }
 
-/* Scene Image/Video */
 .ugc-scene-image,
 .ugc-scene-video {
 width: 100%;
@@ -558,7 +528,6 @@ font-size: 12px;
 font-weight: 900;
 }
 
-/* Scene Prompt */
 .ugc-scene-prompt {
 padding: 10px;
 border-top: 1px solid var(–stroke);
@@ -597,7 +566,6 @@ overflow-y: auto;
 background: rgba(255, 255, 255, 0.05);
 }
 
-/* Negative Tags */
 .ugc-negative-tags {
 display: flex;
 gap: 5px;
@@ -609,7 +577,6 @@ margin-top: 5px;
 gap: 4px;
 }
 
-/* ––––– EXPERT CONTROLS (NEW) ––––– */
 .ugc-expert-toggle {
 width: 100%;
 display: flex;
@@ -645,7 +612,6 @@ margin-bottom: 10px;
 margin-bottom: 0;
 }
 
-/* ––––– VO COMPONENTS (NEW) ––––– */
 .ugc-field-row {
 display: flex;
 gap: 8px;
@@ -685,7 +651,6 @@ line-height: 1.5;
 color: var(–fg);
 }
 
-/* ––––– BOTTOM TABBAR ––––– */
 .ugc-tabbar {
 position: fixed;
 left: 0;
@@ -734,13 +699,11 @@ background: var(–orange2);
 border-color: rgba(249, 115, 22, 0.30);
 }
 
-/* ––––– UTILITY ––––– */
 .ugc-row-val,
 .ugc-input {
 overflow-wrap: anywhere;
 }
 
-/* Prevent text selection on UI elements */
 .ugc-chip,
 .ugc-btn,
 .ugc-tab,
