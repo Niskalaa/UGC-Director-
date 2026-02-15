@@ -254,8 +254,9 @@ export default function StudioShell({ onLogout }) {
               <input
                 className="ugc-input"
                 value={draft.brand || ""}
-                onChange={(e) => updateDraft("brand", e.target.value)}
-                placeholder="e.g., Zalora"
+                onChange={(e) => { setDraft(prev => ({...prev, FIELDNAME: e.target.value})); }}
+
+                placeholder="e.g., Nike"
               />
             </div>
             
@@ -265,7 +266,7 @@ export default function StudioShell({ onLogout }) {
                 className="ugc-input"
                 value={draft.product_type || ""}
                 onChange={(e) => updateDraft("product_type", e.target.value)}
-                placeholder="e.g., Baju koko"
+                placeholder="e.g., Baju tidur"
               />
             </div>
             
@@ -387,13 +388,19 @@ export default function StudioShell({ onLogout }) {
           
           <div className="ugc-row-actions" style={{ marginTop: 20 }}>
             <button
-              type="button"
-              className="ugc-btn"
-              onClick={() => setBlueprint(null)}
-              disabled={generating}
-            >
-              Clear Blueprint
-            </button>
+  type="button"
+  className="ugc-btn"
+  onClick={() => {
+    if (window.confirm("Clear current blueprint? This cannot be undone.")) {
+      setBlueprint(null);
+      localStorage.removeItem(LS_BLUEPRINT);
+    }
+  }}
+  disabled={generating || !blueprint}
+>
+  Clear Blueprint
+</button>
+
             
             <button
               type="button"
