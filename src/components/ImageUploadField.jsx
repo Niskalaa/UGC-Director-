@@ -18,6 +18,36 @@ function safeMsg(e) {
   return e?.message || String(e);
 }
 
+async function getUidOrThrow() {
+  // getUser lebih “tegas” daripada getSession buat kasus timing
+  const { data, error } = await supabase.auth.getUser();
+  if (error) throw error;
+  const uid = data?.user?.id;
+  if (!uid) throw new Error("Not logged in. Please login again.");
+  return uid;
+}
+
+async function resolveUrl(path) {
+  const pub = supabase.storage.from(BUCKET).getPublicUrl(path);
+  if (pub?.data?.publicUrl) return pub.data.publicUrl;
+
+  const { data: signed, error } = await supabase.storage
+    .from(BUCKET)
+    .createSignedUrl(path, 60 * 60);
+  if (error) throw error;
+  if (!signed?.signedUrl) throw new Error("Failed to create signed URL");
+  return signed.signedUrl;
+}
+
+async function tryUpload(path, file, contentType) {
+  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+    upsert: true,
+    contentType,
+  });
+  if (error) throw error;
+  return path;
+}
+
 export default function ImageUploadField({
   label,
   valueUrl,
@@ -31,28 +61,6 @@ export default function ImageUploadField({
   const inputRef = useRef(null);
   const [uploading, setUploading] = useState(false);
   const [err, setErr] = useState("");
-
-  async function getUidOrThrow() {
-    const { data, error } = await supabase.auth.getSession();
-    if (error) throw error;
-    const uid = data?.session?.user?.id;
-    if (!uid) throw new Error("Not logged in. Please login again.");
-    return uid;
-  }
-
-  async function resolveUrl(path) {
-    // If bucket is public, publicUrl works
-    const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
-    if (data?.publicUrl) return data.publicUrl;
-
-    // Otherwise create signed url
-    const { data: signed, error } = await supabase.storage
-      .from(BUCKET)
-      .createSignedUrl(path, 60 * 60);
-    if (error) throw error;
-    if (!signed?.signedUrl) throw new Error("Failed to create signed URL");
-    return signed.signedUrl;
-  }
 
   async function onPickFile(e) {
     const file = e.target.files?.[0];
@@ -78,20 +86,37 @@ export default function ImageUploadField({
     try {
       if (typeof onUrl !== "function") throw new Error("onUrl prop is missing");
       if (!projectId) throw new Error("projectId is missing");
+      if (!kind) throw new Error("kind is missing");
 
       const uid = await getUidOrThrow();
       const ext = extFromFile(file);
+      const ct = file.type || `image/${ext}`;
 
-      // ✅ Common RLS policy pattern: users/<uid>/...
-      const path = `users/${uid}/projects/${projectId}/refs/${kind}.${ext}`;
+      // ✅ IMPORTANT: coba beberapa path yang umum (biar match policy lama)
+      // Urutan paling umum dulu:
+      const candidates = [
+        `users/${uid}/${projectId}/${kind}.${ext}`,
+        `users/${uid}/projects/${projectId}/${kind}.${ext}`,
+        `users/${uid}/projects/${projectId}/refs/${kind}.${ext}`,
+        `${uid}/${projectId}/${kind}.${ext}`,
+      ];
 
-      const { error: upErr } = await supabase.storage.from(BUCKET).upload(path, file, {
-        upsert: true,
-        contentType: file.type || `image/${ext}`,
-      });
-      if (upErr) throw upErr;
+      let finalPath = null;
+      let lastError = null;
 
-      const url = await resolveUrl(path);
+      for (const p of candidates) {
+        try {
+          finalPath = await tryUpload(p, file, ct);
+          break;
+        } catch (e2) {
+          lastError = e2;
+          // lanjut coba path berikutnya
+        }
+      }
+
+      if (!finalPath) throw lastError || new Error("Upload failed");
+
+      const url = await resolveUrl(finalPath);
       onUrl(url);
     } catch (e2) {
       setErr(safeMsg(e2));
@@ -110,7 +135,7 @@ export default function ImageUploadField({
         ) : null}
       </div>
 
-      <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+      <div className="ugc-row-actions">
         <button
           type="button"
           className="ugc-btn small"
