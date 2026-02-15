@@ -292,8 +292,7 @@ Return ONLY the complete JSON blueprint, no markdown formatting, no explanations
     system: [{ text: V1_SYSTEM_PROMPT }],
     inferenceConfig: {
       maxTokens: 4096,
-      temperature: 0.7,
-      topP: 0.9,
+      temperature: 0.7, 
     },
   });
   
