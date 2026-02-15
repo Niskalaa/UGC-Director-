@@ -19,12 +19,16 @@ function safeMsg(e) {
 }
 
 async function getUidOrThrow() {
-  // getUser lebih “tegas” daripada getSession buat kasus timing
-  const { data, error } = await supabase.auth.getUser();
-  if (error) throw error;
-  const uid = data?.user?.id;
-  if (!uid) throw new Error("Not logged in. Please login again.");
-  return uid;
+  const s = await supabase.auth.getSession();
+  const uid = s?.data?.session?.user?.id;
+  if (uid) return uid;
+
+  // fallback: coba refresh session
+  const r = await supabase.auth.refreshSession();
+  const uid2 = r?.data?.session?.user?.id;
+  if (uid2) return uid2;
+
+  throw new Error("Auth session missing! Please login again.");
 }
 
 async function resolveUrl(path) {
