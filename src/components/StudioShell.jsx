@@ -131,16 +131,51 @@ function safeJsonParseLoose(content) {
 function extractScenes(blueprint, defaultSecondsPerScene = 8) {
   if (!blueprint) return [];
 
-  // 1) normalize: string -> object (if ever happens)
+  // normalize: string -> object
   let bp = blueprint;
   try {
     if (typeof bp === "string") bp = safeJsonParseLoose(bp);
   } catch {}
 
-  // 2) unwrap common wrapper
+  // unwrap wrapper: response biasanya { blueprint: {...} }
   if (bp?.blueprint) bp = bp.blueprint;
 
-  // ✅ CASE A: YOUR CURRENT SCHEMA (vo.scenes)
+  // ✅ CASE A: CURRENT SERVER SCHEMA (scenes lives at bp.scenes)
+  const directScenes = bp?.scenes;
+  if (Array.isArray(directScenes) && directScenes.length) {
+    let cursor = 0;
+    return directScenes.map((s, idx) => {
+      const n = s?.scene_number ?? idx + 1;
+      const dur = Number(s?.duration_seconds ?? defaultSecondsPerScene ?? 8);
+      const start = cursor;
+      const end = cursor + dur;
+      cursor = end;
+
+      const onScreen =
+        s?.onscreen_text?.primary ||
+        s?.onscreen_text?.secondary ||
+        s?.on_screen_text ||
+        s?.text_overlay?.primary ||
+        s?.text_overlay?.secondary ||
+        "";
+
+      return {
+        id: `S${n}`,
+        scene_number: n,
+        time_window: `${start}s–${end}s`,
+        goal: s?.title || "SCENE",
+        action: s?.shot_description || s?.description || "",
+        on_screen_text: onScreen,
+        camera: s?.camera_angle || s?.camera || "",
+        motion: s?.motion || "",
+        vo_text: s?.voiceover?.text || s?.vo_text || "",
+        vo_srt: "",
+        raw: s,
+      };
+    });
+  }
+
+  // ✅ CASE B: older schema (vo.scenes) — keep just in case
   const voScenes = bp?.vo?.scenes;
   if (Array.isArray(voScenes) && voScenes.length) {
     let cursor = 0;
@@ -174,7 +209,7 @@ function extractScenes(blueprint, defaultSecondsPerScene = 8) {
     });
   }
 
-  // ✅ CASE B: legacy/newer schemas (keep compatibility)
+  // ✅ CASE C: ugc_blueprint_v1 schema
   const v1 = bp?.ugc_blueprint_v1 || bp?.ugcBlueprintV1 || null;
   const v1Scenes = v1?.creative_specs?.scenes || v1?.creativeSpecs?.scenes;
   const v1VO = v1?.voiceover_specs?.scenes || v1?.voiceoverSpecs?.scenes;
@@ -205,7 +240,7 @@ function extractScenes(blueprint, defaultSecondsPerScene = 8) {
     });
   }
 
-  // ✅ CASE C: fallback storyboard beats
+  // ✅ CASE D: storyboard beats
   const beats =
     bp?.storyboard?.beats ||
     bp?.SEGMENT_3?.storyboard?.beats ||
@@ -870,11 +905,24 @@ function StatusDrawer({ open, onToggle, loading, elapsed, project, provider, can
     <div style={styles.statusWrap}>
       <div style={{ ...styles.statusCard, ...(open ? {} : styles.statusCardCollapsed) }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-          <div style={{ fontWeight: 900, fontSize: 13 }}>{t.status}</div>
-          <button type="button" style={styles.ghostBtn} onClick={onToggle}>
-            {open ? t.minimize : t.show}
-          </button>
-        </div>
+  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+    <div style={{ fontWeight: 900, fontSize: 13 }}>{t.status}</div>
+
+    {/* ✅ show spinner even when minimized */}
+    {loading ? (
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 8, opacity: 0.85 }}>
+        <span style={styles.spinner} />
+        <span style={{ fontSize: 12, fontWeight: 800, color: "var(--muted)" }}>
+          {t.generating} · {elapsed}s
+        </span>
+      </div>
+    ) : null}
+  </div>
+
+  <button type="button" style={styles.ghostBtn} onClick={onToggle}>
+    {open ? t.minimize : t.show}
+  </button>
+</div>
 
         {open ? (
           <>
