@@ -1,350 +1,282 @@
 // api/scrape.js
 export default async function handler(req, res) {
-  if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
-
   try {
+    if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+
     const { url } = req.body || {};
-    if (!url || typeof url !== "string") return res.status(400).json({ ok: false, error: "url required" });
+    if (!url || typeof url !== "string") return res.status(400).json({ error: "Missing url" });
 
-    const cleaned = url.trim();
+    // ---- basic guard ----
     let u;
-    try {
-      u = new URL(cleaned);
-    } catch {
-      return res.status(400).json({ ok: false, error: "Invalid URL" });
-    }
+    try { u = new URL(url); } catch { return res.status(400).json({ error: "Invalid URL" }); }
+    if (!["http:", "https:"].includes(u.protocol)) return res.status(400).json({ error: "Invalid protocol" });
 
-    if (!["http:", "https:"].includes(u.protocol)) {
-      return res.status(400).json({ ok: false, error: "Only http/https URLs are allowed" });
-    }
+    // optional: host allowlist for safety
+    // const allow = ["zalora.co.id", "www.zalora.co.id"];
+    // if (!allow.some(h => u.hostname === h || u.hostname.endsWith("." + h))) { ... }
 
-    // Basic SSRF guard (block localhost + private IP literals)
-    const host = (u.hostname || "").toLowerCase();
-    if (
-      host === "localhost" ||
-      host === "127.0.0.1" ||
-      host === "0.0.0.0" ||
-      host.endsWith(".local")
-    ) {
-      return res.status(400).json({ ok: false, error: "Blocked host" });
-    }
+    const html = await fetchHtml(url);
+    const meta = parseMeta(html);
+    const jsonld = parseJsonLd(html);
+    const nextData = parseNextData(html);
 
-    const html = await fetchHtmlWithLimits(cleaned, {
-      timeoutMs: 12000,
-      maxBytes: 800_000 // 0.8MB cukup untuk meta+jsonld
+    const picked = pickBestProduct(jsonld, nextData, meta);
+
+    // ---- heuristics: derive product_type/material if absent ----
+    const title = cleanStr(picked.title || meta.ogTitle || meta.title);
+    const brand = cleanStr(picked.brand || inferBrandFromTitle(title));
+    const description = cleanStr(picked.description || meta.ogDescription || meta.description);
+
+    const images = uniq([
+      ...(Array.isArray(picked.images) ? picked.images : []),
+      meta.ogImage,
+      meta.twitterImage,
+    ].filter(Boolean)).slice(0, 12);
+
+    const price = picked.price ?? null;
+    const currency = picked.currency ?? null;
+
+    const product_type = cleanStr(
+      picked.product_type ||
+      inferProductType(title, description)
+    );
+
+    const material = cleanStr(
+      picked.material ||
+      inferMaterial(title, description)
+    );
+
+    return res.status(200).json({
+      url,
+      title,
+      brand,
+      product_type,
+      material,
+      description,
+      price,
+      currency,
+      images,
+      source: picked.source,
     });
-
-    const meta = extractMeta(html);
-    const jsonld = extractJsonLdProducts(html);
-
-    // Merge candidates (prioritaskan JSON-LD)
-    const fields = buildFields({ meta, jsonld, url: cleaned });
-
-    return res.status(200).json({ ok: true, fields });
   } catch (e) {
-    console.error("SCRAPE ERROR:", e?.message || e);
-    return res.status(500).json({ ok: false, error: String(e?.message || e) });
+    return res.status(500).json({ error: String(e?.message || e) });
   }
 }
 
-/* =========================
-   Fetch with timeout + size limit
-   ========================= */
-
-async function fetchHtmlWithLimits(url, { timeoutMs = 12000, maxBytes = 800000 } = {}) {
+async function fetchHtml(url) {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-
+  const t = setTimeout(() => ctrl.abort(), 12000);
   try {
     const r = await fetch(url, {
       method: "GET",
       redirect: "follow",
       signal: ctrl.signal,
       headers: {
-        // Some sites block default fetch UA
-        "user-agent":
-          "Mozilla/5.0 (compatible; UGCStudioBot/1.0; +https://vercel.app)",
-        accept: "text/html,application/xhtml+xml"
-      }
+        "User-Agent": "Mozilla/5.0 (compatible; UGC-Director/1.0; +https://vercel.app)",
+        "Accept": "text/html,application/xhtml+xml",
+      },
     });
-
-    if (!r.ok) throw new Error(`Fetch failed (${r.status})`);
-
-    const ct = (r.headers.get("content-type") || "").toLowerCase();
-    if (!ct.includes("text/html") && !ct.includes("application/xhtml")) {
-      // masih bisa jalan, tapi kasih warning style
-      // throw new Error("URL does not look like HTML");
-    }
-
-    const reader = r.body?.getReader?.();
-    if (!reader) {
-      // fallback
-      const text = await r.text();
-      return text.slice(0, maxBytes);
-    }
-
-    let received = 0;
-    const chunks = [];
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      received += value.byteLength;
-      if (received > maxBytes) break;
-      chunks.push(value);
-    }
-
-    const merged = concatUint8(chunks);
-    return new TextDecoder("utf-8").decode(merged);
-  } catch (e) {
-    if (e?.name === "AbortError") throw new Error(`Timeout after ${Math.round(timeoutMs / 1000)}s`);
-    throw e;
+    if (!r.ok) throw new Error(`Fetch failed: ${r.status}`);
+    const ct = r.headers.get("content-type") || "";
+    if (!ct.includes("text/html")) throw new Error("Not HTML");
+    const text = await r.text();
+    if (!text || text.length < 100) throw new Error("Empty HTML");
+    return text;
   } finally {
     clearTimeout(t);
   }
 }
 
-function concatUint8(chunks) {
-  const total = chunks.reduce((s, c) => s + c.length, 0);
-  const out = new Uint8Array(total);
-  let off = 0;
-  for (const c of chunks) {
-    out.set(c, off);
-    off += c.length;
-  }
-  return out;
-}
-
-/* =========================
-   HTML parsing (no deps)
-   ========================= */
-
-function extractMeta(html) {
-  const out = {
-    title: pickFirst([
-      matchTagContent(html, /<title[^>]*>([\s\S]*?)<\/title>/i),
-      matchMeta(html, "og:title"),
-      matchMeta(html, "twitter:title")
-    ]),
-    description: pickFirst([
-      matchMeta(html, "description"),
-      matchMeta(html, "og:description"),
-      matchMeta(html, "twitter:description")
-    ]),
-    ogImage: pickFirst([matchMeta(html, "og:image"), matchMeta(html, "twitter:image")]),
-    siteName: pickFirst([matchMeta(html, "og:site_name")]),
-    brandHint: pickFirst([matchMeta(html, "brand"), matchMeta(html, "og:brand")]),
-    raw: null
+function parseMeta(html) {
+  const get = (re) => {
+    const m = html.match(re);
+    return m ? decodeHtml(m[1]).trim() : "";
   };
 
-  // normalize whitespace
-  out.title = normalizeText(out.title);
-  out.description = normalizeText(out.description);
+  const title =
+    get(/<title[^>]*>([^<]{1,300})<\/title>/i);
 
-  return out;
+  const ogTitle =
+    get(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) ||
+    get(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
+
+  const ogDescription =
+    get(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']+)["']/i) ||
+    get(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:description["']/i);
+
+  const ogImage =
+    get(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+    get(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+
+  const twitterImage =
+    get(/<meta[^>]+name=["']twitter:image["'][^>]+content=["']([^"']+)["']/i) ||
+    get(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']twitter:image["']/i);
+
+  const description =
+    get(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i) ||
+    get(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i);
+
+  return { title, ogTitle, ogDescription, ogImage, twitterImage, description };
 }
 
-function matchMeta(html, nameOrProp) {
-  // match <meta name="x" content="..."> OR <meta property="x" content="...">
-  const re = new RegExp(
-    `<meta[^>]+(?:name|property)=["']${escapeRegExp(nameOrProp)}["'][^>]+content=["']([^"']+)["'][^>]*>`,
-    "i"
-  );
-  const m = html.match(re);
-  return m ? m[1] : "";
-}
-
-function matchTagContent(html, re) {
-  const m = html.match(re);
-  return m ? m[1] : "";
-}
-
-function extractJsonLdProducts(html) {
-  // find all <script type="application/ld+json">...</script>
-  const scripts = [];
+function parseJsonLd(html) {
+  const out = [];
   const re = /<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi;
   let m;
   while ((m = re.exec(html))) {
-    const raw = (m[1] || "").trim();
-    if (!raw) continue;
-    scripts.push(raw);
+    const raw = m[1].trim();
+    const json = safeJson(raw);
+    if (!json) continue;
+    if (Array.isArray(json)) out.push(...json);
+    else out.push(json);
   }
-
-  const products = [];
-  for (const s of scripts) {
-    const parsed = tryParseJsonLd(s);
-    if (!parsed) continue;
-
-    const nodes = flattenJsonLd(parsed);
-    for (const node of nodes) {
-      const t = (node?.["@type"] || node?.type || "").toString();
-      if (!t) continue;
-
-      // Product | ProductGroup | OfferCatalog etc (we focus Product)
-      const types = Array.isArray(node["@type"]) ? node["@type"].map(String) : [String(node["@type"])];
-      if (types.some((x) => x.toLowerCase() === "product")) {
-        products.push(node);
-      }
-    }
-  }
-  return products;
+  return out;
 }
 
-function tryParseJsonLd(raw) {
-  // some pages include multiple JSON objects without comma, try best
-  const cleaned = raw
-    .replace(/<!--([\s\S]*?)-->/g, "")
-    .trim();
+function parseNextData(html) {
+  // Next.js: __NEXT_DATA__
+  const m = html.match(/<script[^>]+id=["']__NEXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if (!m) return null;
+  return safeJson(m[1]);
+}
 
+function pickBestProduct(jsonld, nextData, meta) {
+  // 1) JSON-LD Product
+  for (const node of jsonld || []) {
+    const p = normalizeProductNode(node);
+    if (p) return { ...p, source: "jsonld" };
+  }
+
+  // 2) Next data heuristic (varies per site)
+  const nx = normalizeFromNext(nextData);
+  if (nx) return { ...nx, source: "next" };
+
+  // 3) meta fallback
+  return {
+    title: meta.ogTitle || meta.title,
+    description: meta.ogDescription || meta.description,
+    images: [meta.ogImage, meta.twitterImage].filter(Boolean),
+    source: "meta",
+  };
+}
+
+function normalizeProductNode(node) {
+  if (!node || typeof node !== "object") return null;
+
+  // can be { "@graph": [...] }
+  if (Array.isArray(node["@graph"])) {
+    for (const g of node["@graph"]) {
+      const r = normalizeProductNode(g);
+      if (r) return r;
+    }
+  }
+
+  const t = node["@type"];
+  if (t === "Product" || (Array.isArray(t) && t.includes("Product"))) {
+    const title = cleanStr(node.name);
+    const description = cleanStr(node.description);
+    const brand = cleanStr(node.brand?.name || node.brand);
+    const material = cleanStr(node.material);
+
+    const images = [];
+    if (typeof node.image === "string") images.push(node.image);
+    else if (Array.isArray(node.image)) images.push(...node.image);
+
+    let price = null, currency = null;
+    const offers = node.offers;
+    const offer = Array.isArray(offers) ? offers[0] : offers;
+    if (offer && typeof offer === "object") {
+      price = offer.price ?? offer.lowPrice ?? null;
+      currency = offer.priceCurrency ?? null;
+    }
+
+    return {
+      title,
+      description,
+      brand,
+      material,
+      images,
+      price,
+      currency,
+    };
+  }
+
+  return null;
+}
+
+function normalizeFromNext(nextData) {
+  if (!nextData || typeof nextData !== "object") return null;
+  // Ini sengaja “best effort” karena struktur tiap site beda.
+  // Kalau kamu kasih contoh HTML Zalora, aku bisa bikin extractor yang lebih spesifik.
+  return null;
+}
+
+function inferBrandFromTitle(title) {
+  if (!title) return "";
+  // contoh: "Casella - Baju Koko ..." → brand Casella
+  const parts = title.split(/[-|•]/).map(s => s.trim()).filter(Boolean);
+  if (parts.length >= 2 && parts[0].length <= 30) return parts[0];
+  return "";
+}
+
+function inferProductType(title, desc) {
+  const t = (title + " " + (desc || "")).toLowerCase();
+  const map = [
+    ["baju koko", "Baju koko"],
+    ["koko", "Baju koko"],
+    ["hoodie", "Hoodie"],
+    ["t-shirt", "T-shirt"],
+    ["kaos", "Kaos"],
+    ["kemeja", "Kemeja"],
+    ["celana", "Celana"],
+    ["jaket", "Jaket"],
+    ["dress", "Dress"],
+  ];
+  for (const [k, v] of map) if (t.includes(k)) return v;
+  return "";
+}
+
+function inferMaterial(title, desc) {
+  const t = (title + " " + (desc || "")).toLowerCase();
+  const map = [
+    ["katun", "Katun"],
+    ["cotton", "Katun"],
+    ["linen", "Linen"],
+    ["rayon", "Rayon"],
+    ["polyester", "Polyester"],
+    ["viscose", "Viscose"],
+    ["denim", "Denim"],
+  ];
+  for (const [k, v] of map) if (t.includes(k)) return v;
+  return "";
+}
+
+function safeJson(s) {
   try {
+    const cleaned = s
+      .replace(/^\s*<!--/, "")
+      .replace(/-->\s*$/, "")
+      .trim();
     return JSON.parse(cleaned);
   } catch {
-    // attempt slice first {...} block
-    const s = cleaned.indexOf("{");
-    const e = cleaned.lastIndexOf("}");
-    if (s >= 0 && e > s) {
-      const sliced = cleaned.slice(s, e + 1);
-      try {
-        return JSON.parse(sliced);
-      } catch {
-        return null;
-      }
-    }
     return null;
   }
 }
 
-function flattenJsonLd(obj) {
-  // could be { @graph: [...] } or array or single object
-  if (!obj) return [];
-  if (Array.isArray(obj)) return obj.flatMap(flattenJsonLd);
-  if (obj["@graph"] && Array.isArray(obj["@graph"])) return obj["@graph"];
-  return [obj];
-}
-
-/* =========================
-   Field builder
-   ========================= */
-
-function buildFields({ meta, jsonld, url }) {
-  const p = jsonld?.[0] || {};
-  const name = normalizeText(p?.name || p?.title || meta?.title || "");
-  const desc = normalizeText(p?.description || meta?.description || "");
-
-  const brand =
-    normalizeText(
-      (typeof p?.brand === "string" ? p.brand : p?.brand?.name) ||
-        meta?.brandHint ||
-        meta?.siteName ||
-        guessBrandFromHost(url)
-    ) || "";
-
-  const product_type =
-    normalizeText(
-      p?.category ||
-        p?.productCategory ||
-        guessProductTypeFromText(name, desc)
-    ) || "";
-
-  const material =
-    normalizeText(
-      p?.material ||
-        guessMaterialFromText(name, desc)
-    ) || "";
-
-  const suggested_platform = "tiktok"; // default
-  const suggested_aspect_ratio = "9:16"; // default
-
-  // target audience + tone heuristics (safe defaults)
-  const target_audience = guessAudienceFromText(name, desc);
-  const tone = "natural gen-z";
-
-  return {
-    source_url: url,
-    brand,
-    product_type,
-    material,
-    target_audience,
-    tone,
-    suggested_platform,
-    suggested_aspect_ratio
-  };
-}
-
-/* =========================
-   Heuristics helpers
-   ========================= */
-
-function guessBrandFromHost(url) {
-  try {
-    const u = new URL(url);
-    const h = (u.hostname || "").replace(/^www\./, "");
-    const main = h.split(".")[0] || "";
-    return main ? capitalize(main) : "";
-  } catch {
-    return "";
-  }
-}
-
-function guessProductTypeFromText(title, desc) {
-  const t = `${title} ${desc}`.toLowerCase();
-
-  const map = [
-    ["sunscreen", ["sunscreen", "sun screen", "spf", "uv"]],
-    ["skincare", ["serum", "toner", "moisturizer", "cleanser", "essence", "skincare"]],
-    ["hoodie", ["hoodie"]],
-    ["t-shirt", ["t-shirt", "tee", "kaos"]],
-    ["dress", ["dress", "gaun"]],
-    ["coffee", ["coffee", "kopi", "espresso"]],
-    ["snack", ["chips", "keripik", "snack", "candy", "biskuit"]],
-    ["shoes", ["sneakers", "shoes", "sepatu"]],
-    ["bag", ["bag", "tas"]],
-    ["perfume", ["perfume", "parfum", "fragrance"]],
-  ];
-
-  for (const [label, keys] of map) {
-    if (keys.some((k) => t.includes(k))) return label;
-  }
-  return "";
-}
-
-function guessMaterialFromText(title, desc) {
-  const t = `${title} ${desc}`.toLowerCase();
-  const materials = ["cotton", "linen", "polyester", "wool", "leather", "stainless", "steel", "silk", "denim", "nylon", "rayon"];
-  for (const m of materials) {
-    if (t.includes(m)) return m === "steel" ? "stainless steel" : m;
-  }
-  return "";
-}
-
-function guessAudienceFromText(title, desc) {
-  const t = `${title} ${desc}`.toLowerCase();
-  // super ringan aja biar ga sok tau
-  if (t.includes("men") || t.includes("pria") || t.includes("cowok")) return "pria 18–34";
-  if (t.includes("women") || t.includes("wanita") || t.includes("cewek") || t.includes("girl")) return "wanita 18–34";
-  return "";
-}
-
-function normalizeText(s) {
-  return String(s || "")
-    .replace(/\s+/g, " ")
+function decodeHtml(s) {
+  return s
     .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .trim();
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
 }
 
-function pickFirst(arr) {
-  for (const x of arr) {
-    const v = normalizeText(x);
-    if (v) return v;
-  }
-  return "";
+function cleanStr(x) {
+  if (!x) return "";
+  return String(x).replace(/\s+/g, " ").trim();
 }
 
-function escapeRegExp(s) {
-  return String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function capitalize(s) {
-  const x = String(s || "");
-  return x ? x.charAt(0).toUpperCase() + x.slice(1) : "";
+function uniq(arr) {
+  return [...new Set(arr)];
 }
