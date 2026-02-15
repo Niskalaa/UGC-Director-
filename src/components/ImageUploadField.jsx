@@ -128,8 +128,6 @@ if (!finalPath) {
   throw lastError || new Error("Upload failed");
 }
 
-      if (!finalPath) throw lastError || new Error("Upload failed");
-
       const url = await resolveUrl(finalPath);
       onUrl(url);
     } catch (e2) {
