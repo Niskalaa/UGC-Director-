@@ -11,15 +11,16 @@
   box-sizing: border-box;
 }
 
-html,
-body {
-  height: 100%;
-}
+html, body { height: 100%; }
 
 body {
   margin: 0;
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
 }
+
+a { color: inherit; text-decoration: none; }
+button, input, select, textarea { font: inherit; }
+button { -webkit-appearance: none; appearance: none; border: none; background: none; color: inherit; }
 
 /* =========================
    Animations
@@ -42,8 +43,10 @@ body {
 /* LIGHT (default) */
 :root {
   --bg: #fff7ed;
-  --fg: rgba(17, 24, 39, 0.78);      /* soft black */
-  --muted: rgba(17, 24, 39, 0.52);
+
+  /* soft black biar tidak terlalu kontras */
+  --fg: rgba(17, 24, 39, 0.80);
+  --muted: rgba(17, 24, 39, 0.55);
 
   --card: rgba(255, 255, 255, 0.86);
   --card2: rgba(255, 255, 255, 0.78);
@@ -63,9 +66,8 @@ body {
   --shadow: 0 18px 60px rgba(0, 0, 0, 0.12);
 
   --progressTrack: rgba(0, 0, 0, 0.06);
-   /* ... token kamu yang sudah ada ... */
 
-  /* ✅ ALIAS untuk StudioShell inline-styles (WAJIB) */
+  /* alias (biar semua komponen konsisten) */
   --text: var(--fg);
   --border: var(--stroke);
   --panel: var(--card);
@@ -75,6 +77,7 @@ body {
 /* DARK */
 html[data-theme="dark"] {
   --bg: #050507;
+
   --fg: rgba(245, 245, 246, 0.92);
   --muted: rgba(255, 255, 255, 0.70);
 
@@ -96,9 +99,7 @@ html[data-theme="dark"] {
   --shadow: 0 18px 70px rgba(0, 0, 0, 0.55);
 
   --progressTrack: rgba(255, 255, 255, 0.08);
-   /* ... token kamu yang sudah ada ... */
 
-  /* ✅ ALIAS untuk StudioShell inline-styles (WAJIB) */
   --text: var(--fg);
   --border: var(--stroke);
   --panel: var(--card);
@@ -116,23 +117,60 @@ body {
   color: var(--fg);
 }
 
-a { color: inherit; }
-
-/* prevent “button looks like plain text” on iOS */
-button {
-  font-family: inherit;
-}
-
-/* page padding bottom to make room for dock + tabbar + credit */
+/* page padding bottom to make room for dock + credit + tabbar */
 .ugc-page {
   min-height: 100vh;
-  padding-bottom: 190px;
+  padding-bottom: 210px;
 }
 
 /* =========================
-   Topbar
+   Topbar (FIX HEADER BROKEN)
    ========================= */
-.ugc-topbar button{
+.ugc-topbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(14px);
+  background: linear-gradient(180deg, var(--topbar), rgba(0,0,0,0));
+  border-bottom: 1px solid var(--stroke);
+}
+
+.ugc-topbar-inner {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 14px 14px;
+
+  /* ✅ pakai flex agar wrap stabil di iOS Safari */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.ugc-title {
+  font-weight: 900;
+  font-size: 18px;
+  letter-spacing: -0.2px;
+  flex: 0 0 auto;
+  min-width: 110px;
+}
+
+.ugc-top-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 10px;
+  row-gap: 10px;
+
+  /* ✅ dorong selalu ke kanan */
+  margin-left: auto;
+  min-width: 0;
+}
+
+.ugc-topbar button,
+.ugc-pill-btn {
   border: 1px solid var(--stroke);
   background: rgba(255,255,255,0.06);
   color: var(--fg);
@@ -140,28 +178,13 @@ button {
   border-radius: 999px;
   font-weight: 900;
   font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
-:root[data-theme="light"] .ugc-topbar button{
+:root:not(html[data-theme="dark"]) .ugc-topbar button,
+:root:not(html[data-theme="dark"]) .ugc-pill-btn {
   background: rgba(255,255,255,0.75);
-}
-
-.ugc-topbar-inner{
-  display: grid;                 /* ✅ ganti flex → grid lebih stabil */
-  grid-template-columns: 1fr auto;
-  align-items: center;
-  gap: 10px;
-}
-
-.ugc-title { min-width: 110px; }
-
-.ugc-top-actions{
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  row-gap: 10px;
 }
 
 /* =========================
@@ -212,30 +235,26 @@ button {
 }
 
 /* =========================
-   Buttons + Pills
+   Buttons (FIX “BUTTON JADI TEXT”)
    ========================= */
-.ugc-pill{
+.ugc-btn {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  padding: 8px 10px;
-  border-radius: 999px;
+
+  border-radius: 14px;
+  padding: 12px 14px;
   border: 1px solid var(--stroke);
   background: rgba(255,255,255,0.06);
-}
-
-:root[data-theme="light"] .ugc-pill{
-  background: rgba(255,255,255,0.75);
-}
-
-.ugc-pill-btn{
-  border: 1px solid var(--stroke);
-  background: transparent;
   color: var(--fg);
-  padding: 8px 10px;
-  border-radius: 999px;
+
   font-weight: 900;
-  font-size: 12px;
+  cursor: pointer;
+}
+
+:root:not(html[data-theme="dark"]) .ugc-btn {
+  background: rgba(255,255,255,0.92);
 }
 
 .ugc-btn.small { padding: 10px 12px; font-size: 12px; }
@@ -249,6 +268,18 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
 
 .ugc-btn:disabled { opacity: 0.55; cursor: not-allowed; }
 
+/* pills / chips */
+.ugc-pill{
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--stroke);
+  background: rgba(255,255,255,0.06);
+}
+:root:not(html[data-theme="dark"]) .ugc-pill { background: rgba(255,255,255,0.75); }
+
 .ugc-chiprow { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .ugc-chip {
   font-size: 12px;
@@ -257,8 +288,8 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
   border-radius: 999px;
   border: 1px solid var(--stroke);
   background: rgba(255,255,255,0.06);
+  white-space: nowrap;
 }
-
 .ugc-chip.ok { border-color: rgba(34,197,94,0.35); background: rgba(34,197,94,0.14); }
 .ugc-chip.bad { border-color: rgba(239,68,68,0.35); background: rgba(239,68,68,0.14); }
 
@@ -266,6 +297,7 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
    Scenes list
    ========================= */
 .ugc-list { display: grid; gap: 12px; }
+
 .ugc-scene {
   border-radius: 16px;
   border: 1px solid var(--stroke);
@@ -274,6 +306,7 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
 }
 
 .ugc-scene-top { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+
 .ugc-badge {
   font-size: 12px;
   font-weight: 900;
@@ -284,7 +317,14 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
 }
 
 .ugc-row { margin-top: 10px; }
-.ugc-row-label { font-size: 12px; font-weight: 900; color: var(--muted); margin-bottom: 6px; }
+
+.ugc-row-label {
+  font-size: 12px;
+  font-weight: 900;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
 .ugc-row-val {
   border: 1px solid var(--stroke);
   background: var(--rowBg);
@@ -296,13 +336,13 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
 }
 
 /* =========================
-   Status Dock (above credit+tabbar)
+   Status Dock (FIX “NEMPEL / TINDIH”)
    ========================= */
 .ugc-status {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 92px; /* 64 tabbar + ~28 credit gap */
+  bottom: 92px; /* di atas credit + tabbar */
   z-index: 60;
   padding: 10px 12px;
 }
@@ -322,6 +362,8 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
   justify-content: space-between;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;     /* ✅ biar “Minimize” nggak nabrak */
+  row-gap: 10px;
   margin-bottom: 10px;
 }
 
@@ -343,6 +385,7 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
   transition: width 180ms linear;
 }
 
+/* minimized shimmer bar */
 .ugc-progress-mini {
   height: 8px;
   border-radius: 999px;
@@ -350,6 +393,7 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
   border: 1px solid var(--stroke);
   overflow: hidden;
   position: relative;
+  margin-top: 6px; /* ✅ jangan nempel */
 }
 
 .ugc-progress-mini::after {
@@ -376,7 +420,7 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
 }
 
 /* =========================
-   Bottom Tabbar
+   Bottom Tabbar (Telegram/iOS-ish)
    ========================= */
 .ugc-tabbar {
   position: fixed;
@@ -385,7 +429,7 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
   bottom: 0;
   z-index: 70;
   padding: 12px;
-  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  padding-bottom: calc(14px + env(safe-area-inset-bottom));
 }
 
 .ugc-tabbar-inner {
@@ -417,13 +461,13 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
 }
 
 /* =========================
-   Credit (NOT sticking to bottom, sits above tabbar)
+   Credit (give breathing space)
    ========================= */
 .ugc-credit {
   position: fixed;
   left: 0;
   right: 0;
-  bottom: 72px; /* above tabbar */
+  bottom: 74px;  /* ✅ tidak nempel tabbar */
   text-align: center;
   font-weight: 900;
   font-size: 12px;
@@ -431,7 +475,9 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
   pointer-events: none;
 }
 
-/* toast */
+/* =========================
+   Toast
+   ========================= */
 .ugc-toast {
   position: fixed;
   left: 50%;
@@ -447,57 +493,3 @@ html[data-theme="dark"] .ugc-btn.primary { color: #111; }
 }
 .ugc-toast.ok { border-color: rgba(34,197,94,0.35); }
 .ugc-toast.bad { border-color: rgba(239,68,68,0.35); }
-/* ===== Responsive fixes: topbar + status ===== */
-.ugc-topbar-inner {
-  flex-wrap: wrap;
-  row-gap: 10px;
-}
-
-.ugc-top-actions {
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 8px;
-}
-
-.ugc-pill {
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.ugc-pill-label {
-  white-space: nowrap;
-}
-
-.ugc-pill-btn {
-  white-space: nowrap;
-}
-
-.ugc-status-head {
-  flex-wrap: wrap;
-  row-gap: 10px;
-}
-
-.ugc-chiprow {
-  gap: 8px;
-}
-
-.ugc-chip {
-  white-space: nowrap;
-}
-
-.ugc-row-actions {
-  gap: 10px;
-  flex-wrap: wrap;
-}
-
-.ugc-btn.small {
-  padding: 10px 12px;
-}
-
-/* iOS spacing: jangan nempel bottom */
-.ugc-credit {
-  bottom: 72px; /* naik dikit biar gak nempel tabbar */
-}
-.ugc-tabbar {
-  padding-bottom: calc(14px + env(safe-area-inset-bottom));
-}
