@@ -1,9 +1,11 @@
 // src/components/StudioShell.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ImageUploadField from "./ImageUploadField.jsx";
+import { DEFAULT_PROJECT } from "../studio/studioStore.js";
 
-const LS_THEME = "ugc_theme";
-const LS_LANG = "ugc_lang";
+const LS_THEME = "ugc_theme"; // "dark" | "light"
+const LS_LANG = "ugc_lang";   // "id" | "en"
+const TABS = ["Settings", "Scenes", "Export"];
 
 const i18n = {
   id: {
@@ -15,45 +17,34 @@ const i18n = {
     light: "Light",
     dark: "Dark",
     logout: "Logout",
-    workflow: "plan → image → approve → video → audio",
-    status: "Status",
-    show: "Show",
-    minimize: "Minimize",
-    generating: "Generating…",
-    progress: "Progress",
-    generatePlan: "Generate Plan",
-    saveDraft: "Save Draft",
-    cancel: "Cancel",
-    openJson: "Open JSON",
-    downloadJson: "Download JSON",
-    noBlueprint: "Belum ada blueprint. Generate dulu di Settings.",
-    beatsNotReadable: "Blueprint ada, tapi scenes/beats tidak terbaca.",
-    // fields
-    aiBrain: "AI Brain",
+    provider: "AI Brain",
+    autofillLink: "Product page URL (optional)",
+    autofillBtn: "Auto-fill from Link",
+    analyzing: "Analyzing…",
+    formatTiming: "Format & Timing",
     platform: "Platform",
     aspectRatio: "Aspect ratio",
     sceneCount: "Scene count",
     secondsPerScene: "Seconds / scene",
+    core: "Core",
     brand: "Brand *",
     productType: "Product type *",
     material: "Material *",
     tone: "Tone (optional)",
     targetAudience: "Target audience (optional)",
-    productUrl: "Product page URL (optional)",
-    autoFill: "Auto-fill from Link",
-    // assets
     assets: "Assets (optional)",
     modelRef: "Model reference (optional)",
     productRef: "Product reference (optional)",
-    // scene
-    prompt: "Prompt",
-    narration: "Narasi (VO)",
-    onScreen: "On-screen",
-    generateImage: "Generate Image",
-    imageReady: "Image ready ✓",
-    imageFailed: "Image failed",
-    openImage: "Open",
-    downloadImage: "Download",
+    saveDraft: "Save Draft",
+    generate: "Generate Plan",
+    generating: "Generating…",
+    status: "Status",
+    show: "Show",
+    minimize: "Minimize",
+    noBlueprint: "No blueprint yet. Generate it in Settings.",
+    openJson: "Open JSON",
+    downloadJson: "Download JSON",
+    providerLabel: "Provider",
   },
   en: {
     studio: "Studio",
@@ -64,431 +55,466 @@ const i18n = {
     light: "Light",
     dark: "Dark",
     logout: "Logout",
-    workflow: "plan → image → approve → video → audio",
-    status: "Status",
-    show: "Show",
-    minimize: "Minimize",
-    generating: "Generating…",
-    progress: "Progress",
-    generatePlan: "Generate Plan",
-    saveDraft: "Save Draft",
-    cancel: "Cancel",
-    openJson: "Open JSON",
-    downloadJson: "Download JSON",
-    noBlueprint: "No blueprint yet. Generate it in Settings.",
-    beatsNotReadable: "Blueprint exists, but scenes/beats not readable.",
-    // fields
-    aiBrain: "AI Brain",
+    provider: "AI Brain",
+    autofillLink: "Product page URL (optional)",
+    autofillBtn: "Auto-fill from Link",
+    analyzing: "Analyzing…",
+    formatTiming: "Format & Timing",
     platform: "Platform",
     aspectRatio: "Aspect ratio",
     sceneCount: "Scene count",
     secondsPerScene: "Seconds / scene",
+    core: "Core",
     brand: "Brand *",
     productType: "Product type *",
     material: "Material *",
     tone: "Tone (optional)",
     targetAudience: "Target audience (optional)",
-    productUrl: "Product page URL (optional)",
-    autoFill: "Auto-fill from Link",
-    // assets
     assets: "Assets (optional)",
     modelRef: "Model reference (optional)",
     productRef: "Product reference (optional)",
-    // scene
-    prompt: "Prompt",
-    narration: "Narration (VO)",
-    onScreen: "On-screen",
-    generateImage: "Generate Image",
-    imageReady: "Image ready ✓",
-    imageFailed: "Image failed",
-    openImage: "Open",
-    downloadImage: "Download",
+    saveDraft: "Save Draft",
+    generate: "Generate Plan",
+    generating: "Generating…",
+    status: "Status",
+    show: "Show",
+    minimize: "Minimize",
+    noBlueprint: "No blueprint yet. Generate it in Settings.",
+    openJson: "Open JSON",
+    downloadJson: "Download JSON",
+    providerLabel: "Provider",
   },
 };
 
-function safeJsonParseLoose(content) {
+function safeJsonParseLoose(raw) {
   try {
-    return JSON.parse(content);
+    return JSON.parse(raw);
   } catch {
-    const s = String(content || "");
-    const a = s.indexOf("{");
-    const b = s.lastIndexOf("}");
-    if (a >= 0 && b > a) return JSON.parse(s.slice(a, b + 1));
-    throw new Error("Invalid JSON");
+    const m = String(raw).match(/\{[\s\S]*\}$/);
+    if (m) {
+      try { return JSON.parse(m[0]); } catch {}
+    }
+    return null;
   }
 }
 
-function clamp(n, a, b) {
-  return Math.max(a, Math.min(b, n));
+function escapeHtml(s) {
+  return String(s)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;");
 }
 
-/**
- * ✅ Blueprint terbaru:
- * blueprint.scenes[].visual_direction (utama)
- * blueprint.scenes[].voiceover (string)
- * blueprint.scenes[].camera_movement
- * blueprint.scenes[].onscreen_text (string)
- * fallback: visual_prompt, voiceover.text, camera_angle, on_screen
- */
-function extractScenes(blueprint, defaultSecondsPerScene = 8) {
-  if (!blueprint) return [];
+/** ========= blueprint parser (support multiple formats) ========= */
+function extractScenes(bp) {
+  if (!bp) return [];
+  // newest: ugc_blueprint_v1.creative_specs.scenes
+  const a = bp?.ugc_blueprint_v1?.creative_specs?.scenes;
+  if (Array.isArray(a)) return a;
 
-  let bp = blueprint;
-  try {
-    if (typeof bp === "string") bp = safeJsonParseLoose(bp);
-  } catch {}
+  // older: creative_specs.scenes
+  const b = bp?.creative_specs?.scenes;
+  if (Array.isArray(b)) return b;
 
-  if (bp?.blueprint) bp = bp.blueprint;
+  // storyboard beats
+  const beats = bp?.storyboard?.beats;
+  if (Array.isArray(beats)) return beats.map((x, i) => ({ ...x, id: x.id || `S${i + 1}` }));
 
-  const arr = bp?.scenes;
-  if (!Array.isArray(arr)) return [];
+  const beats2 = bp?.segments?.storyboard?.beats;
+  if (Array.isArray(beats2)) return beats2.map((x, i) => ({ ...x, id: x.id || `S${i + 1}` }));
 
-  return arr.map((s, idx) => {
-    const sec = Number(s?.duration_seconds || s?.duration || defaultSecondsPerScene) || defaultSecondsPerScene;
-
-    const visual =
-      s?.visual_direction ||
-      s?.visual_prompt ||
-      s?.visual ||
-      s?.prompt ||
-      "";
-
-    const vo =
-      typeof s?.voiceover === "string"
-        ? s.voiceover
-        : (s?.voiceover?.text || s?.narration || "");
-
-    const onScreen =
-      s?.onscreen_text ||
-      s?.on_screen ||
-      s?.onScreen ||
-      "";
-
-    const cam = s?.camera_movement || s?.camera_angle || s?.camera || "";
-
-    return {
-      id: s?.id || `S${idx + 1}`,
-      index: idx + 1,
-      seconds: sec,
-      visual_prompt: String(visual || "").trim(),
-      narration: String(vo || "").trim(),
-      on_screen: String(onScreen || "").trim(),
-      camera: String(cam || "").trim(),
-    };
-  });
+  return [];
 }
 
-function downloadText(filename, text) {
-  const blob = new Blob([text], { type: "application/json;charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-function buildImageBrief(scene, project) {
-  const parts = [];
-
-  const cam = scene?.camera ? `Camera: ${scene.camera}.` : "";
-  const ons = scene?.on_screen ? `On-screen text: ${scene.on_screen}.` : "";
-
-  if (scene?.visual_prompt) parts.push(scene.visual_prompt);
-  if (cam) parts.push(cam);
-  if (ons) parts.push(ons);
-
-  parts.push(
-    "Style: photorealistic, clean commercial look, natural lighting, handheld phone camera vibe, sharp focus, high detail, realistic textures."
+function LangToggle({ lang, setLang }) {
+  const t = i18n[lang] || i18n.id;
+  return (
+    <div className="ugc-pill">
+      <span className="ugc-pill-label">{t.language}</span>
+      <button
+        type="button"
+        className={`ugc-pill-btn ${lang === "id" ? "active" : ""}`}
+        onClick={() => setLang("id")}
+      >
+        ID
+      </button>
+      <button
+        type="button"
+        className={`ugc-pill-btn ${lang === "en" ? "active" : ""}`}
+        onClick={() => setLang("en")}
+      >
+        EN
+      </button>
+    </div>
   );
-
-  if (project?.brand || project?.product_type) {
-    parts.push(`Product context: ${project?.brand || ""} ${project?.product_type || ""}.`);
-  }
-  return parts.filter(Boolean).join("\n");
 }
 
-/**
- * ✅ /api/jobs POST:
- * { type:"image", brief:"...", settings:{ aspect_ratio:"9:16" } }
- * ✅ Response: { id, status, image_url } atau { id, status, imageUrl }
- */
-async function createImageJob({ scene, project, signal }) {
-  const payload = {
-    type: "image",
-    brief: buildImageBrief(scene, project),
-    settings: { aspect_ratio: project?.aspect_ratio || "9:16" },
-  };
+function ThemeToggle({ theme, setTheme }) {
+  const next = theme === "dark" ? "light" : "dark";
+  return (
+    <button type="button" className="ugc-pill-btn" onClick={() => setTheme(next)}>
+      {next === "dark" ? "Dark" : "Light"}
+    </button>
+  );
+}
 
-  const r = await fetch("/api/jobs", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-    signal,
-  });
-
-  const raw = await r.text();
-  let json;
-  try {
-    json = raw ? JSON.parse(raw) : null;
-  } catch {
-    throw new Error(`Non-JSON jobs response (${r.status}). Preview: ${String(raw).slice(0, 160)}`);
+function OpenDownloadBlueprintButtons({ blueprint, t }) {
+  function openJson() {
+    const w = window.open("", "_blank");
+    if (!w) return;
+    const html = `
+      <pre style="white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; padding:16px;">
+${escapeHtml(JSON.stringify(blueprint, null, 2))}
+      </pre>`;
+    w.document.write(html);
+    w.document.close();
   }
 
-  if (!r.ok) throw new Error(json?.error || `Jobs failed (${r.status})`);
-  if (!json?.id) throw new Error(`Jobs returned no id. keys=${Object.keys(json || {}).join(",")}`);
+  function downloadJson() {
+    const blob = new Blob([JSON.stringify(blueprint, null, 2)], { type: "application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "blueprint.json";
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
 
-  // normalize
-  const imageUrl = json.imageUrl || json.image_url || json.url || "";
-  return { ...json, imageUrl };
+  return (
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+      <button type="button" className="ugc-btn small" onClick={openJson}>
+        {t.openJson}
+      </button>
+      <button type="button" className="ugc-btn small" onClick={downloadJson}>
+        {t.downloadJson}
+      </button>
+    </div>
+  );
 }
 
 export default function StudioShell({ onLogout }) {
-  const [tab, setTab] = useState("Scenes");
-
+  const [tab, setTab] = useState("Settings");
   const [lang, setLang] = useState(() => localStorage.getItem(LS_LANG) || "id");
   const [theme, setTheme] = useState(() => localStorage.getItem(LS_THEME) || "dark");
+
+  const [projectDraft, setProjectDraft] = useState(() => {
+    try {
+      const raw = localStorage.getItem(DEFAULT_PROJECT);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  });
+
+  const [blueprint, setBlueprint] = useState(() => {
+    try {
+      const raw = localStorage.getItem(`${DEFAULT_PROJECT}::blueprint`);
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  });
+
+  const [loadingPlan, setLoadingPlan] = useState(false);
+  const [planError, setPlanError] = useState("");
+  const [statusOpen, setStatusOpen] = useState(false);
+
   const t = i18n[lang] || i18n.id;
 
-  // project draft
-  const [project, setProject] = useState(() => ({
-    ai_brain: "bedrock",
-    platform: "tiktok",
-    aspect_ratio: "9:16",
-    scene_count: 4,
-    seconds_per_scene: 8,
-    brand: "",
-    product_type: "",
-    material: "",
-    tone: "",
-    target_audience: "",
-    product_url: "",
-    model_ref_url: "",
-    product_ref_url: "",
-  }));
+  // persist lang/theme
+  useEffect(() => {
+    localStorage.setItem(LS_LANG, lang);
+  }, [lang]);
 
-  const [blueprint, setBlueprint] = useState(null);
-  const scenes = useMemo(() => extractScenes(blueprint, project.seconds_per_scene), [blueprint, project.seconds_per_scene]);
+  useEffect(() => {
+    localStorage.setItem(LS_THEME, theme);
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
-  // plan state
-  const abortRef = useRef(null);
-  const [loadingPlan, setLoadingPlan] = useState(false);
-  const [elapsed, setElapsed] = useState(0);
-  const [statusOpen, setStatusOpen] = useState(true);
-  const [toast, setToast] = useState(null);
-
-  // per-scene images
-  const [sceneJobs, setSceneJobs] = useState(() => ({})); // { [sceneId]: { status, imageUrl, error } }
-  const [busySceneId, setBusySceneId] = useState(null);
-
-  // theme attach to html
+  // persist drafts
   useEffect(() => {
     try {
-      localStorage.setItem(LS_THEME, theme);
-      localStorage.setItem(LS_LANG, lang);
+      localStorage.setItem(DEFAULT_PROJECT, JSON.stringify(projectDraft || {}));
     } catch {}
-    document.documentElement.setAttribute("data-theme", theme === "dark" ? "dark" : "light");
-  }, [theme, lang]);
+  }, [projectDraft]);
 
-  // timer for progress
   useEffect(() => {
-    if (!loadingPlan) return;
-    const t0 = Date.now();
-    const id = setInterval(() => {
-      setElapsed(Math.round((Date.now() - t0) / 1000));
-    }, 250);
-    return () => clearInterval(id);
-  }, [loadingPlan]);
-
-  const est = useMemo(() => {
-    // rough estimate: base + scenes*?
-    const base = 10;
-    const sc = Number(project.scene_count || 4);
-    return base + sc * 6;
-  }, [project.scene_count]);
-
-  function showToast(msg, tone = "ok") {
-    setToast({ msg, tone });
-    setTimeout(() => setToast(null), 2200);
-  }
-
-  async function openJson() {
-    if (!blueprint) return;
-    const s = JSON.stringify(blueprint, null, 2);
-    const w = window.open();
-    if (w) w.document.write(`<pre>${s.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]))}</pre>`);
-  }
-
-  async function downloadJson() {
-    if (!blueprint) return;
-    downloadText("blueprint.json", JSON.stringify(blueprint, null, 2));
-  }
-
-  async function analyzeFromLink() {
-    // optional: if you have /api/analyze wired
-    // keep safe: no crash if missing
-    const url = String(project.product_url || "").trim();
-    if (!url) return showToast("URL kosong", "bad");
     try {
-      const r = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url }),
-      });
-      const raw = await r.text();
-      let json = null;
-      try { json = raw ? JSON.parse(raw) : null; } catch {}
-      if (!r.ok) throw new Error(json?.error || `Analyze failed (${r.status})`);
+      localStorage.setItem(`${DEFAULT_PROJECT}::blueprint`, JSON.stringify(blueprint || null));
+    } catch {}
+  }, [blueprint]);
 
-      // merge minimal if returned
-      setProject((p) => ({
-        ...p,
-        brand: json?.brand || p.brand,
-        product_type: json?.product_type || p.product_type,
-        material: json?.material || p.material,
-        tone: json?.tone || p.tone,
-        target_audience: json?.target_audience || p.target_audience,
-      }));
-      showToast("Auto-fill ok", "ok");
-    } catch (e) {
-      showToast(String(e?.message || e), "bad");
-    }
-  }
+  const scenes = useMemo(() => extractScenes(blueprint), [blueprint]);
 
   async function generatePlan() {
-    setToast(null);
+    setPlanError("");
     setLoadingPlan(true);
-    setElapsed(0);
-
-    try {
-      abortRef.current?.abort?.();
-    } catch {}
-    abortRef.current = new AbortController();
-
     try {
       const payload = {
-        provider: project.ai_brain || "bedrock",
-        project: project,
+        project: projectDraft,
+        provider: (projectDraft?.provider || "bedrock").toLowerCase(),
+        lang,
       };
 
       const r = await fetch("/api/plan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-        signal: abortRef.current.signal,
       });
 
       const raw = await r.text();
-      let json;
-      try {
-        json = raw ? JSON.parse(raw) : null;
-      } catch {
-        // tolerate "text with JSON inside"
-        json = safeJsonParseLoose(raw);
-      }
+      const json = raw ? safeJsonParseLoose(raw) : null;
 
-      if (!r.ok) throw new Error(json?.error || `Plan failed (${r.status})`);
+      if (!r.ok || !json) throw new Error(json?.error || `Plan failed (${r.status})`);
       setBlueprint(json);
       setTab("Scenes");
-      showToast("Plan generated ✓", "ok");
+      setStatusOpen(false);
     } catch (e) {
-      showToast(String(e?.message || e), "bad");
+      setPlanError(e?.message || String(e));
     } finally {
       setLoadingPlan(false);
     }
   }
 
-  async function generateImageForScene(scene) {
-    if (!scene?.id) return;
-    setBusySceneId(scene.id);
-    setSceneJobs((m) => ({
-      ...m,
-      [scene.id]: { status: "loading", imageUrl: "", error: "" },
-    }));
+  function SettingsTab() {
+    const p = projectDraft || {};
+    const setP = (fn) => setProjectDraft((prev) => (typeof fn === "function" ? fn(prev || {}) : fn));
 
-    const ac = new AbortController();
-    try {
-      const job = await createImageJob({ scene, project, signal: ac.signal });
-      const url = job.imageUrl || "";
-      setSceneJobs((m) => ({
-        ...m,
-        [scene.id]: { status: "done", imageUrl: url, error: "" },
-      }));
-      if (url) showToast("Image ready ✓", "ok");
-      else showToast("Job done, but image url missing", "bad");
-    } catch (e) {
-      setSceneJobs((m) => ({
-        ...m,
-        [scene.id]: { status: "error", imageUrl: "", error: String(e?.message || e) },
-      }));
-      showToast(String(e?.message || e), "bad");
-    } finally {
-      setBusySceneId(null);
+    function update(key, value) {
+      setP((prev) => ({ ...(prev || {}), [key]: value }));
     }
+
+    return (
+      <div className="ugc-container">
+        <div className="ugc-card">
+          <div className="ugc-cardheader">
+            <div className="ugc-cardtitle">{t.settings}</div>
+            <div className="ugc-cardsub">{t.formatTiming}</div>
+          </div>
+
+          <div className="ugc-grid2">
+            <div>
+              <div className="ugc-label">{t.secondsPerScene}</div>
+              <select
+                className="ugc-select"
+                value={p.seconds_per_scene || "8s"}
+                onChange={(e) => update("seconds_per_scene", e.target.value)}
+              >
+                <option value="6s">6s</option>
+                <option value="8s">8s</option>
+                <option value="10s">10s</option>
+              </select>
+            </div>
+
+            <div>
+              <div className="ugc-label">{t.sceneCount}</div>
+              <select
+                className="ugc-select"
+                value={String(p.scene_count || 4)}
+                onChange={(e) => update("scene_count", Number(e.target.value))}
+              >
+                {[3, 4, 5, 6].map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <div className="ugc-label">{t.brand}</div>
+              <input
+                className="ugc-input"
+                value={p.brand || ""}
+                onChange={(e) => update("brand", e.target.value)}
+                placeholder="Zalora"
+              />
+            </div>
+
+            <div>
+              <div className="ugc-label">{t.productType}</div>
+              <input
+                className="ugc-input"
+                value={p.product_type || ""}
+                onChange={(e) => update("product_type", e.target.value)}
+                placeholder="Baju koko"
+              />
+            </div>
+
+            <div>
+              <div className="ugc-label">{t.material}</div>
+              <input
+                className="ugc-input"
+                value={p.material || ""}
+                onChange={(e) => update("material", e.target.value)}
+                placeholder="Katun"
+              />
+            </div>
+
+            <div>
+              <div className="ugc-label">{t.tone}</div>
+              <input
+                className="ugc-input"
+                value={p.tone || ""}
+                onChange={(e) => update("tone", e.target.value)}
+                placeholder="natural gen-z"
+              />
+            </div>
+
+            <div>
+              <div className="ugc-label">{t.targetAudience}</div>
+              <input
+                className="ugc-input"
+                value={p.target_audience || ""}
+                onChange={(e) => update("target_audience", e.target.value)}
+                placeholder="pria 18-34"
+              />
+            </div>
+
+            <div>
+              <div className="ugc-label">{t.autofillLink}</div>
+              <input
+                className="ugc-input"
+                value={p.product_page_url || ""}
+                onChange={(e) => update("product_page_url", e.target.value)}
+                placeholder="https://..."
+              />
+            </div>
+          </div>
+
+          <div style={{ height: 12 }} />
+
+          <div className="ugc-label">{t.assets}</div>
+
+          <div className="ugc-grid2">
+            <div>
+              <div className="ugc-label">{t.modelRef}</div>
+              <ImageUploadField
+                kind="model"
+                projectId={DEFAULT_PROJECT}
+                value={p.model_ref_url || ""}
+                onUrl={(url) => update("model_ref_url", url)}
+              />
+            </div>
+
+            <div>
+              <div className="ugc-label">{t.productRef}</div>
+              <ImageUploadField
+                kind="product"
+                projectId={DEFAULT_PROJECT}
+                value={p.product_ref_url || ""}
+                onUrl={(url) => update("product_ref_url", url)}
+              />
+            </div>
+          </div>
+
+          {planError ? <div style={{ marginTop: 12 }} className="ugc-muted-box">{planError}</div> : null}
+
+          <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button type="button" className="ugc-btn" onClick={() => setBlueprint(null)}>
+              {t.saveDraft}
+            </button>
+
+            <button
+              type="button"
+              className="ugc-btn primary"
+              onClick={generatePlan}
+              disabled={loadingPlan}
+            >
+              {loadingPlan ? t.generating : t.generate}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
-  const hasBlueprint = !!blueprint;
-  const scenesReadable = scenes.length > 0;
+  function ScenesTab() {
+    return (
+      <div className="ugc-container">
+        <div className="ugc-card">
+          <div className="ugc-cardheader">
+            <div className="ugc-cardtitle">{t.scenes}</div>
+            <div className="ugc-cardsub">plan → image → approve → video → audio</div>
+          </div>
+
+          {!blueprint ? (
+            <div className="ugc-muted-box">{t.noBlueprint}</div>
+          ) : scenes.length === 0 ? (
+            <div className="ugc-muted-box">Blueprint exists, but scenes/beats not readable.</div>
+          ) : (
+            <div style={{ display: "grid", gap: 12 }}>
+              {scenes.map((s, idx) => {
+                const id = s.id || `S${idx + 1}`;
+                const title = s.on_screen || s.title || s.headline || `Scene ${idx + 1}`;
+                const cam = s.camera_angle || s.shot || s.camera || "";
+                const range = s.time_range || s.time || s.duration || "";
+                return (
+                  <div key={id} className="ugc-card" style={{ padding: 12, boxShadow: "none" }}>
+                    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+                      <span className="ugc-chip ok">{id}</span>
+                      <span style={{ fontWeight: 900 }}>{String(title)}</span>
+                      {range ? <span className="ugc-chip">{String(range)}</span> : null}
+                      {cam ? <span className="ugc-chip">{String(cam)}</span> : null}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {blueprint ? (
+            <div style={{ marginTop: 12 }}>
+              <OpenDownloadBlueprintButtons blueprint={blueprint} t={t} />
+            </div>
+          ) : null}
+        </div>
+      </div>
+    );
+  }
+
+  function ExportTab() {
+    return (
+      <div className="ugc-container">
+        <div className="ugc-card">
+          <div className="ugc-cardheader">
+            <div className="ugc-cardtitle">{t.export}</div>
+            <div className="ugc-cardsub">Blueprint JSON</div>
+          </div>
+
+          {blueprint ? (
+            <OpenDownloadBlueprintButtons blueprint={blueprint} t={t} />
+          ) : (
+            <div className="ugc-muted-box">{t.noBlueprint}</div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  const content = useMemo(() => {
+    if (tab === "Scenes") return <ScenesTab />;
+    if (tab === "Export") return <ExportTab />;
+    return <SettingsTab />;
+  }, [tab, blueprint, scenes, loadingPlan, planError, lang]);
+
+  // status chips (dummy values; nanti bisa kamu hook ke progress real)
+  const chips = [
+    { label: "Core ✓", ok: true },
+    { label: "Model ×", ok: false },
+    { label: "Product ×", ok: false },
+    { label: "≈ 32s", ok: null },
+  ];
 
   return (
     <div className="ugc-page">
-      {/* ===== Topbar (Telegram-like responsive) ===== */}
+      {/* Topbar */}
       <div className="ugc-topbar">
-        <div
-          className="ugc-topbar-inner"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "1fr auto",
-            alignItems: "center",
-            gap: 10,
-          }}
-        >
-          <div className="ugc-title" style={{ minWidth: 0, whiteSpace: "nowrap" }}>
-            {t.studio}
-          </div>
+        <div className="ugc-topbar-inner">
+          <div className="ugc-title">{t.studio}</div>
 
-          <div
-            className="ugc-top-actions"
-            style={{
-              justifySelf: "end",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "flex-end",
-              gap: 10,
-              flexWrap: "wrap",
-              rowGap: 10,
-              whiteSpace: "nowrap",
-            }}
-          >
-            <div className="ugc-pill" style={{ whiteSpace: "nowrap" }}>
-              <div className="ugc-pill-label">{t.language}</div>
-              <button
-                className={`ugc-pill-btn ${lang === "id" ? "active" : ""}`}
-                onClick={() => setLang("id")}
-                type="button"
-              >
-                ID
-              </button>
-              <button
-                className={`ugc-pill-btn ${lang === "en" ? "active" : ""}`}
-                onClick={() => setLang("en")}
-                type="button"
-              >
-                EN
-              </button>
-            </div>
-
-            <button
-              className="ugc-pill-btn"
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-              type="button"
-              style={{ whiteSpace: "nowrap" }}
-            >
-              {theme === "dark" ? t.light : t.dark}
-            </button>
-
+          <div className="ugc-top-actions">
+            <LangToggle lang={lang} setLang={setLang} />
+            <ThemeToggle theme={theme} setTheme={setTheme} />
             {typeof onLogout === "function" ? (
-              <button className="ugc-pill-btn" onClick={onLogout} type="button" style={{ whiteSpace: "nowrap" }}>
+              <button type="button" className="ugc-pill-btn" onClick={onLogout}>
                 {t.logout}
               </button>
             ) : null}
@@ -496,404 +522,74 @@ export default function StudioShell({ onLogout }) {
         </div>
       </div>
 
-      {/* ===== Main container ===== */}
-      <div className="ugc-container" style={{ paddingBottom: 280 }}>
-        {/* SETTINGS */}
-        {tab === "Settings" ? (
-          <div className="ugc-card">
-            <div className="ugc-cardheader">
-              <div className="ugc-cardtitle">{t.settings}</div>
-              <div className="ugc-cardsub">Fill inputs → Generate Plan</div>
-            </div>
+      {/* Main content */}
+      {content}
 
-            <div className="ugc-grid2">
-              <div>
-                <div className="ugc-label">{t.aiBrain}</div>
-                <select
-                  className="ugc-select"
-                  value={project.ai_brain}
-                  onChange={(e) => setProject((p) => ({ ...p, ai_brain: e.target.value }))}
-                >
-                  <option value="bedrock">Bedrock</option>
-                  <option value="gemini">Gemini</option>
-                </select>
-              </div>
-
-              <div>
-                <div className="ugc-label">{t.productUrl}</div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                  <input
-                    className="ugc-input"
-                    value={project.product_url}
-                    onChange={(e) => setProject((p) => ({ ...p, product_url: e.target.value }))}
-                    placeholder="https://..."
-                    style={{ flex: "1 1 260px", minWidth: 180 }}
-                  />
-                  <button className="ugc-btn small" onClick={analyzeFromLink} type="button">
-                    {t.autoFill}
-                  </button>
-                </div>
-              </div>
-
-              <div>
-                <div className="ugc-label">{t.platform}</div>
-                <select
-                  className="ugc-select"
-                  value={project.platform}
-                  onChange={(e) => setProject((p) => ({ ...p, platform: e.target.value }))}
-                >
-                  <option value="tiktok">TikTok</option>
-                  <option value="reels">Instagram Reels</option>
-                  <option value="shorts">YouTube Shorts</option>
-                </select>
-              </div>
-
-              <div>
-                <div className="ugc-label">{t.aspectRatio}</div>
-                <select
-                  className="ugc-select"
-                  value={project.aspect_ratio}
-                  onChange={(e) => setProject((p) => ({ ...p, aspect_ratio: e.target.value }))}
-                >
-                  <option value="9:16">9:16</option>
-                  <option value="1:1">1:1</option>
-                  <option value="16:9">16:9</option>
-                </select>
-              </div>
-
-              <div>
-                <div className="ugc-label">{t.sceneCount}</div>
-                <select
-                  className="ugc-select"
-                  value={project.scene_count}
-                  onChange={(e) => setProject((p) => ({ ...p, scene_count: Number(e.target.value) }))}
-                >
-                  <option value={4}>4</option>
-                  <option value={5}>5</option>
-                  <option value={6}>6</option>
-                </select>
-              </div>
-
-              <div>
-                <div className="ugc-label">{t.secondsPerScene}</div>
-                <select
-                  className="ugc-select"
-                  value={project.seconds_per_scene}
-                  onChange={(e) => setProject((p) => ({ ...p, seconds_per_scene: Number(e.target.value) }))}
-                >
-                  <option value={6}>6s</option>
-                  <option value={8}>8s</option>
-                  <option value={10}>10s</option>
-                </select>
-              </div>
-
-              <div>
-                <div className="ugc-label">{t.brand}</div>
-                <input
-                  className="ugc-input"
-                  value={project.brand}
-                  onChange={(e) => setProject((p) => ({ ...p, brand: e.target.value }))}
-                />
-              </div>
-
-              <div>
-                <div className="ugc-label">{t.productType}</div>
-                <input
-                  className="ugc-input"
-                  value={project.product_type}
-                  onChange={(e) => setProject((p) => ({ ...p, product_type: e.target.value }))}
-                />
-              </div>
-
-              <div>
-                <div className="ugc-label">{t.material}</div>
-                <input
-                  className="ugc-input"
-                  value={project.material}
-                  onChange={(e) => setProject((p) => ({ ...p, material: e.target.value }))}
-                />
-              </div>
-
-              <div>
-                <div className="ugc-label">{t.tone}</div>
-                <input
-                  className="ugc-input"
-                  value={project.tone}
-                  onChange={(e) => setProject((p) => ({ ...p, tone: e.target.value }))}
-                />
-              </div>
-
-              <div>
-                <div className="ugc-label">{t.targetAudience}</div>
-                <input
-                  className="ugc-input"
-                  value={project.target_audience}
-                  onChange={(e) => setProject((p) => ({ ...p, target_audience: e.target.value }))}
-                />
-              </div>
-            </div>
-
-            <div style={{ height: 14 }} />
-
-            <div className="ugc-sectiontitle">{t.assets}</div>
-
-            <div className="ugc-grid2">
-              <div>
-                <div className="ugc-label">{t.modelRef}</div>
-                <ImageUploadField
-                  kind="model"
-                  projectId="default"
-                  value={project.model_ref_url}
-                  onUrl={(url) => setProject((p) => ({ ...p, model_ref_url: url }))}
-                />
-              </div>
-
-              <div>
-                <div className="ugc-label">{t.productRef}</div>
-                <ImageUploadField
-                  kind="product"
-                  projectId="default"
-                  value={project.product_ref_url}
-                  onUrl={(url) => setProject((p) => ({ ...p, product_ref_url: url }))}
-                />
-              </div>
-            </div>
-
-            <div className="ugc-generate" style={{ justifyContent: "space-between" }}>
-              <button className="ugc-btn" type="button" onClick={() => showToast("Draft saved (local)", "ok")}>
-                {t.saveDraft}
-              </button>
-              <button className="ugc-btn primary" type="button" onClick={generatePlan} disabled={loadingPlan}>
-                {t.generatePlan}
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {/* SCENES */}
-        {tab === "Scenes" ? (
-          <div className="ugc-card">
-            <div className="ugc-cardheader">
-              <div className="ugc-cardtitle">{t.scenes}</div>
-              <div className="ugc-cardsub">{t.workflow}</div>
-            </div>
-
-            {!hasBlueprint ? (
-              <div className="ugc-muted-box">{t.noBlueprint}</div>
-            ) : !scenesReadable ? (
-              <div className="ugc-muted-box">{t.beatsNotReadable}</div>
-            ) : (
-              <div className="ugc-list">
-                {scenes.map((s) => {
-                  const job = sceneJobs[s.id] || null;
-                  const hasImg = !!job?.imageUrl;
-
-                  return (
-                    <div className="ugc-scene" key={s.id}>
-                      <div className="ugc-scene-top" style={{ justifyContent: "space-between" }}>
-                        <div className="ugc-chiprow">
-                          <span className="ugc-badge">{`S${s.index}`}</span>
-                          <span className="ugc-scene-title">SCENE</span>
-                          <span className="ugc-chip">{`${(s.index - 1) * s.seconds}s–${s.index * s.seconds}s`}</span>
-                        </div>
-
-                        <div className="ugc-chiprow" style={{ justifyContent: "flex-end" }}>
-                          {s.camera ? <span className="ugc-chip">{s.camera}</span> : null}
-                        </div>
-                      </div>
-
-                      <div className="ugc-row">
-                        <div className="ugc-row-label">{t.onScreen}</div>
-                        <div className="ugc-row-val">{s.on_screen || "—"}</div>
-                      </div>
-
-                      <div className="ugc-row">
-                        <div className="ugc-row-label">{t.prompt}</div>
-                        <div className="ugc-row-val" style={{ whiteSpace: "pre-wrap" }}>
-                          {s.visual_prompt || "—"}
-                        </div>
-                      </div>
-
-                      <div className="ugc-row">
-                        <div className="ugc-row-label">{t.narration}</div>
-                        <div className="ugc-row-val" style={{ whiteSpace: "pre-wrap" }}>
-                          {s.narration || "—"}
-                        </div>
-                      </div>
-
-                      <div className="ugc-row-actions" style={{ marginTop: 12 }}>
-                        <button
-                          className={`ugc-btn primary ${busySceneId === s.id ? "loading" : ""}`}
-                          type="button"
-                          onClick={() => generateImageForScene(s)}
-                          disabled={busySceneId && busySceneId !== s.id}
-                        >
-                          {t.generateImage}
-                        </button>
-
-                        {job?.status === "error" ? (
-                          <span className="ugc-muted" style={{ color: "rgba(239,68,68,0.9)" }}>
-                            {job.error || t.imageFailed}
-                          </span>
-                        ) : job?.status === "loading" ? (
-                          <span className="ugc-muted">{t.generating}</span>
-                        ) : hasImg ? (
-                          <>
-                            <span className="ugc-muted">{t.imageReady}</span>
-                            <button className="ugc-btn small" type="button" onClick={() => window.open(job.imageUrl, "_blank")}>
-                              {t.openImage}
-                            </button>
-                            <button
-                              className="ugc-btn small"
-                              type="button"
-                              onClick={() => downloadText(`${s.id}.txt`, job.imageUrl)}
-                            >
-                              {t.downloadImage}
-                            </button>
-                          </>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="ugc-row-actions" style={{ marginTop: 14 }}>
-              <button className="ugc-btn" onClick={openJson} type="button">
-                {t.openJson}
-              </button>
-              <button className="ugc-btn" onClick={downloadJson} type="button">
-                {t.downloadJson}
-              </button>
-            </div>
-          </div>
-        ) : null}
-
-        {/* EXPORT */}
-        {tab === "Export" ? (
-          <div className="ugc-card">
-            <div className="ugc-cardheader">
-              <div className="ugc-cardtitle">{t.export}</div>
-            </div>
-
-            {!hasBlueprint ? (
-              <div className="ugc-muted-box">{t.noBlueprint}</div>
-            ) : (
-              <div className="ugc-row-actions">
-                <button className="ugc-btn" onClick={openJson} type="button">
-                  {t.openJson}
-                </button>
-                <button className="ugc-btn" onClick={downloadJson} type="button">
-                  {t.downloadJson}
-                </button>
-              </div>
-            )}
-          </div>
-        ) : null}
-      </div>
-
-      {/* ===== Status Dock (safe spacing + minimized keeps animated bar) ===== */}
+      {/* Status Dock */}
       <div className={`ugc-status ${statusOpen ? "" : "collapsed"}`}>
         <div className="ugc-status-inner">
           <div className="ugc-status-head">
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", rowGap: 8 }}>
-              <div className="ugc-status-title">{t.status}</div>
-
-              {loadingPlan ? (
-                <div style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-                  <span className="ugc-spinner" />
-                  <span className="ugc-muted">
-                    {t.generating} · {elapsed}s
-                  </span>
-                </div>
-              ) : (
-                <span className="ugc-muted">Ready — {(project.ai_brain || "bedrock").toUpperCase()}</span>
-              )}
-            </div>
-
-            <button className="ugc-btn small" onClick={() => setStatusOpen((v) => !v)} type="button">
+            <div className="ugc-status-title">{t.status}</div>
+            <button
+              type="button"
+              className="ugc-btn small"
+              onClick={() => setStatusOpen((v) => !v)}
+            >
               {statusOpen ? t.minimize : t.show}
             </button>
           </div>
 
-          {/* ✅ minimized state still shows slim animated progress strip when loading */}
-          {!statusOpen && loadingPlan ? (
-            <div style={{ marginTop: 10 }}>
-              <div className="ugc-progress-track" style={{ height: 8 }}>
-                <div
-                  className="ugc-progress-bar"
-                  style={{
-                    width: `${clamp((elapsed / Math.max(1, est)) * 100, 8, 92)}%`,
-                  }}
-                />
+          {/* collapsed view: keep animation */}
+          {!statusOpen ? (
+            <div className="ugc-progress">
+              <div className="ugc-progress-track">
+                <div className="ugc-progress-shimmer" />
               </div>
             </div>
-          ) : null}
-
-          {statusOpen ? (
+          ) : (
             <>
-              <div className="ugc-chiprow" style={{ marginTop: 10, gap: 10, rowGap: 10 }}>
-                <span className="ugc-chip ok">Core ✓</span>
-                <span className={`ugc-chip ${project.model_ref_url ? "ok" : ""}`}>Model {project.model_ref_url ? "✓" : "×"}</span>
-                <span className={`ugc-chip ${project.product_ref_url ? "ok" : ""}`}>Product {project.product_ref_url ? "✓" : "×"}</span>
-                <span className="ugc-chip">≈ {est}s</span>
-                <span className="ugc-chip">Provider: {(project.ai_brain || "bedrock").toUpperCase()}</span>
+              <div className="ugc-chiprow">
+                {chips.map((c, i) => (
+                  <span
+                    key={i}
+                    className={`ugc-chip ${
+                      c.ok === true ? "ok" : c.ok === false ? "bad" : ""
+                    }`}
+                  >
+                    {c.label}
+                  </span>
+                ))}
+                <span className="ugc-chip">{t.providerLabel}: BEDROCK</span>
               </div>
 
-              <div className="ugc-progress" style={{ marginTop: 12 }}>
+              <div className="ugc-progress">
                 <div className="ugc-progress-track">
-                  <div
-                    className="ugc-progress-bar"
-                    style={{
-                      width: loadingPlan ? `${clamp((elapsed / Math.max(1, est)) * 100, 6, 92)}%` : "0%",
-                    }}
-                  />
-                </div>
-                <div className="ugc-progress-meta" style={{ marginTop: 10 }}>
-                  <span>{t.progress}</span>
-                  {loadingPlan ? (
-                    <button
-                      className="ugc-btn small"
-                      type="button"
-                      onClick={() => {
-                        try {
-                          abortRef.current?.abort?.();
-                        } catch {}
-                      }}
-                    >
-                      {t.cancel}
-                    </button>
-                  ) : (
-                    <span />
-                  )}
+                  <div className="ugc-progress-shimmer" />
                 </div>
               </div>
             </>
-          ) : null}
+          )}
         </div>
       </div>
 
-      {/* ===== Bottom Tabbar (Telegram-like) ===== */}
-      <div className="ugc-tabbar">
-        <div className="ugc-tabbar-inner">
-          <button className={`ugc-tab ${tab === "Settings" ? "active" : ""}`} onClick={() => setTab("Settings")} type="button">
-            {t.settings}
-          </button>
-          <button className={`ugc-tab ${tab === "Scenes" ? "active" : ""}`} onClick={() => setTab("Scenes")} type="button">
-            {t.scenes}
-          </button>
-          <button className={`ugc-tab ${tab === "Export" ? "active" : ""}`} onClick={() => setTab("Export")} type="button">
-            {t.export}
-          </button>
-        </div>
-      </div>
-
-      {/* credit */}
+      {/* Credit */}
       <div className="ugc-credit">Created by @adryndian</div>
 
-      {/* Toast */}
-      {toast ? <div className={`ugc-toast ${toast.tone === "ok" ? "ok" : "bad"}`}>{toast.msg}</div> : null}
+      {/* Bottom Navigation (moved from top) */}
+      <div className="ugc-tabbar">
+        <div className="ugc-tabbar-inner">
+          {TABS.map((x) => (
+            <button
+              key={x}
+              type="button"
+              className={`ugc-tab ${tab === x ? "active" : ""}`}
+              onClick={() => setTab(x)}
+            >
+              {x === "Settings" ? t.settings : x === "Scenes" ? t.scenes : t.export}
+            </button>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
