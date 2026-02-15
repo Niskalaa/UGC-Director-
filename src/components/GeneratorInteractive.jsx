@@ -1,363 +1,395 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState } from "react";
+import ImageUploadField from "./ImageUploadField.jsx";
 
-const API_BASE = "";
-
-// Simple “model selector” (front-end labels). API tetap pakai ENV model id.
-const MODEL_PRESETS = {
-  image: [{ key: "sd35", label: "Stable Diffusion 3.5 Large (Bedrock)" }],
-  video: [{ key: "ray2", label: "Luma Ray2 (Bedrock)" }]
+const DEFAULTS = {
+  provider: "bedrock",
+  platform: "tiktok",
+  aspect_ratio: "9:16",
+  brand: "",
+  product_type: "",
+  material: "",
+  tone: "natural gen-z",
+  target_audience: "",
+  product_page_url: "",
+  model_ref_url: "",
+  product_ref_url: "",
+  project_id: "local",
 };
 
+function safeJsonParseLoose(content) {
+  try {
+    return JSON.parse(content);
+  } catch {
+    const s = String(content || "");
+    const a = s.indexOf("{");
+    const b = s.lastIndexOf("}");
+    if (a >= 0 && b > a) return JSON.parse(s.slice(a, b + 1));
+    throw new Error("Invalid JSON");
+  }
+}
+
+function buildVisualPrompt(form) {
+  // Visual prompt = image prompt (non-video)
+  const parts = [];
+
+  // product context
+  const productLine = [form.brand, form.product_type].filter(Boolean).join(" ");
+  if (productLine) parts.push(`Product: ${productLine}.`);
+  if (form.material) parts.push(`Material: ${form.material}.`);
+
+  // UGC style anchor
+  parts.push(
+    [
+      "Photorealistic UGC product photo, clean commercial look",
+      "natural lighting, realistic textures",
+      "handheld phone camera vibe, sharp focus, high detail",
+      `aspect ratio ${form.aspect_ratio}`,
+    ].join(", ") + "."
+  );
+
+  // optional tone/audience
+  if (form.tone) parts.push(`Tone: ${form.tone}.`);
+  if (form.target_audience) parts.push(`Target audience: ${form.target_audience}.`);
+
+  // optional hints from URL
+  if (form.product_page_url) parts.push(`Reference context: ${form.product_page_url}`);
+
+  // identity locks via reference images (handled by backend if you use them there)
+  if (form.model_ref_url) parts.push("Model reference provided (keep face/outfit consistent).");
+  if (form.product_ref_url) parts.push("Product reference provided (keep product identical).");
+
+  // negatives
+  parts.push(
+    "Negative: blurry, low-res, over-smoothing, plastic skin, distorted text, watermark, deformed hands, extra fingers, bad anatomy, AI artifacts, cartoon, anime."
+  );
+
+  return parts.join("\n");
+}
+
+async function postJobImage({ brief, aspect_ratio }) {
+  const payload = {
+    type: "image",
+    brief,
+    settings: { aspect_ratio },
+  };
+
+  const r = await fetch("/api/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const raw = await r.text();
+  let json;
+  try {
+    json = raw ? JSON.parse(raw) : null;
+  } catch {
+    throw new Error(`Non-JSON jobs response (${r.status}). Preview: ${String(raw).slice(0, 160)}`);
+  }
+
+  if (!r.ok) throw new Error(json?.error || `Jobs failed (${r.status})`);
+
+  const imageUrl = json?.imageUrl || json?.image_url || json?.imageURL || "";
+  return {
+    id: json?.id,
+    status: json?.status || "done",
+    imageUrl,
+    raw: json,
+  };
+}
+
 export default function GeneratorInteractive() {
-  const [mode, setMode] = useState("image"); // image | video | both
-  const [imageModelKey, setImageModelKey] = useState("sd35");
-  const [videoModelKey, setVideoModelKey] = useState("ray2");
+  const [form, setForm] = useState(DEFAULTS);
 
-  const [brief, setBrief] = useState("");
-  const [negative, setNegative] = useState(
-    "blurry, lowres, watermark, text, distorted, bad anatomy, extra fingers, extra limbs, ai look"
-  );
+  const [visualPrompt, setVisualPrompt] = useState("");
+  const [job, setJob] = useState(null); // {id,status,imageUrl}
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
 
-  const [aspect, setAspect] = useState("1:1");
-  const [quality, setQuality] = useState("standard"); // draft | standard | high
-  const [seed, setSeed] = useState("");
-  const [videoSeconds, setVideoSeconds] = useState(5);
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(null);
+  function showToast(msg, tone = "ok") {
+    setToast({ msg, tone, ts: Date.now() });
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2200);
+  }
 
-  const [jobId, setJobId] = useState("");
-  const [status, setStatus] = useState("");
-  const [imageUrl, setImageUrl] = useState("");
-  const [videoUrl, setVideoUrl] = useState("");
-  const [log, setLog] = useState("");
+  const canGen = useMemo(() => {
+    // minimum requirements: brand/product/material + refs optional
+    if (!String(form.brand || "").trim()) return false;
+    if (!String(form.product_type || "").trim()) return false;
+    if (!String(form.material || "").trim()) return false;
+    return true;
+  }, [form]);
 
-  const pollTimer = useRef(null);
+  function onBuildPrompt() {
+    const p = buildVisualPrompt(form);
+    setVisualPrompt(p);
+    setErr("");
+    showToast("Visual prompt ready ✓", "ok");
+  }
 
-  useEffect(() => {
-    return () => pollTimer.current && clearInterval(pollTimer.current);
-  }, []);
+  async function onGenerateImage() {
+    setErr("");
+    setJob(null);
 
-  const appendLog = (msg) => setLog((p) => `${p}${p ? "\n" : ""}${msg}`);
+    const brief = visualPrompt || buildVisualPrompt(form);
+    setVisualPrompt(brief);
 
-  const selectedImageModel = useMemo(
-    () => MODEL_PRESETS.image.find((m) => m.key === imageModelKey),
-    [imageModelKey]
-  );
-
-  const selectedVideoModel = useMemo(
-    () => MODEL_PRESETS.video.find((m) => m.key === videoModelKey),
-    [videoModelKey]
-  );
-
-  const resetOutputs = () => {
-    setImageUrl("");
-    setVideoUrl("");
-    setStatus("");
-    setLog("");
-  };
-
-  const startPolling = (id) => {
-    if (pollTimer.current) clearInterval(pollTimer.current);
-
-    pollTimer.current = setInterval(async () => {
-      try {
-        const r = await fetch(`${API_BASE}/api/jobs/${id}`);
-        const j = await r.json();
-
-        if (!r.ok) {
-          setStatus("error");
-          appendLog(`Poll error: ${JSON.stringify(j)}`);
-          clearInterval(pollTimer.current);
-          pollTimer.current = null;
-          return;
-        }
-
-        setStatus(j.status || "processing");
-        if (j.image_url) setImageUrl(j.image_url);
-        if (j.video_url) setVideoUrl(j.video_url);
-
-        if (j.status === "done" || j.status === "failed") {
-          appendLog(`Polling stopped: ${j.status}`);
-          clearInterval(pollTimer.current);
-          pollTimer.current = null;
-        }
-      } catch (e) {
-        setStatus("error");
-        appendLog(`Poll exception: ${String(e?.message || e)}`);
-        clearInterval(pollTimer.current);
-        pollTimer.current = null;
-      }
-    }, 3500);
-  };
-
-  const onGenerate = async () => {
-    resetOutputs();
-
-    if (!brief.trim()) {
-      setStatus("error");
-      appendLog("Brief masih kosong.");
-      return;
-    }
-
-    setStatus("starting...");
+    setBusy(true);
     try {
-      const payload = {
-        type: mode,
-        brief: brief.trim(),
-        negative: negative?.trim() || "",
-        settings: {
-          aspect_ratio: aspect,
-          quality,
-          seed: seed ? Number(seed) : undefined,
-          video_seconds: Number(videoSeconds)
-        },
-        models: {
-          image: selectedImageModel?.key,
-          video: selectedVideoModel?.key
-        }
-      };
+      const j = await postJobImage({ brief, aspect_ratio: form.aspect_ratio });
+      setJob(j);
 
-      const r = await fetch(`${API_BASE}/api/jobs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload)
-      });
-
-      const j = await r.json();
-      if (!r.ok) {
-        setStatus("error");
-        appendLog(`Generate error: ${JSON.stringify(j)}`);
-        return;
-      }
-
-      setJobId(j.id);
-      setStatus(j.status || "processing");
-      if (j.image_url) setImageUrl(j.image_url);
-      if (j.video_url) setVideoUrl(j.video_url);
-
-      appendLog(`Job created: ${j.id}`);
-      appendLog(`Status: ${j.status}`);
-
-      if (mode === "video" || mode === "both") {
-        appendLog("Start polling...");
-        startPolling(j.id);
-      }
+      if (j.imageUrl) showToast("Image ready ✓", "ok");
+      else showToast("Job done but no image URL", "bad");
     } catch (e) {
-      setStatus("error");
-      appendLog(`Generate exception: ${String(e?.message || e)}`);
+      setErr(e?.message || String(e));
+      showToast("Failed", "bad");
+    } finally {
+      setBusy(false);
     }
-  };
+  }
 
-  const onCheckNow = async () => {
-    if (!jobId) return appendLog("Tidak ada Job ID.");
-
-    try {
-      const r = await fetch(`${API_BASE}/api/jobs/${jobId}`);
-      const j = await r.json();
-
-      if (!r.ok) {
-        setStatus("error");
-        appendLog(`Check error: ${JSON.stringify(j)}`);
-        return;
-      }
-
-      setStatus(j.status || "processing");
-      if (j.image_url) setImageUrl(j.image_url);
-      if (j.video_url) setVideoUrl(j.video_url);
-
-      appendLog(`Checked: ${j.status}`);
-    } catch (e) {
-      setStatus("error");
-      appendLog(`Check exception: ${String(e?.message || e)}`);
-    }
-  };
-
-  const onStopPoll = () => {
-    if (pollTimer.current) {
-      clearInterval(pollTimer.current);
-      pollTimer.current = null;
-      appendLog("Polling stopped manually.");
-    }
-  };
+  function openJson(obj) {
+    const w = window.open("", "_blank");
+    if (!w) return;
+    const safe = (x) =>
+      String(x).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+    w.document.write(
+      `<pre style="white-space:pre-wrap; font-family: ui-monospace, Menlo, monospace; padding:16px;">${safe(
+        JSON.stringify(obj, null, 2)
+      )}</pre>`
+    );
+    w.document.close();
+  }
 
   return (
-    <div style={S.wrap}>
-      <div style={S.header}>
-        <h2 style={{ margin: 0 }}>UGC Director — Interactive Generator</h2>
-        <div style={S.badge}>{status || "idle"}</div>
+    <div className="ugc-page">
+      {/* simple top area (reuse global topbar styles) */}
+      <div className="ugc-topbar">
+        <div className="ugc-topbar-inner">
+          <div className="ugc-title">Generator</div>
+          <div className="ugc-top-actions">
+            <span className="ugc-chip">Image only</span>
+            <span className="ugc-chip">/api/jobs</span>
+          </div>
+        </div>
       </div>
 
-      <div style={S.grid}>
-        <div style={S.card}>
-          <div style={S.row2}>
+      <div className="ugc-container">
+        <div className="ugc-card">
+          <div className="ugc-cardheader">
+            <div className="ugc-cardtitle">Inputs</div>
+            <div className="ugc-cardsub">Generate visual_prompt → user clicks render image.</div>
+          </div>
+
+          <div className="ugc-grid2">
             <div>
-              <div style={S.label}>Mode</div>
-              <select value={mode} onChange={(e) => setMode(e.target.value)} style={S.input}>
-                <option value="image">Image</option>
-                <option value="video">Video</option>
-                <option value="both">Both</option>
+              <div className="ugc-label">AI Brain</div>
+              <select
+                className="ugc-select"
+                value={form.provider}
+                onChange={(e) => setForm((p) => ({ ...p, provider: e.target.value }))}
+              >
+                <option value="bedrock">Bedrock</option>
+                <option value="gemini">Gemini</option>
               </select>
             </div>
 
             <div>
-              <div style={S.label}>Aspect</div>
-              <select value={aspect} onChange={(e) => setAspect(e.target.value)} style={S.input}>
-                <option value="1:1">1:1 (Square)</option>
-                <option value="9:16">9:16 (Reels/TikTok)</option>
-                <option value="16:9">16:9 (YouTube)</option>
-                <option value="4:5">4:5 (IG Feed)</option>
+              <div className="ugc-label">Aspect ratio</div>
+              <select
+                className="ugc-select"
+                value={form.aspect_ratio}
+                onChange={(e) => setForm((p) => ({ ...p, aspect_ratio: e.target.value }))}
+              >
+                <option value="9:16">9:16</option>
+                <option value="1:1">1:1</option>
+                <option value="16:9">16:9</option>
               </select>
             </div>
           </div>
 
-          <div style={S.row2}>
-            <div>
-              <div style={S.label}>Quality</div>
-              <select value={quality} onChange={(e) => setQuality(e.target.value)} style={S.input}>
-                <option value="draft">Draft</option>
-                <option value="standard">Standard</option>
-                <option value="high">High</option>
-              </select>
-            </div>
+          <div style={{ height: 10 }} />
 
+          <div className="ugc-grid2">
             <div>
-              <div style={S.label}>Seed (optional)</div>
+              <div className="ugc-label">Brand *</div>
               <input
-                value={seed}
-                onChange={(e) => setSeed(e.target.value)}
-                placeholder="e.g. 42"
-                style={S.input}
-                inputMode="numeric"
+                className="ugc-input"
+                value={form.brand}
+                onChange={(e) => setForm((p) => ({ ...p, brand: e.target.value }))}
+              />
+            </div>
+            <div>
+              <div className="ugc-label">Product type *</div>
+              <input
+                className="ugc-input"
+                value={form.product_type}
+                onChange={(e) => setForm((p) => ({ ...p, product_type: e.target.value }))}
               />
             </div>
           </div>
 
-          {(mode === "video" || mode === "both") && (
-            <div style={S.row2}>
-              <div>
-                <div style={S.label}>Video seconds</div>
-                <input
-                  type="range"
-                  min="3"
-                  max="10"
-                  value={videoSeconds}
-                  onChange={(e) => setVideoSeconds(e.target.value)}
-                  style={{ width: "100%" }}
-                />
-                <div style={S.mini}>{videoSeconds}s</div>
-              </div>
-              <div style={{ opacity: 0.8, fontSize: 12 }}>
-                Ray2 async — auto poll sampai selesai
-              </div>
-            </div>
-          )}
+          <div style={{ height: 10 }} />
 
-          <div style={S.label}>Brief</div>
-          <textarea
-            value={brief}
-            onChange={(e) => setBrief(e.target.value)}
-            style={{ ...S.input, height: 140, resize: "vertical" }}
-            placeholder="Contoh: UGC skincare, studio lighting, model memegang produk, close-up label..."
-          />
-
-          <div style={S.label}>Negative (optional)</div>
-          <textarea
-            value={negative}
-            onChange={(e) => setNegative(e.target.value)}
-            style={{ ...S.input, height: 90, resize: "vertical" }}
-          />
-
-          <div style={S.hr} />
-
-          <div style={S.row2}>
+          <div className="ugc-grid2">
             <div>
-              <div style={S.label}>Image model</div>
-              <select
-                value={imageModelKey}
-                onChange={(e) => setImageModelKey(e.target.value)}
-                style={S.input}
-                disabled={mode === "video"}
-              >
-                {MODEL_PRESETS.image.map((m) => (
-                  <option key={m.key} value={m.key}>{m.label}</option>
-                ))}
-              </select>
+              <div className="ugc-label">Material *</div>
+              <input
+                className="ugc-input"
+                value={form.material}
+                onChange={(e) => setForm((p) => ({ ...p, material: e.target.value }))}
+              />
             </div>
-
             <div>
-              <div style={S.label}>Video model</div>
-              <select
-                value={videoModelKey}
-                onChange={(e) => setVideoModelKey(e.target.value)}
-                style={S.input}
-                disabled={mode === "image"}
-              >
-                {MODEL_PRESETS.video.map((m) => (
-                  <option key={m.key} value={m.key}>{m.label}</option>
-                ))}
-              </select>
+              <div className="ugc-label">Tone (optional)</div>
+              <input
+                className="ugc-input"
+                value={form.tone}
+                onChange={(e) => setForm((p) => ({ ...p, tone: e.target.value }))}
+              />
             </div>
           </div>
 
-          <div style={S.rowBtns}>
-            <button style={S.btnPrimary} onClick={onGenerate}>Generate</button>
-            <button style={S.btn} onClick={onCheckNow}>Check Now</button>
-            <button style={S.btn} onClick={onStopPoll}>Stop Poll</button>
+          <div style={{ height: 10 }} />
+
+          <div className="ugc-grid2">
+            <div>
+              <div className="ugc-label">Target audience (optional)</div>
+              <input
+                className="ugc-input"
+                value={form.target_audience}
+                onChange={(e) => setForm((p) => ({ ...p, target_audience: e.target.value }))}
+              />
+            </div>
+            <div>
+              <div className="ugc-label">Product page URL (optional)</div>
+              <input
+                className="ugc-input"
+                value={form.product_page_url}
+                onChange={(e) => setForm((p) => ({ ...p, product_page_url: e.target.value }))}
+                placeholder="https://..."
+              />
+            </div>
           </div>
 
-          <div style={S.meta}>
-            <div><b>Job ID:</b> {jobId || "-"}</div>
+          <div style={{ height: 14 }} />
+          <div className="ugc-sectiontitle">Assets (optional)</div>
+
+          <div className="ugc-grid2">
+            <ImageUploadField
+              label="Model reference (optional)"
+              kind="model"
+              projectId={form.project_id}
+              valueUrl={form.model_ref_url}
+              onUrl={(url) => setForm((p) => ({ ...p, model_ref_url: url }))}
+              showPreview
+              optional
+            />
+            <ImageUploadField
+              label="Product reference (optional)"
+              kind="product"
+              projectId={form.project_id}
+              valueUrl={form.product_ref_url}
+              onUrl={(url) => setForm((p) => ({ ...p, product_ref_url: url }))}
+              showPreview
+              optional
+            />
           </div>
+
+          <div className="ugc-row-actions" style={{ marginTop: 14, justifyContent: "flex-end" }}>
+            <button className="ugc-btn" onClick={() => setForm(DEFAULTS)}>
+              Reset
+            </button>
+
+            <button className="ugc-btn" disabled={!canGen} onClick={onBuildPrompt}>
+              Build visual_prompt
+            </button>
+
+            <button className="ugc-btn primary" disabled={!canGen || busy} onClick={onGenerateImage}>
+              {busy ? (
+                <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                  <span className="ugc-spinner" />
+                  Generating…
+                </span>
+              ) : (
+                "Generate Image"
+              )}
+            </button>
+          </div>
+
+          {err ? <div className="ugc-error" style={{ marginTop: 12 }}>{err}</div> : null}
         </div>
 
-        <div style={S.card}>
-          <h3 style={{ marginTop: 0 }}>Output</h3>
+        {/* OUTPUT */}
+        <div className="ugc-card" style={{ marginTop: 14 }}>
+          <div className="ugc-cardheader">
+            <div className="ugc-cardtitle">Output</div>
+            <div className="ugc-cardsub">Visual prompt + image preview.</div>
+          </div>
 
-          {!imageUrl && !videoUrl && <div style={{ opacity: 0.7 }}>Belum ada output.</div>}
-
-          {imageUrl && (
-            <div style={{ marginTop: 10 }}>
-              <div style={S.small}><b>Image</b></div>
-              <a href={imageUrl} target="_blank" rel="noreferrer">{imageUrl}</a>
-              <div style={{ marginTop: 10 }}>
-                <img src={imageUrl} alt="generated" style={S.media} />
+          {visualPrompt ? (
+            <div className="ugc-row">
+              <div className="ugc-row-label">visual_prompt</div>
+              <div className="ugc-row-val">{visualPrompt}</div>
+              <div className="ugc-row-actions" style={{ marginTop: 10 }}>
+                <button className="ugc-btn small" onClick={() => navigator.clipboard.writeText(visualPrompt)}>
+                  Copy
+                </button>
               </div>
             </div>
+          ) : (
+            <div className="ugc-muted-box">Belum ada visual_prompt. Klik “Build visual_prompt”.</div>
           )}
 
-          {videoUrl && (
-            <div style={{ marginTop: 16 }}>
-              <div style={S.small}><b>Video</b></div>
-              <a href={videoUrl} target="_blank" rel="noreferrer">{videoUrl}</a>
-              <div style={{ marginTop: 10 }}>
-                <video src={videoUrl} controls playsInline style={S.media} />
+          {job ? (
+            <div className="ugc-row" style={{ marginTop: 12 }}>
+              <div className="ugc-chiprow">
+                <span className="ugc-chip ok">job: {job.id || "-"}</span>
+                <span className="ugc-chip">{job.status}</span>
               </div>
-            </div>
-          )}
 
-          <div style={S.hr} />
-          <h3 style={{ marginBottom: 8 }}>Log</h3>
-          <pre style={S.pre}>{log || "(empty)"}</pre>
+              <div className="ugc-row-actions" style={{ marginTop: 10 }}>
+                <button className="ugc-btn small" onClick={() => openJson(job.raw)}>
+                  Open job JSON
+                </button>
+              </div>
+
+              {job.imageUrl ? (
+                <div style={{ marginTop: 12 }}>
+                  <div style={{ borderRadius: 14, overflow: "hidden", border: "1px solid var(--stroke)" }}>
+                    <img src={job.imageUrl} alt="generated" style={{ width: "100%", display: "block" }} />
+                  </div>
+
+                  <div className="ugc-row-actions" style={{ marginTop: 10 }}>
+                    <a className="ugc-btn" href={job.imageUrl} target="_blank" rel="noreferrer">
+                      Open
+                    </a>
+                    <a className="ugc-btn" href={job.imageUrl} download="generated.png">
+                      Download
+                    </a>
+                  </div>
+                </div>
+              ) : (
+                <div className="ugc-muted-box" style={{ marginTop: 12 }}>
+                  Job done tapi image URL kosong.
+                </div>
+              )}
+            </div>
+          ) : null}
         </div>
       </div>
+
+      {/* Toast */}
+      {toast ? (
+        <div className={`ugc-toast ${toast.tone === "ok" ? "ok" : "bad"}`}>
+          {toast.msg}
+        </div>
+      ) : null}
+
+      <div className="ugc-credit">Created by @adryndian</div>
     </div>
   );
 }
-
-const S = {
-  wrap: { maxWidth: 1100, margin: "18px auto", padding: "0 14px", fontFamily: "system-ui" },
-  header: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 12 },
-  badge: { padding: "6px 10px", borderRadius: 999, border: "1px solid #e5e7eb", fontSize: 12, opacity: 0.9 },
-  grid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 },
-  card: { border: "1px solid #e5e7eb", borderRadius: 12, padding: 14, background: "#fff" },
-  label: { fontSize: 12, margin: "10px 0 6px", color: "#374151" },
-  input: { width: "100%", padding: "10px 12px", borderRadius: 10, border: "1px solid #d1d5db", fontSize: 14 },
-  row2: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 },
-  rowBtns: { display: "flex", gap: 10, marginTop: 12, flexWrap: "wrap" },
-  btnPrimary: { padding: "10px 14px", borderRadius: 10, border: "1px solid #111827", background: "#111827", color: "#fff", cursor: "pointer" },
-  btn: { padding: "10px 14px", borderRadius: 10, border: "1px solid #d1d5db", background: "#fff", cursor: "pointer" },
-  meta: { marginTop: 10, fontSize: 13 },
-  hr: { height: 1, background: "#e5e7eb", margin: "12px 0" },
-  pre: { whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0, background: "#0b1020", color: "#d1d5db", padding: 12, borderRadius: 10, fontSize: 12 },
-  small: { fontSize: 13 },
-  mini: { fontSize: 12, opacity: 0.75, marginTop: 4 },
-  media: { width: "100%", maxWidth: 520, borderRadius: 12, border: "1px solid #e5e7eb" }
-};
