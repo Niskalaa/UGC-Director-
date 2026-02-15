@@ -867,3 +867,96 @@ body {
     grid-template-columns: repeat(2, 1fr);
   }
 }
+/* ============================================================================
+HOTFIX: CSS ADDITIONS & FIXES
+Add to end of src/styles/global.css
+============================================================================ */
+
+/* Fix 1: Credit Placement - Move away from navigation */
+.ugc-credit {
+position: fixed;
+left: 0;
+right: 0;
+/* Move higher to avoid overlapping with tabbar */
+bottom: calc(96px + env(safe-area-inset-bottom));
+text-align: center;
+font-weight: 900;
+font-size: 11px;
+color: rgba(255,255,255,0.30);
+pointer-events: none;
+z-index: 45; /* Below tabbar (z-index: 70) and status (z-index: 60) */
+opacity: 0.8;
+}
+
+:root[data-theme=“light”] .ugc-credit {
+color: rgba(0,0,0,0.30);
+}
+
+/* Fix 2: Ensure Animation Works */
+@keyframes ugc_progress {
+0% { transform: translateX(-120%); opacity: 0.85; }
+50% { transform: translateX(120%); opacity: 1; }
+100% { transform: translateX(320%); opacity: 0.85; }
+}
+
+.ugc-progress-shimmer {
+height: 100%;
+width: 40%;
+background: rgba(255,255,255,0.14);
+animation: ugc_progress 1.15s linear infinite;
+}
+
+/* Fix 3: Spinner Animation (if missing) */
+@keyframes spin {
+to { transform: rotate(360deg); }
+}
+
+.ugc-spinner {
+width: 14px;
+height: 14px;
+border: 2px solid rgba(255,255,255,0.3);
+border-top-color: var(–fg);
+border-radius: 50%;
+animation: spin 0.6s linear infinite;
+display: inline-block;
+}
+
+/* Fix 4: Button disabled state */
+.ugc-btn:disabled {
+opacity: 0.5;
+cursor: not-allowed;
+pointer-events: none;
+}
+
+/* Fix 5: Error message styling */
+.ugc-error {
+padding: 12px;
+border-radius: var(–radius-card, 14px);
+background: rgba(239, 68, 68, 0.12);
+border: 1px solid rgba(239, 68, 68, 0.30);
+color: var(–fg);
+font-size: 13px;
+font-weight: 700;
+margin-top: 12px;
+}
+
+/* Fix 6: Ensure proper spacing at bottom of page */
+.ugc-page {
+min-height: 100vh;
+/* Space for: status dock (60px) + tabbar (92px) + credit (24px) + safe area */
+padding-bottom: calc(176px + env(safe-area-inset-bottom));
+}
+
+/* Fix 7: Prevent text selection on buttons */
+button {
+-webkit-user-select: none;
+user-select: none;
+-webkit-tap-highlight-color: transparent;
+}
+
+/* Fix 8: Input focus state (iOS specific) */
+.ugc-input:focus,
+.ugc-select:focus {
+outline: 2px solid var(–orange);
+outline-offset: 2px;
+}
