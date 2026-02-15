@@ -10,7 +10,7 @@ export default function StudioPage() {
     try {
       await supabase.auth.signOut();
     } finally {
-      navigate("/login", { replace: true });
+      navigate("/", { replace: true });
     }
   }
 
