@@ -21,11 +21,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     (async () => {
       try {
         const { data, error } = await supabase.auth.getSession();
-        if (error) console.error("supabase.getSession error:", error);
+        console.log("[auth] init getSession hasSession:", !!data?.session, "err:", error);
         if (!mounted) return;
         setSession(data?.session ?? null);
       } catch (e) {
-        console.error("AuthProvider init error:", e);
+        console.error("[auth] init error:", e);
         if (!mounted) return;
         setSession(null);
       } finally {
@@ -33,8 +33,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     })();
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, newSession) => {
-      // event bisa datang setelah init juga
+    const { data } = supabase.auth.onAuthStateChange((event, newSession) => {
+      console.log("[auth] event:", event, "hasSession:", !!newSession);
       if (!mounted) return;
       setSession(newSession);
       setLoading(false);
@@ -42,7 +42,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => {
       mounted = false;
-      sub?.subscription?.unsubscribe?.();
+      data.subscription.unsubscribe();
     };
   }, []);
 
