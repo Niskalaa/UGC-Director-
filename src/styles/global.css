@@ -54,10 +54,10 @@ body { margin: 0; background: var(--bg); color: var(--fg); }
 /* ===== UGC Studio Theme ===== */
 :root {
   --bg: #fff7ed;
-  --fg: #0b0b0f;
+  --fg: rgba(17,24,39,0.78);
   --card: rgba(255,255,255,0.86);
   --stroke: rgba(0,0,0,0.10);
-  --muted: rgba(0,0,0,0.60);
+  --muted: rgba(17,24,39,0.50);
   --orange: #f97316;
 }
 
