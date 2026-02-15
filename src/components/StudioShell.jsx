@@ -1,1044 +1,726 @@
-// src/components/StudioShell.jsx - COMPLETELY REVISED
-// All bugs fixed + new features added
-
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ImageUploadField from "./ImageUploadField.jsx";
 
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
+// LocalStorage keys
 const LS_BLUEPRINT = "ugc.blueprint.v1";
 const LS_DRAFT = "ugc.draft.v1";
-const LS_THEME = "ugc.theme";
+const LS_LANG = "ugc_lang";
+const LS_THEME = "ugc_theme";
 
-// FIXED: Correct tab order (settings-scenes-video-vo)
-const TABS = ["settings", "scenes", "video", "vo"];
-
-// ============================================================================
-// UTILITY FUNCTIONS
-// ============================================================================
-
-function safeJsonParse(jsonString) {
+// ---- helpers
+function safeJsonParse(str, fallback = null) {
   try {
-    return JSON.parse(jsonString);
+    const v = JSON.parse(str);
+    return v ?? fallback;
   } catch {
-    return null;
+    return fallback;
   }
 }
 
-// ============================================================================
-// V1 BLUEPRINT PARSERS
-// ============================================================================
-
-function extractScenes(blueprint) {
-  if (!blueprint) return [];
-  
-  const v1Beats = blueprint?.storyboard?.beats;
-  if (Array.isArray(v1Beats) && v1Beats.length > 0) {
-    return v1Beats.map((beat, idx) => ({
-      ...beat,
-      id: beat.id || `B${idx + 1}`,
-      idx,
-    }));
+async function readTextSafe(res) {
+  try {
+    return await res.text();
+  } catch {
+    return "";
   }
-  
-  const voScenes = blueprint?.vo?.scenes;
-  if (Array.isArray(voScenes) && voScenes.length > 0) {
-    return voScenes.map((scene, idx) => ({
-      id: scene.id || `S${idx + 1}`,
-      idx,
-      time_window: `${scene.start_seconds || idx * 8}s-${scene.end_seconds || (idx + 1) * 8}s`,
-      goal: scene.goal || "",
-      action: scene.description || "",
-      on_screen_text: scene.on_screen || "",
-      shot: scene.camera_angle || scene.shot_type || "",
-      visual_prompt: scene.visual_prompt || "",
-    }));
-  }
-  
-  return [];
 }
 
-function extractMeta(blueprint) {
-  return blueprint?.meta || null;
-}
-
-function extractLocks(blueprint) {
-  return blueprint?.locks || null;
-}
-
-function extractVO(blueprint) {
-  return blueprint?.vo || null;
-}
-
-function extractVideoPrompt(blueprint) {
-  return blueprint?.video_prompt || null;
-}
-
-function extractPlaceholders(blueprint) {
-  return blueprint?.placeholders_if_no_scrape || [];
-}
-
-function extractValidation(blueprint) {
-  return blueprint?.validation || null;
-}
-
-// ============================================================================
-// API HELPER
-// ============================================================================
-
-async function postJson(url, body) {
-  const response = await fetch(url, {
+async function postJson(url, payload) {
+  const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
   });
-  
-  const text = await response.text();
-  const data = safeJsonParse(text) ?? { raw: text };
-  
-  if (!response.ok) {
-    throw new Error(data?.error || `HTTP ${response.status}: ${response.statusText}`);
+
+  const text = await readTextSafe(res);
+  const data = text ? safeJsonParse(text, null) : null;
+
+  if (!res.ok) {
+    const msg =
+      (data && (data.error || data.message)) ||
+      text ||
+      `HTTP ${res.status}`;
+    throw new Error(String(msg));
   }
-  
-  return data;
+
+  // kalau server balikin plain JSON object
+  return data ?? {};
 }
 
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
+async function getJson(url) {
+  const res = await fetch(url, { method: "GET" });
+  const text = await readTextSafe(res);
+  const data = text ? safeJsonParse(text, null) : null;
 
+  if (!res.ok) {
+    const msg =
+      (data && (data.error || data.message)) ||
+      text ||
+      `HTTP ${res.status}`;
+    throw new Error(String(msg));
+  }
+  return data ?? {};
+}
+
+// Poll /api/jobs/:id until done/failed (max ~45s)
+async function pollJob(jobId, { intervalMs = 1200, maxMs = 45000 } = {}) {
+  const started = Date.now();
+  while (Date.now() - started < maxMs) {
+    const j = await getJson(`/api/jobs/${jobId}`);
+    if (j?.status === "done" || j?.status === "failed") return j;
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  throw new Error("Polling timeout (job still running).");
+}
+
+// UI bits
+function Segmented({ value, options, onChange }) {
+  return (
+    <div className="seg">
+      {options.map((opt) => (
+        <button
+          key={opt.value}
+          type="button"
+          className={`seg-btn ${value === opt.value ? "is-active" : ""}`}
+          onClick={() => onChange(opt.value)}
+        >
+          {opt.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Tabs({ value, onChange, items }) {
+  return (
+    <div className="tabbar">
+      {items.map((it) => (
+        <button
+          key={it.value}
+          type="button"
+          className={`tab ${value === it.value ? "is-active" : ""}`}
+          onClick={() => onChange(it.value)}
+        >
+          {it.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Field({ label, hint, children }) {
+  return (
+    <div className="field">
+      <div className="field-head">
+        <div className="field-label">{label}</div>
+        {hint ? <div className="field-hint">{hint}</div> : null}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Input({ value, onChange, placeholder, disabled, rightSlot }) {
+  return (
+    <div className={`input-wrap ${disabled ? "is-disabled" : ""}`}>
+      <input
+        className="input"
+        value={value ?? ""}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
+      />
+      {rightSlot ? <div className="input-right">{rightSlot}</div> : null}
+    </div>
+  );
+}
+
+function Select({ value, onChange, options }) {
+  return (
+    <select
+      className="select"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {options.map((o) => (
+        <option key={o.value} value={o.value}>
+          {o.label}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+// ---- main
 export default function StudioShell({ onLogout }) {
-  // Theme state
+  // Theme
   const [theme, setTheme] = useState(() => {
-    const saved = localStorage.getItem(LS_THEME);
-    if (saved) return saved;
-    const current = document.documentElement.getAttribute("data-theme");
-    return current === "dark" ? "dark" : "light";
+    return localStorage.getItem(LS_THEME) || "dark";
   });
-  
-  // UI state
-  const [tab, setTab] = useState("settings");
-  
-  // Data state
-  const [draft, setDraft] = useState(() => 
-    safeJsonParse(localStorage.getItem(LS_DRAFT)) || {}
-  );
-  
-  const [blueprint, setBlueprint] = useState(() => 
-    safeJsonParse(localStorage.getItem(LS_BLUEPRINT))
-  );
-  
-  // Loading & error state
-  const [generating, setGenerating] = useState(false);
-  const [scraping, setScraping] = useState(false);
-  const [error, setError] = useState("");
-  
-  // Scene images state
-  const [sceneImages, setSceneImages] = useState({});
-  const [generatingImages, setGeneratingImages] = useState({});
-  
-  // Video state
-  const [sceneVideos, setSceneVideos] = useState({});
-  const [generatingVideos, setGeneratingVideos] = useState({});
-  
-  // UI state for collapsible sections
-  const [expandedScenes, setExpandedScenes] = useState({});
-  const [showJsonMode, setShowJsonMode] = useState({});
-  const [showExpertControls, setShowExpertControls] = useState(false);
-  
-  // Expert controls state
-  const [expertParams, setExpertParams] = useState({
-    image: {
-      steps: 30,
-      cfg_scale: 7,
-      sampler: "DPM++ 2M Karras"
-    },
-    video: {
-      fps: 24,
-      duration: 5,
-      motion: 3
-    },
-    audio: {
-      voice: "natural",
-      speed: 1.0,
-      pitch: 1.0
-    }
-  });
-  
-  // Persist theme
+
   useEffect(() => {
-    localStorage.setItem(LS_THEME, theme);
     document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem(LS_THEME, theme);
   }, [theme]);
-  
-  // Persist draft
-  useEffect(() => {
-    localStorage.setItem(LS_DRAFT, JSON.stringify(draft));
-  }, [draft]);
-  
-  // Persist blueprint
-  useEffect(() => {
-    if (blueprint) {
-      localStorage.setItem(LS_BLUEPRINT, JSON.stringify(blueprint));
-    } else {
-      localStorage.removeItem(LS_BLUEPRINT);
-    }
-  }, [blueprint]);
-  
-  // Extract blueprint segments
-  const scenes = useMemo(() => extractScenes(blueprint), [blueprint]);
-  const meta = useMemo(() => extractMeta(blueprint), [blueprint]);
-  const locks = useMemo(() => extractLocks(blueprint), [blueprint]);
-  const vo = useMemo(() => extractVO(blueprint), [blueprint]);
-  const videoPrompt = useMemo(() => extractVideoPrompt(blueprint), [blueprint]);
-  const placeholders = useMemo(() => extractPlaceholders(blueprint), [blueprint]);
-  const validation = useMemo(() => extractValidation(blueprint), [blueprint]);
-  
-  // Generate blueprint
-  const handleGenerate = useCallback(async () => {
-    setError("");
-    setGenerating(true);
-    
-    try {
-      if (!draft.brand || !draft.product_type || !draft.material) {
-        throw new Error("Brand, Product Type, and Material are required");
-      }
-      
-      const payload = {
-        project: draft,
-        provider: "bedrock",
-      };
-      
-      console.log("[StudioShell] Generating blueprint...");
-      
-      const result = await postJson("/api/plan", payload);
-      
-      if (!result.ok || !result.blueprint) {
-        throw new Error(result.error || "Failed to generate blueprint");
-      }
-      
-      setBlueprint(result.blueprint);
-      setTab("scenes");
-      
-      console.log("[StudioShell] Blueprint generated successfully");
-      
-    } catch (err) {
-      const errorMsg = err?.response?.data?.error || err?.message || String(err);
-      console.error("[StudioShell] Generation error:", errorMsg);
-      setError(errorMsg);
-    } finally {
-      setGenerating(false);
-    }
-  }, [draft]);
-  
-  // Analyze URL (scraper)
-  const handleAnalyzeUrl = useCallback(async () => {
-    if (!draft.scrape_url) {
-      setError("Please enter a product URL first");
-      return;
-    }
-    
-    setError("");
-    setScraping(true);
-    
-    try {
-      console.log("[StudioShell] Analyzing URL:", draft.scrape_url);
-      
-      const result = await postJson("/api/analyze", {
-        url: draft.scrape_url
-      });
-      
-      if (!result.ok) {
-        throw new Error(result.error || "Failed to analyze URL");
-      }
-      
-      // Merge scraped data into draft
-      setDraft(prev => ({
-        ...prev,
-        ...result.data
-      }));
-      
-      console.log("[StudioShell] URL analyzed successfully");
-      
-    } catch (err) {
-      const errorMsg = err?.response?.data?.error || err?.message || String(err);
-      console.error("[StudioShell] Scraping error:", errorMsg);
-      setError(errorMsg);
-    } finally {
-      setScraping(false);
-    }
-  }, [draft.scrape_url]);
-  
-  // Generate image for scene
-  const handleGenerateImage = useCallback(async (sceneId, prompt) => {
-  setError("");
-  setGeneratingImages(prev => ({ ...prev, [sceneId]: true }));
 
-  try {
-    const payload = {
-      type: "image",
-      brief: prompt,
-      negative: "",
-      settings: {
-        quality: "standard",
-        aspect_ratio: "9:16",
-        seed: Math.floor(Math.random() * 1000000),
-      },
-    };
+  // Language
+  const [lang, setLang] = useState(() => localStorage.getItem(LS_LANG) || "id");
+  useEffect(() => localStorage.setItem(LS_LANG, lang), [lang]);
 
-    const result = await postJson("/api/jobs", payload);
+  // Tabs (IMPORTANT: we do NOT unmount tab pages -> use hidden)
+  const [tab, setTab] = useState("settings");
 
-    // ✅ sukses langsung dari result
-    if (result?.image_url) {
-      setSceneImages(prev => ({ ...prev, [sceneId]: result.image_url }));
-      return;
-    }
-
-    // kalau server balikin format lain
-    if (result?.output_url) {
-      setSceneImages(prev => ({ ...prev, [sceneId]: result.output_url }));
-      return;
-    }
-
-    // kalau cuma balikin id, baru butuh polling (optional)
-    if (result?.id || result?.job_id) {
-      throw new Error("Job created but no image_url returned. Add polling if needed.");
-    }
-
-    throw new Error("Unexpected /api/jobs response (no image_url).");
-  } catch (err) {
-    console.error("[StudioShell] Image generation error:", err);
-    setError(`Image failed: ${err?.message || String(err)}`);
-  } finally {
-    setGeneratingImages(prev => ({ ...prev, [sceneId]: false }));
-  }
-}, []); 
-  
-  // Generate video for scene
-  const handleGenerateVideo = useCallback(async (sceneId, prompt) => {
-  setError("");
-  setGeneratingVideos(prev => ({ ...prev, [sceneId]: true }));
-
-  try {
-    const payload = {
-      type: "video",
-      brief: prompt,
-      negative: "",
-      settings: {
-        video_seconds: 5,
-        aspect_ratio: "9:16",
-        seed: Math.floor(Math.random() * 1000000),
-      },
-    };
-
-    const result = await postJson("/api/jobs", payload);
-
-    // kalau backend kamu return video_url langsung
-    if (result?.video_url) {
-      setSceneVideos(prev => ({ ...prev, [sceneId]: result.video_url }));
-      return;
-    }
-
-    // atau output_url
-    if (result?.output_url) {
-      setSceneVideos(prev => ({ ...prev, [sceneId]: result.output_url }));
-      return;
-    }
-
-    // kalau cuma return id, polling perlu (optional)
-    if (result?.id || result?.job_id) {
-      throw new Error("Job created but no video_url returned. Add polling if needed.");
-    }
-
-    throw new Error("Unexpected /api/jobs response (no video_url).");
-  } catch (err) {
-    console.error("[StudioShell] Video generation error:", err);
-    setError(`Video failed: ${err?.message || String(err)}`);
-  } finally {
-    setGeneratingVideos(prev => ({ ...prev, [sceneId]: false }));
-  }
-}, []);
-      
-  
-  // Poll job status helper
-  
-  // Clear blueprint
-  const handleClearBlueprint = useCallback(() => {
-    if (window.confirm("Clear current blueprint? This cannot be undone.")) {
-      setBlueprint(null);
-      setSceneImages({});
-      setSceneVideos({});
-      localStorage.removeItem(LS_BLUEPRINT);
-    }
-  }, []);
-  
-  // Toggle theme
-  const toggleTheme = useCallback(() => {
-    setTheme((prev) => (prev === "dark" ? "light" : "dark"));
-  }, []);
-  
-  // Toggle scene expanded
-  const toggleSceneExpanded = useCallback((sceneId) => {
-    setExpandedScenes(prev => ({ ...prev, [sceneId]: !prev[sceneId] }));
-  }, []);
-  
-  // Toggle JSON mode
-  const toggleJsonMode = useCallback((sceneId) => {
-    setShowJsonMode(prev => ({ ...prev, [sceneId]: !prev[sceneId] }));
-  }, []);
-  
-  // ============================================================================
-  // RENDER: SETTINGS TAB
-  // ============================================================================
-  
-  function SettingsTab() {
+  // Draft (settings)
+  const [draft, setDraft] = useState(() => {
+    const v = safeJsonParse(localStorage.getItem(LS_DRAFT), null);
     return (
-      <div className="ugc-container">
-        <div className="ugc-card compact">
-          <div className="ugc-cardheader compact">
-            <div className="ugc-cardtitle">Project Settings</div>
+      v || {
+        scene_count: 4,
+        seconds_per_scene: 8,
+        aspect_ratio: "9:16",
+        platform: "tiktok",
+        product_url: "",
+        brand: "",
+        product_type: "",
+        material: "",
+        tone: "natural gen-z",
+        target_audience: "",
+        model_ref_url: "",
+        product_ref_url: "",
+      }
+    );
+  });
+
+  // Persist draft (debounced)
+  const saveTimer = useRef(null);
+  useEffect(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => {
+      localStorage.setItem(LS_DRAFT, JSON.stringify(draft));
+    }, 200);
+    return () => {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+    };
+  }, [draft]);
+
+  // Blueprint
+  const [blueprint, setBlueprint] = useState(() => {
+    const v = safeJsonParse(localStorage.getItem(LS_BLUEPRINT), null);
+    return v || null;
+  });
+
+  useEffect(() => {
+    if (blueprint) localStorage.setItem(LS_BLUEPRINT, JSON.stringify(blueprint));
+  }, [blueprint]);
+
+  // Status / UI state
+  const [busy, setBusy] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(true);
+  const [statusText, setStatusText] = useState("Ready — BEDROCK");
+  const [error, setError] = useState("");
+
+  // Scenes -> generated images
+  const [sceneImages, setSceneImages] = useState(() => ({}));
+  const [generatingScene, setGeneratingScene] = useState(() => ({}));
+
+  // derived scenes
+  const scenes = useMemo(() => {
+    if (!blueprint?.scenes || !Array.isArray(blueprint.scenes)) return [];
+    return blueprint.scenes;
+  }, [blueprint]);
+
+  // ---- actions
+  const toggleTheme = useCallback(() => {
+    setTheme((t) => (t === "dark" ? "light" : "dark"));
+  }, []);
+
+  const handleClearDraft = useCallback(() => {
+    // “clean” draft (tanpa nuker default struktur)
+    setDraft((d) => ({
+      ...d,
+      product_url: "",
+      brand: "",
+      product_type: "",
+      material: "",
+      tone: "natural gen-z",
+      target_audience: "",
+      model_ref_url: "",
+      product_ref_url: "",
+    }));
+    setError("");
+    setStatusText("Draft cleared.");
+  }, []);
+
+  const handleAnalyzeUrl = useCallback(async () => {
+    setError("");
+    const url = (draft.product_url || "").trim();
+    if (!url) {
+      setError("Isi Product URL dulu.");
+      return;
+    }
+
+    setBusy(true);
+    setStatusText("Analyzing product URL...");
+    try {
+      const data = await postJson("/api/scrape", { url });
+
+      // best-effort mapping
+      setDraft((d) => ({
+        ...d,
+        brand: d.brand || data.brand || data.brand_name || "",
+        product_type: d.product_type || data.product_type || "",
+        material: d.material || data.material || "",
+        target_audience: d.target_audience || data.target_audience || "",
+      }));
+
+      setStatusText("Analyze success. Fields filled.");
+    } catch (e) {
+      setError(e?.message || String(e));
+      setStatusText("Analyze failed.");
+    } finally {
+      setBusy(false);
+    }
+  }, [draft.product_url, draft.brand, draft.product_type, draft.material, draft.target_audience]);
+
+  const handleGenerateBlueprint = useCallback(async () => {
+    setError("");
+
+    // minimal validation
+    if (!draft.brand?.trim()) return setError("missing brand");
+    if (!draft.product_type?.trim()) return setError("missing product type");
+    if (!draft.material?.trim()) return setError("missing material");
+
+    // Backend analyze.js kamu memang butuh dua ref URL.
+    // Blueprint generator kamu juga (dari laporan) kadang expect keduanya ada.
+    if (!draft.model_ref_url?.trim() || !draft.product_ref_url?.trim()) {
+      return setError("model_ref_url & product_ref_url required");
+    }
+
+    setBusy(true);
+    setStatusText("Generating blueprint...");
+    try {
+      const payload = {
+        ...draft,
+        scene_count: Number(draft.scene_count || 4),
+        seconds_per_scene: Number(draft.seconds_per_scene || 8),
+      };
+
+      const bp = await postJson("/api/plan", payload);
+      setBlueprint(bp);
+      setTab("scenes");
+      setStatusText("Blueprint generated successfully.");
+    } catch (e) {
+      setError(e?.message || String(e));
+      setStatusText("Blueprint failed.");
+    } finally {
+      setBusy(false);
+    }
+  }, [draft]);
+
+  const handleClearBlueprint = useCallback(() => {
+    setBlueprint(null);
+    localStorage.removeItem(LS_BLUEPRINT);
+    setSceneImages({});
+    setGeneratingScene({});
+    setError("");
+    setStatusText("Blueprint cleared.");
+  }, []);
+
+  const handleGenerateSceneImage = useCallback(
+    async (sceneIndex) => {
+      if (!blueprint?.scenes?.[sceneIndex]) return;
+
+      setError("");
+      const sc = blueprint.scenes[sceneIndex];
+      const sceneId = String(sc.scene_number ?? sceneIndex + 1);
+
+      // build visual prompt (pakai visual_direction + sedikit guardrail)
+      const briefParts = [
+        `Scene ${sceneId}`,
+        sc.visual_direction || "",
+        `On-screen text: ${sc.onscreen_text || ""}`,
+        `Style: photorealistic, natural lighting, handheld phone vibe, sharp focus, realistic fabric texture, commercial clean look.`,
+        `Aspect ratio: ${draft.aspect_ratio || "9:16"}`,
+      ].filter(Boolean);
+
+      const payload = {
+        type: "image",
+        brief: briefParts.join("\n"),
+        settings: {
+          aspect_ratio: draft.aspect_ratio || "9:16",
+          seed: Math.floor(Math.random() * 1000000),
+        },
+      };
+
+      setGeneratingScene((p) => ({ ...p, [sceneId]: true }));
+      setStatusText(`Generating image for Scene ${sceneId}...`);
+
+      try {
+        const result = await postJson("/api/jobs", payload);
+
+        // backend bisa balikin image_url langsung
+        if (result?.image_url) {
+          setSceneImages((prev) => ({ ...prev, [sceneId]: result.image_url }));
+          setStatusText(`Scene ${sceneId} image ready.`);
+          return;
+        }
+
+        // atau id/job_id untuk polling
+        const jobId = result?.id || result?.job_id;
+        if (!jobId) throw new Error("Unexpected /api/jobs response (no id).");
+
+        const polled = await pollJob(jobId);
+        const out = polled?.image_url || polled?.output_url;
+        if (!out) throw new Error("Job done but no output_url/image_url.");
+
+        setSceneImages((prev) => ({ ...prev, [sceneId]: out }));
+        setStatusText(`Scene ${sceneId} image ready.`);
+      } catch (e) {
+        console.error("[StudioShell] Image generation error:", e);
+        setError(e?.message || String(e));
+        setStatusText(`Scene ${sceneId} failed.`);
+      } finally {
+        setGeneratingScene((p) => ({ ...p, [sceneId]: false }));
+      }
+    },
+    [blueprint, draft.aspect_ratio]
+  );
+
+  // Export JSON
+  const handleDownloadJson = useCallback(() => {
+    const obj = blueprint || {};
+    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "blueprint.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [blueprint]);
+
+  // UI layout config
+  const tabItems = useMemo(
+    () => [
+      { value: "settings", label: "Settings" },
+      { value: "scenes", label: "Scenes" },
+      { value: "export", label: "Export" },
+    ],
+    []
+  );
+
+  return (
+    <div className="app">
+      {/* Topbar */}
+      <div className="topbar">
+        <div className="topbar-inner">
+          <div className="brand">UGC Studio</div>
+
+          <div className="topbar-actions">
+            <Segmented
+              value={lang}
+              options={[
+                { value: "id", label: "ID" },
+                { value: "en", label: "EN" },
+              ]}
+              onChange={setLang}
+            />
+
+            <button type="button" className="btn ghost" onClick={toggleTheme} aria-label="Toggle theme">
+              {theme === "dark" ? "Light" : "Dark"}
+            </button>
+
+            <button
+              type="button"
+              className="btn ghost"
+              onClick={onLogout}
+              style={{ marginLeft: 6 }}
+            >
+              Logout
+            </button>
           </div>
-          
-          <div className="ugc-grid2">
-            <div>
-              <div className="ugc-label">Brand *</div>
-              <input
-                className="ugc-input"
-                value={draft.brand || ""}
-                onChange={(e) => setDraft(prev => ({...prev, brand: e.target.value}))}
-                placeholder="e.g., Nike"
+        </div>
+      </div>
+
+      {/* Main container */}
+      <div className="container">
+        {/* SETTINGS (hidden, not unmounted) */}
+        <section hidden={tab !== "settings"} className="card">
+          <div className="card-title">Settings</div>
+
+          <div className="grid2">
+            <Field label="Scene Count">
+              <Select
+                value={String(draft.scene_count)}
+                onChange={(v) => setDraft((d) => ({ ...d, scene_count: Number(v) }))}
+                options={[
+                  { value: "4", label: "4 beats" },
+                  { value: "5", label: "5 beats" },
+                  { value: "6", label: "6 beats" },
+                ]}
               />
-            </div>
-            
-            <div>
-              <div className="ugc-label">Product Type *</div>
-              <input
-                className="ugc-input"
-                value={draft.product_type || ""}
-                onChange={(e) => setDraft(prev => ({...prev, product_type: e.target.value}))}
-                placeholder="e.g., Baju koko"
+            </Field>
+
+            <Field label="Seconds per Scene">
+              <Select
+                value={String(draft.seconds_per_scene)}
+                onChange={(v) => setDraft((d) => ({ ...d, seconds_per_scene: Number(v) }))}
+                options={[
+                  { value: "5", label: "5s" },
+                  { value: "6", label: "6s" },
+                  { value: "8", label: "8s" },
+                ]}
               />
-            </div>
-            
-            <div>
-              <div className="ugc-label">Material *</div>
-              <input
-                className="ugc-input"
-                value={draft.material || ""}
-                onChange={(e) => setDraft(prev => ({...prev, material: e.target.value}))}
-                placeholder="e.g., Katun premium"
+            </Field>
+
+            <Field label="Aspect ratio">
+              <Select
+                value={draft.aspect_ratio}
+                onChange={(v) => setDraft((d) => ({ ...d, aspect_ratio: v }))}
+                options={[
+                  { value: "9:16", label: "9:16" },
+                  { value: "1:1", label: "1:1" },
+                  { value: "16:9", label: "16:9" },
+                ]}
               />
-            </div>
-            
-            <div>
-              <div className="ugc-label">Product Name</div>
-              <input
-                className="ugc-input"
-                value={draft.product_name || ""}
-                onChange={(e) => setDraft(prev => ({...prev, product_name: e.target.value}))}
-                placeholder="e.g., Premium Shirt"
+            </Field>
+
+            <Field label="Platform">
+              <Select
+                value={draft.platform}
+                onChange={(v) => setDraft((d) => ({ ...d, platform: v }))}
+                options={[
+                  { value: "tiktok", label: "TikTok" },
+                  { value: "reels", label: "Reels" },
+                  { value: "shorts", label: "Shorts" },
+                ]}
               />
-            </div>
-            
-            <div>
-              <div className="ugc-label">Category</div>
-              <input
-                className="ugc-input"
-                value={draft.category || ""}
-                onChange={(e) => setDraft(prev => ({...prev, category: e.target.value}))}
-                placeholder="e.g., Fashion"
-              />
-            </div>
-            
-            <div>
-              <div className="ugc-label">Tone</div>
-              <input
-                className="ugc-input"
-                value={draft.tone || ""}
-                onChange={(e) => setDraft(prev => ({...prev, tone: e.target.value}))}
-                placeholder="e.g., natural gen-z"
-              />
-            </div>
-            
-            <div>
-              <div className="ugc-label">Target Audience</div>
-              <input
-                className="ugc-input"
-                value={draft.target_audience || ""}
-                onChange={(e) => setDraft(prev => ({...prev, target_audience: e.target.value}))}
-                placeholder="e.g., pria 18-34"
-              />
-            </div>
-            
-            <div>
-              <div className="ugc-label">Scene Count</div>
-              <select
-                className="ugc-select"
-                value={draft.scene_count || 4}
-                onChange={(e) => setDraft(prev => ({...prev, scene_count: Number(e.target.value)}))}
-              >
-                {[3, 4, 5, 6].map((n) => (
-                  <option key={n} value={n}>{n} beats</option>
-                ))}
-              </select>
-            </div>
-            
-            <div>
-              <div className="ugc-label">Seconds per Scene</div>
-              <select
-                className="ugc-select"
-                value={draft.seconds_per_scene || "3-4s"}
-                onChange={(e) => setDraft(prev => ({...prev, seconds_per_scene: e.target.value}))}
-              >
-                <option value="3s">3s</option>
-                <option value="3-4s">3-4s</option>
-                <option value="4s">4s</option>
-                <option value="4-5s">4-5s</option>
-                <option value="5s">5s</option>
-              </select>
-            </div>
-            
-            <div className="ugc-grid2-full">
-              <div className="ugc-label">Product URL</div>
-              <div className="ugc-input-group">
-                <input
-                  className="ugc-input"
-                  value={draft.scrape_url || ""}
-                  onChange={(e) => setDraft(prev => ({...prev, scrape_url: e.target.value}))}
-                  placeholder="https://..."
-                />
+            </Field>
+          </div>
+
+          <Field label="Product URL" hint="Optional. Click Analyze to auto-fill fields.">
+            <Input
+              value={draft.product_url}
+              onChange={(v) => setDraft((d) => ({ ...d, product_url: v }))}
+              placeholder="https://shopee.co.id/..."
+              rightSlot={
                 <button
                   type="button"
-                  className="ugc-btn"
+                  className="btn"
                   onClick={handleAnalyzeUrl}
-                  disabled={scraping || !draft.scrape_url}
+                  disabled={busy}
                 >
-                  {scraping ? "Analyzing..." : "Analyze"}
+                  Analyze
                 </button>
-              </div>
-            </div>
+              }
+            />
+          </Field>
+
+          <div className="grid2">
+            <Field label="Brand *">
+              <Input
+                value={draft.brand}
+                onChange={(v) => setDraft((d) => ({ ...d, brand: v }))}
+                placeholder="Zalora"
+              />
+            </Field>
+
+            <Field label="Product type *">
+              <Input
+                value={draft.product_type}
+                onChange={(v) => setDraft((d) => ({ ...d, product_type: v }))}
+                placeholder="Baju koko"
+              />
+            </Field>
+
+            <Field label="Material *">
+              <Input
+                value={draft.material}
+                onChange={(v) => setDraft((d) => ({ ...d, material: v }))}
+                placeholder="Katun"
+              />
+            </Field>
+
+            <Field label="Tone">
+              <Input
+                value={draft.tone}
+                onChange={(v) => setDraft((d) => ({ ...d, tone: v }))}
+                placeholder="natural gen-z"
+              />
+            </Field>
+
+            <Field label="Target audience">
+              <Input
+                value={draft.target_audience}
+                onChange={(v) => setDraft((d) => ({ ...d, target_audience: v }))}
+                placeholder="pria 18–34"
+              />
+            </Field>
           </div>
-          
-          <div style={{ marginTop: 16 }}>
-            <div className="ugc-label">Reference Images</div>
-            <div className="ugc-grid2">
+
+          <div className="divider" />
+
+          <div className="card-title" style={{ marginTop: 2 }}>
+            Reference Images
+          </div>
+
+          <div className="grid2">
+            <Field label="Model (required)">
               <ImageUploadField
-                label="Model"
-                valueUrl={draft.model_ref_url || ""}
-                onUrl={(url) => setDraft(prev => ({...prev, model_ref_url: url}))}
-                projectId={draft.project_id || "default"}
                 kind="model"
+                projectId="ugc-director"
+                onUrl={(url) => setDraft((d) => ({ ...d, model_ref_url: url }))}
+                currentUrl={draft.model_ref_url}
               />
-              
+            </Field>
+
+            <Field label="Product (required)">
               <ImageUploadField
-                label="Product"
-                valueUrl={draft.product_ref_url || ""}
-                onUrl={(url) => setDraft(prev => ({...prev, product_ref_url: url}))}
-                projectId={draft.project_id || "default"}
                 kind="product"
+                projectId="ugc-director"
+                onUrl={(url) => setDraft((d) => ({ ...d, product_ref_url: url }))}
+                currentUrl={draft.product_ref_url}
               />
-            </div>
+            </Field>
           </div>
-          
-          {error && (
-            <div className="ugc-error compact" style={{ marginTop: 12 }}>
-              {error}
-            </div>
-          )}
-          
-          <div className="ugc-row-actions" style={{ marginTop: 16 }}>
-            <button
-              type="button"
-              className="ugc-btn"
-              onClick={handleClearBlueprint}
-              disabled={generating || !blueprint}
-            >
+
+          {error ? <div className="alert">{error}</div> : null}
+
+          <div className="row">
+            <button type="button" className="btn ghost" onClick={handleClearDraft} disabled={busy}>
               Clear
             </button>
-            
-            <button
-              type="button"
-              className="ugc-btn primary"
-              onClick={handleGenerate}
-              disabled={generating || !draft.brand || !draft.product_type || !draft.material}
-            >
-              {generating ? (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-                  <span className="ugc-spinner" />
-                  Generating...
-                </span>
-              ) : (
-                "Generate Blueprint"
-              )}
+            <button type="button" className="btn primary" onClick={handleGenerateBlueprint} disabled={busy}>
+              Generate Blueprint
             </button>
           </div>
-        </div>
-        
-        {/* STATUS - Only in Settings Tab */}
-        {blueprint && (
-          <div className="ugc-card compact" style={{ marginTop: 12 }}>
-            <div className="ugc-chiprow">
-              <span className="ugc-chip ok">Blueprint Ready</span>
-              <span className="ugc-chip">Beats: {scenes.length}</span>
-              {meta && <span className="ugc-chip">{meta.duration_seconds}s</span>}
+        </section>
+
+        {/* SCENES */}
+        <section hidden={tab !== "scenes"} className="card">
+          <div className="card-title">Scenes</div>
+          <div className="muted">plan → image → approve → video → audio</div>
+
+          {!blueprint ? (
+            <div className="empty">
+              No blueprint yet. Generate it in Settings.
             </div>
-          </div>
-        )}
-      </div>
-    );
-  }
-  
-  // ============================================================================
-  // RENDER: SCENES TAB
-  // ============================================================================
-  
-  function ScenesTab() {
-    if (!blueprint) {
-      return (
-        <div className="ugc-container">
-          <div className="ugc-muted-box compact">
-            No blueprint yet. Generate one in Settings.
-          </div>
-        </div>
-      );
-    }
-    
-    return (
-      <div className="ugc-container">
-        {scenes.length === 0 ? (
-          <div className="ugc-muted-box compact">
-            Blueprint exists but no scenes found.
-          </div>
-        ) : (
-          <div className="ugc-scenes-grid">
-            {scenes.map((beat) => {
-              const isExpanded = expandedScenes[beat.id];
-              const isJsonMode = showJsonMode[beat.id];
-              const hasImage = sceneImages[beat.id];
-              const isGeneratingImage = generatingImages[beat.id];
-              const negatives = beat.negative_prompt || [];
-              
-              const naturalPrompt = beat.action || beat.visual_prompt || "Scene description";
-              
-              return (
-                <div key={beat.id} className="ugc-scene-card">
-                  <div className="ugc-scene-header">
-                    <div className="ugc-scene-meta">
-                      <span className="ugc-chip ok">{beat.id}</span>
-                      {beat.time_window && (
-                        <span className="ugc-chip">{beat.time_window}</span>
-                      )}
-                      {beat.goal && (
-                        <span className="ugc-chip warning">{beat.goal}</span>
-                      )}
-                    </div>
-                    
-                    <div className="ugc-scene-actions">
-                      <button
-                        className="ugc-btn-icon"
-                        onClick={() => toggleJsonMode(beat.id)}
-                        title={isJsonMode ? "Natural view" : "JSON view"}
-                      >
-                        {isJsonMode ? "📝" : "{ }"}
-                      </button>
-                      <button
-                        className="ugc-btn-icon"
-                        onClick={() => toggleSceneExpanded(beat.id)}
-                      >
-                        {isExpanded ? "−" : "+"}
-                      </button>
-                    </div>
-                  </div>
-                  
-                  {hasImage ? (
-                    <div className="ugc-scene-image">
-                      <img src={hasImage} alt={beat.id} />
-                    </div>
-                  ) : (
-                    <div className="ugc-scene-placeholder">
-                      {isGeneratingImage ? (
-                        <div className="ugc-scene-generating">
-                          <span className="ugc-spinner" />
-                          <span>Generating...</span>
+          ) : scenes.length === 0 ? (
+            <div className="empty">Blueprint loaded, but no scenes found.</div>
+          ) : (
+            <div className="scene-list">
+              {scenes.map((sc, idx) => {
+                const sceneId = String(sc.scene_number ?? idx + 1);
+                const img = sceneImages[sceneId];
+                const isGen = !!generatingScene[sceneId];
+
+                return (
+                  <div key={sceneId} className="scene">
+                    <div className="scene-head">
+                      <div className="chip">S{sceneId}</div>
+                      <div className="scene-title">
+                        <div className="scene-name">SCENE</div>
+                        <div className="scene-sub">
+                          {Number(sc.duration_seconds || draft.seconds_per_scene)}s • {sc.motion || sc.camera_movement || "—"}
                         </div>
-                      ) : (
-                        <button
-                          className="ugc-btn small"
-                          onClick={() => handleGenerateImage(beat.id, naturalPrompt)}
-                        >
-                          Generate Image
-                        </button>
-                      )}
-                    </div>
-                  )}
-                  
-                  {isExpanded && (
-                    <div className="ugc-scene-prompt">
-                      {isJsonMode ? (
-                        <pre className="ugc-json-view">
-                          {JSON.stringify(beat, null, 2)}
-                        </pre>
-                      ) : (
-                        <>
-                          {beat.action && (
-                            <div className="ugc-prompt-field">
-                              <strong>Action:</strong> {beat.action}
-                            </div>
-                          )}
-                          
-                          {beat.on_screen_text && (
-                            <div className="ugc-prompt-field">
-                              <strong>Text:</strong> <em>{beat.on_screen_text}</em>
-                            </div>
-                          )}
-                          
-                          {negatives.length > 0 && (
-                            <div className="ugc-prompt-field">
-                              <strong>Avoid:</strong>
-                              <div className="ugc-negative-tags compact">
-                                {negatives.slice(0, 4).map((neg, idx) => (
-                                  <span key={idx} className="ugc-chip bad small">
-                                    {neg}
-                                  </span>
-                                ))}
-                                {negatives.length > 4 && (
-                                  <span className="ugc-chip small">
-                                    +{negatives.length - 4}
-                                  </span>
-                                )}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )}
-        
-        {scenes.length > 0 && (
-          <div className="ugc-card compact" style={{ marginTop: 12 }}>
-            <button
-              className="ugc-expert-toggle"
-              onClick={() => setShowExpertControls(!showExpertControls)}
-            >
-              <span>⚙️ Expert Controls</span>
-              <span>{showExpertControls ? "−" : "+"}</span>
-            </button>
-            
-            {showExpertControls && (
-              <div className="ugc-expert-panel">
-                <div className="ugc-expert-section">
-                  <div className="ugc-label">Image Generation</div>
-                  <div className="ugc-grid2">
-                    <div>
-                      <label className="ugc-label small">Steps</label>
-                      <input
-                        type="number"
-                        className="ugc-input small"
-                        value={expertParams.image.steps}
-                        onChange={(e) => setExpertParams(prev => ({
-                          ...prev,
-                          image: {...prev.image, steps: Number(e.target.value)}
-                        }))}
-                        min="10"
-                        max="50"
-                      />
-                    </div>
-                    <div>
-                      <label className="ugc-label small">CFG Scale</label>
-                      <input
-                        type="number"
-                        className="ugc-input small"
-                        value={expertParams.image.cfg_scale}
-                        onChange={(e) => setExpertParams(prev => ({
-                          ...prev,
-                          image: {...prev.image, cfg_scale: Number(e.target.value)}
-                        }))}
-                        min="1"
-                        max="20"
-                        step="0.5"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
-  
-  // ============================================================================
-  // RENDER: VIDEO TAB
-  // ============================================================================
-  
-  function VideoTab() {
-    if (!blueprint) {
-      return (
-        <div className="ugc-container">
-          <div className="ugc-muted-box compact">
-            No blueprint yet. Generate one in Settings.
-          </div>
-        </div>
-      );
-    }
-    
-    return (
-      <div className="ugc-container">
-        <div className="ugc-scenes-grid">
-          {scenes.map((beat) => {
-            const hasVideo = sceneVideos[beat.id];
-            const isGeneratingVideo = generatingVideos[beat.id];
-            const hasImage = sceneImages[beat.id];
-            const naturalPrompt = beat.action || beat.visual_prompt || "Scene description";
-            
-            return (
-              <div key={beat.id} className="ugc-scene-card">
-                <div className="ugc-scene-header">
-                  <div className="ugc-scene-meta">
-                    <span className="ugc-chip ok">{beat.id}</span>
-                    {beat.time_window && (
-                      <span className="ugc-chip">{beat.time_window}</span>
-                    )}
-                  </div>
-                </div>
-                
-                {hasVideo ? (
-                  <div className="ugc-scene-video">
-                    <video src={hasVideo} controls />
-                  </div>
-                ) : (
-                  <div className="ugc-scene-placeholder">
-                    {isGeneratingVideo ? (
-                      <div className="ugc-scene-generating">
-                        <span className="ugc-spinner" />
-                        <span>Generating video...</span>
                       </div>
-                    ) : (
-                      <>
-                        {hasImage && (
-                          <img src={hasImage} alt={beat.id} style={{ opacity: 0.5 }} />
-                        )}
-                        <button
-                          className="ugc-btn primary"
-                          onClick={() => handleGenerateVideo(beat.id, naturalPrompt)}
-                          disabled={!hasImage}
-                        >
-                          {hasImage ? "Generate Video" : "Generate Image First"}
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-        
-        {scenes.length > 0 && (
-          <div className="ugc-card compact" style={{ marginTop: 12 }}>
-            <button
-              className="ugc-expert-toggle"
-              onClick={() => setShowExpertControls(!showExpertControls)}
-            >
-              <span>⚙️ Video Expert Controls</span>
-              <span>{showExpertControls ? "−" : "+"}</span>
-            </button>
-            
-            {showExpertControls && (
-              <div className="ugc-expert-panel">
-                <div className="ugc-expert-section">
-                  <div className="ugc-grid2">
-                    <div>
-                      <label className="ugc-label small">FPS</label>
-                      <select
-                        className="ugc-select small"
-                        value={expertParams.video.fps}
-                        onChange={(e) => setExpertParams(prev => ({
-                          ...prev,
-                          video: {...prev.video, fps: Number(e.target.value)}
-                        }))}
+                      <button
+                        type="button"
+                        className="btn"
+                        onClick={() => handleGenerateSceneImage(idx)}
+                        disabled={isGen}
                       >
-                        <option value="24">24 fps</option>
-                        <option value="30">30 fps</option>
-                        <option value="60">60 fps</option>
-                      </select>
+                        {isGen ? "Generating..." : "Generate Image"}
+                      </button>
                     </div>
-                    <div>
-                      <label className="ugc-label small">Duration</label>
-                      <input
-                        type="number"
-                        className="ugc-input small"
-                        value={expertParams.video.duration}
-                        onChange={(e) => setExpertParams(prev => ({
-                          ...prev,
-                          video: {...prev.video, duration: Number(e.target.value)}
-                        }))}
-                        min="3"
-                        max="10"
-                      />
+
+                    <div className="scene-body">
+                      <div className="kv">
+                        <div className="k">Visual</div>
+                        <div className="v">{sc.visual_direction || "—"}</div>
+                      </div>
+                      <div className="kv">
+                        <div className="k">On-screen</div>
+                        <div className="v">{sc.onscreen_text || "—"}</div>
+                      </div>
+                      <div className="kv">
+                        <div className="k">VO</div>
+                        <div className="v">{sc.voiceover || "—"}</div>
+                      </div>
+
+                      {img ? (
+                        <div className="img-wrap">
+                          <img src={img} alt={`Scene ${sceneId}`} />
+                          <a className="link" href={img} target="_blank" rel="noreferrer">
+                            Open image
+                          </a>
+                        </div>
+                      ) : null}
                     </div>
                   </div>
-                </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        {/* EXPORT */}
+        <section hidden={tab !== "export"} className="card">
+          <div className="card-title">Export</div>
+
+          {!blueprint ? (
+            <div className="empty">No blueprint yet.</div>
+          ) : (
+            <>
+              <div className="row">
+                <button type="button" className="btn" onClick={handleDownloadJson}>
+                  Download JSON
+                </button>
+                <button type="button" className="btn ghost" onClick={handleClearBlueprint}>
+                  Clear Blueprint
+                </button>
               </div>
-            )}
-          </div>
-        )}
+
+              <pre className="code">
+                {JSON.stringify(blueprint, null, 2)}
+              </pre>
+            </>
+          )}
+        </section>
       </div>
-    );
-  }
-  
-  // ============================================================================
-  // RENDER: VO TAB
-  // ============================================================================
-  
-  function VOTab() {
-    if (!vo) {
-      return (
-        <div className="ugc-container">
-          <div className="ugc-muted-box compact">
-            No voice-over data. Generate blueprint first.
-          </div>
-        </div>
-      );
-    }
-    
-    return (
-      <div className="ugc-container">
-        <div className="ugc-card compact">
-          {vo.style && (
-            <div className="ugc-field-row compact">
-              <span className="ugc-label">Style:</span>
-              <span className="ugc-muted">{vo.style}</span>
-            </div>
-          )}
-          
-          {vo.script && vo.script.length > 0 && (
-            <div className="ugc-vo-scripts">
-              {vo.script.map((line, idx) => (
-                <div key={idx} className="ugc-vo-line compact">
-                  <span className="ugc-chip ok small">{line.beat_id}</span>
-                  <span className="ugc-vo-text">{line.line}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-        
-        <div className="ugc-card compact" style={{ marginTop: 12 }}>
-          <button
-            className="ugc-expert-toggle"
-            onClick={() => setShowExpertControls(!showExpertControls)}
-          >
-            <span>⚙️ Audio Expert Controls</span>
-            <span>{showExpertControls ? "−" : "+"}</span>
-          </button>
-          
-          {showExpertControls && (
-            <div className="ugc-expert-panel">
-              <div className="ugc-grid2">
-                <div>
-                  <label className="ugc-label small">Voice</label>
-                  <select
-                    className="ugc-select small"
-                    value={expertParams.audio.voice}
-                    onChange={(e) => setExpertParams(prev => ({
-                      ...prev,
-                      audio: {...prev.audio, voice: e.target.value}
-                    }))}
-                  >
-                    <option value="natural">Natural</option>
-                    <option value="energetic">Energetic</option>
-                    <option value="calm">Calm</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="ugc-label small">Speed</label>
-                  <input
-                    type="number"
-                    className="ugc-input small"
-                    value={expertParams.audio.speed}
-                    onChange={(e) => setExpertParams(prev => ({
-                      ...prev,
-                      audio: {...prev.audio, speed: Number(e.target.value)}
-                    }))}
-                    min="0.5"
-                    max="2.0"
-                    step="0.1"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
-  
-  // ============================================================================
-  // RENDER: MAIN LAYOUT
-  // ============================================================================
-  
-  const currentTab = useMemo(() => {
-    switch (tab) {
-      case "scenes": return <ScenesTab />;
-      case "video": return <VideoTab />;
-      case "vo": return <VOTab />;
-      default: return <SettingsTab />;
-    }
-  }, [tab, draft, blueprint, generating, error, sceneImages, generatingImages, sceneVideos, generatingVideos, expandedScenes, showJsonMode, showExpertControls]);
-  
-  return (
-    <div className="ugc-page">
-      <div className="ugc-topbar">
-        <div className="ugc-topbar-inner">
-          <div className="ugc-title">UGC Studio</div>
-          
-          <div className="ugc-top-actions">
+
+      {/* Status Dock (fixed above tabbar) */}
+      <div className={`statusDock ${statusOpen ? "" : "is-min"}`}>
+        <div className="statusHead">
+          <div className="statusTitle">Status</div>
+          <div className="statusActions">
             <button
               type="button"
-              className="ugc-pill-btn"
-              onClick={toggleTheme}
+              className="btn ghost"
+              onClick={() => setStatusOpen((v) => !v)}
             >
-              {theme === "dark" ? "☀️" : "🌙"}
+              {statusOpen ? "Minimize" : "Show"}
             </button>
-            
-            {onLogout && (
-              <button
-                type="button"
-                className="ugc-pill-btn"
-                onClick={onLogout}
-              >
-                Logout
-              </button>
-            )}
           </div>
         </div>
-      </div>
-      
-      {currentTab}
-      
-      <div className="ugc-tabbar">
-        <div className="ugc-tabbar-inner">
-          {TABS.map((t) => (
-            <button
-              key={t}
-              type="button"
-              className={`ugc-tab ${tab === t ? "active" : ""}`}
-              onClick={() => setTab(t)}
-            >
-              {t.charAt(0).toUpperCase() + t.slice(1)}
-            </button>
-          ))}
+
+        <div className="statusBody" hidden={!statusOpen}>
+          <div className="statusLine">{statusText}</div>
+
+          {/* simple progress bar (avoid flicker) */}
+          <div className={`bar ${busy ? "is-running" : ""}`}>
+            <div className="barFill" />
+          </div>
+
+          {error ? <div className="miniError">{error}</div> : null}
         </div>
       </div>
+
+      {/* Bottom tabs */}
+      <Tabs value={tab} onChange={setTab} items={tabItems} />
     </div>
   );
 }
