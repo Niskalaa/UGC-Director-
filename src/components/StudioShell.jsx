@@ -1,23 +1,9 @@
-// src/components/StudioShell.jsx
+// StudioShell.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ImageUploadField from "./ImageUploadField.jsx";
 import { DEFAULT_PROJECT } from "../studio/studioStore.js";
 
-/**
- * Key fixes:
- * - ✅ FIX scenes parser: supports your blueprint schema: blueprint.vo.scenes[]
- * - ✅ Keep support for legacy: ugc_blueprint_v1.creative_specs.scenes + storyboard.beats
- * - ✅ Light/Dark palette consistent via CSS variables (no hardcoded black overlays)
- * - ✅ Status drawer & credits follow theme
- * - ✅ Loading animation injected
- */
-
 const TABS = ["Settings", "Scenes", "Export"];
-
-const StudioContext = React.createContext(null);
-export function useStudio() {
-  return React.useContext(StudioContext);
-}
 
 const LS_THEME = "ugc_theme"; // "dark" | "light"
 const LS_LANG = "ugc_lang"; // "id" | "en"
@@ -33,16 +19,13 @@ const i18n = {
     dark: "Dark",
     logout: "Logout",
     provider: "AI Brain",
-    autofillLink: "Auto-fill (opsional)",
     productUrl: "Product page URL (optional)",
     autofillBtn: "Auto-fill from Link",
     analyzing: "Analyzing…",
-    formatTiming: "Format & Timing",
     platform: "Platform",
     aspectRatio: "Aspect ratio",
     sceneCount: "Scene count",
     secondsPerScene: "Seconds / scene",
-    core: "Core",
     brand: "Brand",
     productType: "Product type",
     material: "Material",
@@ -65,6 +48,15 @@ const i18n = {
     beatsNotReadable: "Blueprint ada, tapi scenes/beats tidak terbaca.",
     workflow: "plan → image → approve → video → audio",
     createdBy: "Created by",
+    // scene ui
+    prompt: "Prompt",
+    naration: "Narasi (VO)",
+    onScreen: "On-screen",
+    generateImage: "Generate Image",
+    imageReady: "Image ready ✓",
+    imageFailed: "Image failed",
+    openImage: "Open",
+    downloadImage: "Download",
   },
   en: {
     studio: "Studio",
@@ -76,16 +68,13 @@ const i18n = {
     dark: "Dark",
     logout: "Logout",
     provider: "AI Brain",
-    autofillLink: "Auto-fill (optional)",
     productUrl: "Product page URL (optional)",
     autofillBtn: "Auto-fill from Link",
     analyzing: "Analyzing…",
-    formatTiming: "Format & Timing",
     platform: "Platform",
     aspectRatio: "Aspect ratio",
     sceneCount: "Scene count",
     secondsPerScene: "Seconds / scene",
-    core: "Core",
     brand: "Brand",
     productType: "Product type",
     material: "Material",
@@ -108,6 +97,15 @@ const i18n = {
     beatsNotReadable: "Blueprint exists, but scenes/beats not readable.",
     workflow: "plan → image → approve → video → audio",
     createdBy: "Created by",
+    // scene ui
+    prompt: "Prompt",
+    naration: "Narration (VO)",
+    onScreen: "On-screen",
+    generateImage: "Generate Image",
+    imageReady: "Image ready ✓",
+    imageFailed: "Image failed",
+    openImage: "Open",
+    downloadImage: "Download",
   },
 };
 
@@ -127,20 +125,20 @@ function safeJsonParseLoose(content) {
   }
 }
 
-/** Normalize multiple blueprint schemas into one scenes array */
+/**
+ * ✅ Supports your current blueprint schema:
+ * json.blueprint.scenes[] with visual_prompt + voiceover.text + onscreen_text + duration_seconds
+ */
 function extractScenes(blueprint, defaultSecondsPerScene = 8) {
   if (!blueprint) return [];
 
-  // normalize: string -> object
   let bp = blueprint;
   try {
     if (typeof bp === "string") bp = safeJsonParseLoose(bp);
   } catch {}
 
-  // unwrap wrapper: response biasanya { blueprint: {...} }
   if (bp?.blueprint) bp = bp.blueprint;
 
-  // ✅ CASE A: CURRENT SERVER SCHEMA (scenes lives at bp.scenes)
   const directScenes = bp?.scenes;
   if (Array.isArray(directScenes) && directScenes.length) {
     let cursor = 0;
@@ -163,113 +161,158 @@ function extractScenes(blueprint, defaultSecondsPerScene = 8) {
         id: `S${n}`,
         scene_number: n,
         time_window: `${start}s–${end}s`,
-        goal: s?.title || "SCENE",
-        action: s?.shot_description || s?.description || "",
-        on_screen_text: onScreen,
         camera: s?.camera_angle || s?.camera || "",
         motion: s?.motion || "",
-        vo_text: s?.voiceover?.text || s?.vo_text || "",
-        vo_srt: "",
-        raw: s,
-      };
-    });
-  }
-
-  // ✅ CASE B: older schema (vo.scenes) — keep just in case
-  const voScenes = bp?.vo?.scenes;
-  if (Array.isArray(voScenes) && voScenes.length) {
-    let cursor = 0;
-    return voScenes.map((s, idx) => {
-      const n = s?.scene_number ?? idx + 1;
-      const dur = Number(s?.duration_seconds ?? defaultSecondsPerScene ?? 8);
-      const start = cursor;
-      const end = cursor + dur;
-      cursor = end;
-
-      const onScreen =
-        s?.text_overlay?.primary ||
-        s?.text_overlay?.secondary ||
-        s?.on_screen_text ||
-        s?.onscreen_text ||
-        "";
-
-      return {
-        id: `S${n}`,
-        scene_number: n,
-        time_window: `${start}s–${end}s`,
-        goal: s?.title || "SCENE",
-        action: s?.description || "",
+        prompt: s?.visual_prompt || "", // ✅ your #1
+        action: s?.shot_description || s?.description || "",
         on_screen_text: onScreen,
-        camera: s?.camera_angle || "",
-        motion: s?.motion || "",
         vo_text: s?.voiceover?.text || "",
-        vo_srt: "",
         raw: s,
       };
     });
   }
 
-  // ✅ CASE C: ugc_blueprint_v1 schema
-  const v1 = bp?.ugc_blueprint_v1 || bp?.ugcBlueprintV1 || null;
-  const v1Scenes = v1?.creative_specs?.scenes || v1?.creativeSpecs?.scenes;
-  const v1VO = v1?.voiceover_specs?.scenes || v1?.voiceoverSpecs?.scenes;
-
-  if (Array.isArray(v1Scenes) && v1Scenes.length) {
-    return v1Scenes.map((s, idx) => {
-      const n = idx + 1;
-      const start = (n - 1) * Number(defaultSecondsPerScene || 8);
-      const end = start + Number(defaultSecondsPerScene || 8);
-      const sn = s?.scene_number ?? s?.sceneNumber ?? n;
-
-      const vo = Array.isArray(v1VO)
-        ? v1VO.find((x) => (x?.scene_number ?? x?.sceneNumber ?? x?.number) === sn)
-        : null;
-
-      return {
-        id: `S${n}`,
-        scene_number: sn,
-        time_window: `${start}s–${end}s`,
-        goal: s?.scene_type || s?.sceneType || "SCENE",
-        action: s?.visual_description || s?.visualDescription || "",
-        on_screen_text: s?.onscreen_text || s?.onScreenText || "",
-        camera: s?.camera || "",
-        vo_text: vo?.vo_text || vo?.voText || "",
-        vo_srt: vo?.srt || "",
-        raw: s,
-      };
-    });
-  }
-
-  // ✅ CASE D: storyboard beats
-  const beats =
-    bp?.storyboard?.beats ||
-    bp?.SEGMENT_3?.storyboard?.beats ||
-    bp?.segments?.storyboard?.beats ||
-    bp?.creative_specs?.storyboard?.beats ||
-    [];
-
-  if (Array.isArray(beats) && beats.length) {
-    return beats.map((b, idx) => {
-      const n = idx + 1;
-      const start = (n - 1) * Number(defaultSecondsPerScene || 8);
-      const end = start + Number(defaultSecondsPerScene || 8);
-      return {
-        id: b?.id || `S${n}`,
-        scene_number: n,
-        time_window: b?.time_window || `${start}s–${end}s`,
-        goal: b?.goal || "SCENE",
-        action: b?.action || "",
-        on_screen_text: b?.on_screen_text || b?.text_overlay || "",
-        camera: b?.camera || "",
-        vo_text: b?.vo_text || b?.vo || "",
-        vo_srt: b?.srt || "",
-        raw: b,
-      };
-    });
-  }
-
+  // fallback (optional)
   return [];
 }
+
+function escapeHtml(s) {
+  return String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+}
+
+function canGeneratePlan(p) {
+  const required = ["brand", "product_type", "material", "platform", "aspect_ratio", "scene_count", "seconds_per_scene"];
+  for (const k of required) {
+    if (p[k] === undefined || p[k] === null || String(p[k]).trim() === "") return false;
+  }
+  // backend kamu sekarang memang butuh dua URL ini (sesuai flow kamu sebelumnya)
+  if (!String(p.model_ref_url || "").trim() || !String(p.product_ref_url || "").trim()) return false;
+  return true;
+}
+
+async function generatePlan({
+  projectDraft,
+  setProjectDraft,
+  setBlueprint,
+  setTab,
+  setLoadingPlan,
+  setPlanError,
+  abortRef,
+  showToast,
+  t,
+}) {
+  if (!canGeneratePlan(projectDraft)) return;
+
+  setPlanError("");
+  setLoadingPlan(true);
+  setProjectDraft(projectDraft);
+
+  const provider = (projectDraft.ai_brain || "bedrock").toLowerCase();
+
+  const ctrl = new AbortController();
+  abortRef.current = ctrl;
+
+  try {
+    const r = await fetch("/api/plan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ provider, project: projectDraft }),
+      signal: ctrl.signal,
+    });
+
+    const raw = await r.text();
+    let json = null;
+    try {
+      json = raw ? JSON.parse(raw) : null;
+    } catch {
+      throw new Error(`Non-JSON response (${r.status}). Preview: ${String(raw).slice(0, 200)}`);
+    }
+
+    if (!r.ok || !json?.ok) throw new Error(json?.error || `${t.failed} (${r.status})`);
+    if (!json?.blueprint) throw new Error("Plan OK tapi blueprint kosong.");
+
+    setBlueprint(json.blueprint);
+    setTab("Scenes");
+    showToast(t.success, "ok");
+  } catch (e) {
+    if (e?.name === "AbortError") {
+      setPlanError("Canceled.");
+    } else {
+      setPlanError(e?.message || String(e));
+      showToast(t.failed, "bad");
+    }
+  } finally {
+    setLoadingPlan(false);
+    abortRef.current = null;
+  }
+}
+
+/** Build brief for /api/jobs based on scene */
+function buildImageBrief(scene, projectDraft) {
+  const parts = [];
+
+  // Primary prompt
+  if (scene?.prompt) parts.push(scene.prompt.trim());
+
+  // Add camera context if exists
+  const cameraBits = [];
+  if (scene?.camera) cameraBits.push(`Camera angle: ${scene.camera}`);
+  if (scene?.motion) cameraBits.push(`Motion: ${scene.motion}`);
+  if (cameraBits.length) parts.push(cameraBits.join(". ") + ".");
+
+  // On-screen can help composition
+  if (scene?.on_screen_text) parts.push(`On-screen text: "${scene.on_screen_text}".`);
+
+  // Global style anchor
+  parts.push(
+    `Style: photorealistic, clean commercial look, natural lighting, handheld phone camera vibe, sharp focus, high detail, realistic textures.`
+  );
+
+  // optional product context from project
+  if (projectDraft?.brand || projectDraft?.product_type) {
+    parts.push(
+      `Product context: ${projectDraft?.brand || ""} ${projectDraft?.product_type || ""}.`
+    );
+  }
+
+  return parts.filter(Boolean).join("\n");
+}
+
+/** Create job (image) */
+async function createImageJob({ scene, projectDraft }) {
+  const brief = buildImageBrief(scene, projectDraft);
+
+  const payload = {
+    type: "image",
+    brief,
+    settings: {
+      aspect_ratio: projectDraft?.aspect_ratio || "9:16",
+    },
+  };
+
+  const r = await fetch("/api/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+
+  const raw = await r.text();
+  let json = null;
+  try {
+    json = raw ? JSON.parse(raw) : null;
+  } catch {
+    throw new Error(`Non-JSON jobs response (${r.status}). Preview: ${String(raw).slice(0, 200)}`);
+  }
+
+  if (!r.ok || !json?.ok) throw new Error(json?.error || `Jobs failed (${r.status})`);
+  if (!json?.job) throw new Error("Jobs OK tapi job kosong.");
+
+  return json.job; // { id, status, image_url, ... }
+}
+
+/* =========================
+   MAIN
+   ========================= */
 
 export default function StudioShell({ onLogout }) {
   const [tab, setTab] = useState("Settings");
@@ -279,7 +322,6 @@ export default function StudioShell({ onLogout }) {
 
   const t = i18n[lang] || i18n.id;
 
-  // global studio state
   const [projectDraft, setProjectDraft] = useState({
     ...DEFAULT_PROJECT,
     ai_brain: "bedrock",
@@ -287,8 +329,6 @@ export default function StudioShell({ onLogout }) {
     aspect_ratio: DEFAULT_PROJECT?.aspect_ratio || "9:16",
     scene_count: DEFAULT_PROJECT?.scene_count || 6,
     seconds_per_scene: DEFAULT_PROJECT?.seconds_per_scene || 8,
-
-    // optional new fields
     product_page_url: "",
     tone: DEFAULT_PROJECT?.tone || "",
     target_audience: DEFAULT_PROJECT?.target_audience || "",
@@ -298,12 +338,16 @@ export default function StudioShell({ onLogout }) {
 
   const [blueprint, setBlueprint] = useState(null);
 
-  // status + loading
+  // Plan status
   const [statusOpen, setStatusOpen] = useState(true);
   const [loadingPlan, setLoadingPlan] = useState(false);
   const [planError, setPlanError] = useState("");
   const [elapsed, setElapsed] = useState(0);
   const abortRef = useRef(null);
+
+  // Per-scene generation state (image only)
+  // key: scene.id (S1..)
+  const [sceneGen, setSceneGen] = useState({}); // { S1: { status, job_id, image_url, error } }
 
   // toast
   const [toast, setToast] = useState(null);
@@ -318,10 +362,9 @@ export default function StudioShell({ onLogout }) {
 
   useEffect(() => {
     localStorage.setItem(LS_THEME, theme);
-    document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.theme = theme; // IMPORTANT for your global.css
   }, [theme]);
 
-  // elapsed timer while loading
   useEffect(() => {
     if (!loadingPlan) return;
     const start = Date.now();
@@ -333,181 +376,262 @@ export default function StudioShell({ onLogout }) {
     return () => clearInterval(id);
   }, [loadingPlan]);
 
-  const ctx = {
-    tab,
-    setTab,
-    projectDraft,
-    setProjectDraft,
-    blueprint,
-    setBlueprint,
-    loadingPlan,
-    setLoadingPlan,
-    planError,
-    setPlanError,
-    lang,
-    theme,
-  };
-
-  const content = useMemo(() => {
-    if (tab === "Scenes") return <ScenesTab />;
-    if (tab === "Export") return <ExportTab />;
-    return <SettingsTab />;
-  }, [tab]);
-
-  // Inject keyframes + theme variables so loading always works even if CSS import missing
-  const styleKeyframes = (
-    <style>{`
-      @keyframes ugc-spin { to { transform: rotate(360deg); } }
-      @keyframes ugc-pulse { 0%,100%{ opacity:.55 } 50%{ opacity:1 } }
-
-      :root{
-        --bg: #0b0b0f;
-        --panel: rgba(255,255,255,0.06);
-        --panel2: rgba(255,255,255,0.08);
-        --border: rgba(255,255,255,0.12);
-        --text: rgba(255,255,255,0.92);
-        --muted: rgba(255,255,255,0.60);
-
-        --orange: #f97316;
-        --orange2: rgba(249,115,22,0.18);
-        --shadow: 0 18px 60px rgba(0,0,0,0.45);
-
-        /* ✅ theme-able surfaces (fix light mode mess) */
-        --topbar: rgba(0,0,0,0.25);
-        --field: rgba(0,0,0,0.16);
-        --soft: rgba(0,0,0,0.10);
-        --soft2: rgba(0,0,0,0.18);
-        --drawer: rgba(15,15,18,0.92);
-        --footer: rgba(0,0,0,0.35);
-
-        --btn: rgba(255,255,255,0.06);
-        --btn2: rgba(255,255,255,0.08);
-        --progressTrack: rgba(255,255,255,0.06);
-      }
-
-      :root[data-theme="light"]{
-        --bg: #fff7ed;
-        --panel: rgba(0,0,0,0.045);
-        --panel2: rgba(0,0,0,0.06);
-        --border: rgba(0,0,0,0.10);
-        --text: rgba(0,0,0,0.88);
-        --muted: rgba(0,0,0,0.55);
-
-        --orange: #f97316;
-        --orange2: rgba(249,115,22,0.18);
-        --shadow: 0 18px 60px rgba(0,0,0,0.12);
-
-        /* ✅ light equivalents */
-        --topbar: rgba(255,255,255,0.65);
-        --field: rgba(255,255,255,0.78);
-        --soft: rgba(255,255,255,0.60);
-        --soft2: rgba(255,255,255,0.72);
-        --drawer: rgba(255,255,255,0.88);
-        --footer: rgba(255,255,255,0.65);
-
-        --btn: rgba(255,255,255,0.70);
-        --btn2: rgba(255,255,255,0.82);
-        --progressTrack: rgba(0,0,0,0.05);
-      }
-
-      body{ background: var(--bg); color: var(--text); }
-    `}</style>
+  const scenes = useMemo(
+    () => extractScenes(blueprint, projectDraft?.seconds_per_scene || 8),
+    [blueprint, projectDraft]
   );
 
+  async function handleGenerateImage(scene) {
+    const key = scene?.id;
+    if (!key) return;
+
+    // lock state
+    setSceneGen((prev) => ({
+      ...prev,
+      [key]: { ...(prev[key] || {}), status: "generating", error: "" },
+    }));
+
+    try {
+      const job = await createImageJob({ scene, projectDraft });
+
+      // image job returns done + image_url (based on your backend)
+      setSceneGen((prev) => ({
+        ...prev,
+        [key]: {
+          ...(prev[key] || {}),
+          status: job.status || "done",
+          job_id: job.id,
+          image_url: job.image_url || "",
+          error: "",
+        },
+      }));
+
+      showToast(`${key}: ${t.imageReady}`, "ok");
+    } catch (e) {
+      setSceneGen((prev) => ({
+        ...prev,
+        [key]: { ...(prev[key] || {}), status: "failed", error: e?.message || String(e) },
+      }));
+      showToast(`${key}: ${t.imageFailed}`, "bad");
+    }
+  }
+
+  function openJson() {
+    const w = window.open("", "_blank");
+    if (!w) return;
+    const html = `
+      <pre style="white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; padding:16px;">
+${escapeHtml(JSON.stringify(blueprint, null, 2))}
+      </pre>`;
+    w.document.write(html);
+    w.document.close();
+  }
+
+  function downloadJson() {
+    const blob = new Blob([JSON.stringify(blueprint, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "blueprint.json";
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const est = Math.max(0, Number(projectDraft?.scene_count || 0) * Number(projectDraft?.seconds_per_scene || 0));
+
   return (
-    <StudioContext.Provider value={ctx}>
-      {styleKeyframes}
+    <div style={styles.page}>
+      {/* Top bar (single source of truth) */}
+      <div style={styles.topBar}>
+        <div style={styles.topBarInner}>
+          <div style={styles.title}>{t.studio}</div>
 
-      <div style={styles.page}>
-        {/* Top bar */}
-        <div style={styles.topBar}>
-          <div style={styles.topBarInner}>
-            <div style={styles.title}>{t.studio}</div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <LangToggle lang={lang} setLang={setLang} t={t} />
+            <ThemeToggle theme={theme} setTheme={setTheme} />
+            {typeof onLogout === "function" ? (
+              <button type="button" style={styles.ghostBtn} onClick={onLogout}>
+                {t.logout}
+              </button>
+            ) : null}
+          </div>
+        </div>
+      </div>
 
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <LangToggle lang={lang} setLang={setLang} />
-              <ThemeToggle theme={theme} setTheme={setTheme} />
-              {typeof onLogout === "function" ? (
-                <button type="button" style={styles.ghostBtn} onClick={onLogout}>
-                  {t.logout}
-                </button>
+      <div style={styles.container}>
+        <div style={styles.tabsTop}>
+          {TABS.map((x) => (
+            <button
+              key={x}
+              type="button"
+              onClick={() => setTab(x)}
+              style={{ ...styles.tabPill, ...(tab === x ? styles.tabPillActive : {}) }}
+            >
+              {t[x.toLowerCase()] || x}
+            </button>
+          ))}
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          {tab === "Settings" ? (
+            <SettingsTab
+              t={t}
+              lang={lang}
+              projectDraft={projectDraft}
+              setProjectDraft={setProjectDraft}
+              setBlueprint={setBlueprint}
+              setTab={setTab}
+              loadingPlan={loadingPlan}
+              setLoadingPlan={setLoadingPlan}
+              planError={planError}
+              setPlanError={setPlanError}
+              abortRef={abortRef}
+              showToast={showToast}
+            />
+          ) : null}
+
+          {tab === "Scenes" ? (
+            <ScenesTab
+              t={t}
+              blueprint={blueprint}
+              scenes={scenes}
+              onOpenJson={openJson}
+              onDownloadJson={downloadJson}
+              projectDraft={projectDraft}
+              sceneGen={sceneGen}
+              onGenerateImage={handleGenerateImage}
+            />
+          ) : null}
+
+          {tab === "Export" ? (
+            <ExportTab t={t} blueprint={blueprint} onOpenJson={openJson} onDownloadJson={downloadJson} />
+          ) : null}
+        </div>
+      </div>
+
+      {/* Status Dock */}
+      <div style={styles.statusWrap}>
+        <div style={{ ...styles.statusCard, ...(statusOpen ? {} : styles.statusCardCollapsed) }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div style={{ fontWeight: 900, fontSize: 13 }}>{t.status}</div>
+
+              {/* ✅ spinner always visible even when minimized */}
+              {loadingPlan ? (
+                <div style={{ display: "inline-flex", alignItems: "center", gap: 8, opacity: 0.85 }}>
+                  <span style={styles.spinner} />
+                  <span style={{ fontSize: 12, fontWeight: 800, color: "var(--muted)" }}>
+                    {t.generating} · {elapsed}s
+                  </span>
+                </div>
               ) : null}
             </div>
-          </div>
-        </div>
 
-        {/* Main */}
-        <div style={styles.container}>
-          <div style={styles.tabsTop}>
-            {TABS.map((x) => (
+            <button type="button" style={styles.ghostBtn} onClick={() => setStatusOpen((v) => !v)}>
+              {statusOpen ? t.minimize : t.show}
+            </button>
+          </div>
+
+          {statusOpen ? (
+            <>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+                <Pill ok={!!String(projectDraft?.brand || "").trim()} label="Core" />
+                <Pill ok={!!String(projectDraft?.model_ref_url || "").trim()} label="Model" />
+                <Pill ok={!!String(projectDraft?.product_ref_url || "").trim()} label="Product" />
+                <span style={styles.miniPill}>≈ {est}s</span>
+                <span style={styles.miniPill}>Provider: {(projectDraft.ai_brain || "bedrock").toUpperCase()}</span>
+              </div>
+
+              <div style={{ marginTop: 10 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.8 }}>Progress</div>
+                  {loadingPlan ? (
+                    <button
+                      type="button"
+                      style={styles.secondaryBtn}
+                      onClick={() => {
+                        try {
+                          abortRef.current?.abort?.();
+                        } catch {}
+                      }}
+                    >
+                      {t.cancel}
+                    </button>
+                  ) : null}
+                </div>
+
+                <div style={styles.progressBar}>
+                  <div
+                    style={{
+                      ...styles.progressFill,
+                      width: loadingPlan ? `${clamp((elapsed / Math.max(1, est)) * 100, 6, 92)}%` : "0%",
+                      opacity: loadingPlan ? 1 : 0,
+                    }}
+                  />
+                </div>
+              </div>
+
               <button
-                key={x}
                 type="button"
-                onClick={() => setTab(x)}
-                style={{ ...styles.tabPill, ...(tab === x ? styles.tabPillActive : {}) }}
+                style={{
+                  ...styles.primaryBtn,
+                  marginTop: 10,
+                  opacity: canGeneratePlan(projectDraft) && !loadingPlan ? 1 : 0.55,
+                  cursor: canGeneratePlan(projectDraft) && !loadingPlan ? "pointer" : "not-allowed",
+                }}
+                disabled={!canGeneratePlan(projectDraft) || loadingPlan}
+                onClick={() =>
+                  generatePlan({
+                    projectDraft,
+                    setProjectDraft,
+                    setBlueprint,
+                    setTab,
+                    setLoadingPlan,
+                    setPlanError,
+                    abortRef,
+                    showToast,
+                    t,
+                  })
+                }
               >
-                {t[x.toLowerCase()] || x}
+                {loadingPlan ? (
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                    <span style={styles.spinner} />
+                    {t.generating}
+                  </span>
+                ) : (
+                  t.generate
+                )}
               </button>
-            ))}
-          </div>
 
-          <div style={{ marginTop: 10 }}>{content}</div>
+              {planError ? <div style={styles.errorBox}>{planError}</div> : null}
+            </>
+          ) : null}
         </div>
-
-        {/* Status Drawer */}
-        <StatusDrawer
-          open={statusOpen}
-          onToggle={() => setStatusOpen((v) => !v)}
-          loading={loadingPlan}
-          elapsed={elapsed}
-          project={projectDraft}
-          provider={(projectDraft.ai_brain || "bedrock").toUpperCase()}
-          canGenerate={canGenerate(projectDraft)}
-          error={planError}
-          onGenerate={() =>
-            generatePlan({
-              projectDraft,
-              setProjectDraft,
-              setBlueprint,
-              setTab,
-              setLoadingPlan,
-              setPlanError,
-              abortRef,
-              showToast,
-              t,
-            })
-          }
-          onCancel={() => {
-            try {
-              abortRef.current?.abort?.();
-            } catch {}
-          }}
-          t={t}
-        />
-
-        {/* Bottom credit (static) */}
-        <div style={styles.creditBar}>
-          <span style={{ opacity: 0.75 }}>
-            {t.createdBy} <b>@adryndian</b>
-          </span>
-        </div>
-
-        {/* Toast */}
-        {toast ? (
-          <div style={styles.toastWrap}>
-            <div
-              style={{
-                ...styles.toast,
-                borderColor: toast.tone === "ok" ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)",
-                background: toast.tone === "ok" ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
-              }}
-            >
-              <div style={{ fontWeight: 900, fontSize: 12 }}>{toast.msg}</div>
-            </div>
-          </div>
-        ) : null}
       </div>
-    </StudioContext.Provider>
+
+      {/* Credit bar */}
+      <div style={styles.creditBar}>
+        <span style={{ opacity: 0.75 }}>
+          {t.createdBy} <b>@adryndian</b>
+        </span>
+      </div>
+
+      {/* Toast */}
+      {toast ? (
+        <div style={styles.toastWrap}>
+          <div
+            style={{
+              ...styles.toast,
+              borderColor: toast.tone === "ok" ? "rgba(34,197,94,0.35)" : "rgba(239,68,68,0.35)",
+              background: toast.tone === "ok" ? "rgba(34,197,94,0.12)" : "rgba(239,68,68,0.12)",
+            }}
+          >
+            <div style={{ fontWeight: 900, fontSize: 12 }}>{toast.msg}</div>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -515,20 +639,20 @@ export default function StudioShell({ onLogout }) {
    Tabs
    ========================= */
 
-function SettingsTab() {
-  const {
-    projectDraft,
-    setProjectDraft,
-    setBlueprint,
-    setTab,
-    loadingPlan,
-    setLoadingPlan,
-    planError,
-    setPlanError,
-    lang,
-  } = useStudio();
-  const t = i18n[lang] || i18n.id;
-
+function SettingsTab({
+  t,
+  lang,
+  projectDraft,
+  setProjectDraft,
+  setBlueprint,
+  setTab,
+  loadingPlan,
+  setLoadingPlan,
+  planError,
+  setPlanError,
+  abortRef,
+  showToast,
+}) {
   const [p, setP] = useState(projectDraft);
   const [analyzing, setAnalyzing] = useState(false);
   const [autoInfo, setAutoInfo] = useState("");
@@ -578,45 +702,8 @@ function SettingsTab() {
     }
   }
 
-  async function autoFillFromImages() {
-    if (analyzing) return;
-    if (!(p.model_ref_url || "").trim() || !(p.product_ref_url || "").trim()) return;
+  const compactGap = 10;
 
-    setAnalyzing(true);
-    setAutoInfo("");
-    setPlanError("");
-
-    try {
-      const r = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model_ref_url: p.model_ref_url, product_ref_url: p.product_ref_url }),
-      });
-
-      const raw = await r.text();
-      const json = raw ? safeJsonParseLoose(raw) : null;
-
-      if (!r.ok || !json?.ok) throw new Error(json?.error || `Analyze failed (${r.status})`);
-
-      const f = json.fields || {};
-      setP((prev) => ({
-        ...prev,
-        brand: prev.brand?.trim() ? prev.brand : f.brand || "",
-        product_type: prev.product_type?.trim() ? prev.product_type : f.product_type || "",
-        material: prev.material?.trim() ? prev.material : f.material || "",
-        tone: prev.tone?.trim() ? prev.tone : f.tone || "",
-        target_audience: prev.target_audience?.trim() ? prev.target_audience : f.target_audience || "",
-      }));
-
-      setAutoInfo("✓");
-    } catch (e) {
-      setPlanError(e?.message || String(e));
-    } finally {
-      setAnalyzing(false);
-    }
-  }
-
-  const compactGap = 10; // reduced spacing (~35%)
   return (
     <div style={styles.card}>
       <div style={styles.cardHeader}>
@@ -631,7 +718,6 @@ function SettingsTab() {
           </Select>
         </Field>
 
-        {/* Auto-fill Link (optional) */}
         <div style={styles.inlineRow}>
           <div style={{ flex: 1 }}>
             <Field label={t.productUrl}>
@@ -706,7 +792,6 @@ function SettingsTab() {
           </Field>
         </div>
 
-        {/* Assets (optional) */}
         <div style={{ marginTop: 4 }}>
           <div style={styles.sectionTitle}>{t.assets}</div>
           <div style={styles.grid2}>
@@ -731,23 +816,11 @@ function SettingsTab() {
               optional
             />
           </div>
-
-          <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-            <button
-              type="button"
-              onClick={autoFillFromImages}
-              disabled={analyzing || !(p.model_ref_url || "").trim() || !(p.product_ref_url || "").trim()}
-              style={styles.secondaryBtn}
-            >
-              {analyzing ? t.analyzing : "Auto-fill from Images"} {autoInfo ? autoInfo : ""}
-            </button>
-          </div>
         </div>
 
         {planError ? <div style={styles.errorBox}>{planError}</div> : null}
 
-        {/* Save local draft */}
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10, flexWrap: "wrap" }}>
           <button
             type="button"
             style={styles.secondaryBtn}
@@ -755,18 +828,16 @@ function SettingsTab() {
               setProjectDraft(p);
               setBlueprint(null);
               setTab("Settings");
+              showToast("Draft saved", "ok");
             }}
           >
             Save Draft
           </button>
-        </div>
 
-        {/* Optional fallback button (Status drawer is primary) */}
-        <div style={{ display: "flex", justifyContent: "flex-end" }}>
           <button
             type="button"
-            style={{ ...styles.primaryBtn, opacity: canGenerate(p) && !loadingPlan ? 1 : 0.5 }}
-            disabled={!canGenerate(p) || loadingPlan}
+            style={{ ...styles.primaryBtn, opacity: canGeneratePlan(p) && !loadingPlan ? 1 : 0.55 }}
+            disabled={!canGeneratePlan(p) || loadingPlan}
             onClick={() =>
               generatePlan({
                 projectDraft: p,
@@ -775,8 +846,8 @@ function SettingsTab() {
                 setTab,
                 setLoadingPlan,
                 setPlanError,
-                abortRef: { current: null },
-                showToast: () => {},
+                abortRef,
+                showToast,
                 t,
               })
             }
@@ -789,12 +860,7 @@ function SettingsTab() {
   );
 }
 
-function ScenesTab() {
-  const { blueprint, projectDraft, lang } = useStudio();
-  const t = i18n[lang] || i18n.id;
-
-  const scenes = useMemo(() => extractScenes(blueprint, projectDraft?.seconds_per_scene || 8), [blueprint, projectDraft]);
-
+function ScenesTab({ t, blueprint, scenes, onOpenJson, onDownloadJson, projectDraft, sceneGen, onGenerateImage }) {
   if (!blueprint) {
     return (
       <div style={styles.card}>
@@ -818,7 +884,12 @@ function ScenesTab() {
         <div style={styles.placeholder}>{t.beatsNotReadable}</div>
 
         <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
-          <OpenDownloadBlueprintButtons blueprint={blueprint} t={t} />
+          <button type="button" style={styles.secondaryBtn} onClick={onOpenJson}>
+            {t.openJson}
+          </button>
+          <button type="button" style={styles.secondaryBtn} onClick={onDownloadJson}>
+            {t.downloadJson}
+          </button>
         </div>
       </div>
     );
@@ -832,52 +903,108 @@ function ScenesTab() {
       </div>
 
       <div style={{ display: "grid", gap: 10 }}>
-        {scenes.map((s, idx) => (
-          <div key={s.id || idx} style={styles.sceneCard}>
-            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-                <span style={styles.badge}>{s.id}</span>
-                <span style={{ fontWeight: 900, fontSize: 13 }}>{s.goal}</span>
-                <span style={styles.miniPill}>{s.time_window}</span>
+        {scenes.map((s, idx) => {
+          const st = sceneGen?.[s.id] || {};
+          const isGenerating = st.status === "generating";
+          const hasImg = !!st.image_url;
+
+          return (
+            <div key={s.id || idx} style={styles.sceneCard}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                  <span style={styles.badge}>{s.id}</span>
+                  <span style={{ fontWeight: 900, fontSize: 13 }}>SCENE</span>
+                  <span style={styles.miniPill}>{s.time_window}</span>
+                </div>
+                {s.camera ? <span style={styles.miniPill}>{s.camera}</span> : null}
               </div>
-              {s.camera ? <span style={styles.miniPill}>{s.camera}</span> : null}
+
+              {/* PROMPT */}
+              {s.prompt ? (
+                <div style={{ marginTop: 8 }}>
+                  <div style={styles.miniLabel}>{t.prompt}</div>
+                  <div style={styles.miniBox}>{s.prompt}</div>
+                </div>
+              ) : null}
+
+              {/* VO */}
+              {s.vo_text ? (
+                <div style={{ marginTop: 8 }}>
+                  <div style={styles.miniLabel}>{t.naration}</div>
+                  <div style={styles.miniBox}>{s.vo_text}</div>
+                </div>
+              ) : null}
+
+              {/* On-screen */}
+              {s.on_screen_text ? (
+                <div style={{ marginTop: 8 }}>
+                  <div style={styles.miniLabel}>{t.onScreen}</div>
+                  <div style={styles.miniBox}>{s.on_screen_text}</div>
+                </div>
+              ) : null}
+
+              {/* Actions */}
+              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap", alignItems: "center" }}>
+                <button
+                  type="button"
+                  style={{
+                    ...styles.primaryBtn,
+                    opacity: isGenerating ? 0.7 : 1,
+                    cursor: isGenerating ? "not-allowed" : "pointer",
+                  }}
+                  disabled={isGenerating}
+                  onClick={() => onGenerateImage(s)}
+                >
+                  {isGenerating ? (
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
+                      <span style={styles.spinner} />
+                      {t.generating}
+                    </span>
+                  ) : (
+                    t.generateImage
+                  )}
+                </button>
+
+                {st.error ? <span style={{ ...styles.miniPill, borderColor: "rgba(239,68,68,0.35)" }}>{st.error}</span> : null}
+                {st.job_id ? <span style={styles.miniPill}>job: {st.job_id}</span> : null}
+              </div>
+
+              {/* Image preview */}
+              {hasImg ? (
+                <div style={{ marginTop: 10 }}>
+                  <div style={styles.miniLabel}>{t.imageReady}</div>
+                  <div style={{ borderRadius: 14, overflow: "hidden", border: "1px solid var(--border)" }}>
+                    <img src={st.image_url} alt={`${s.id} image`} style={{ width: "100%", display: "block" }} />
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                    <a href={st.image_url} target="_blank" rel="noreferrer" style={{ ...styles.secondaryBtn, textDecoration: "none" }}>
+                      {t.openImage}
+                    </a>
+                    <a href={st.image_url} download={`${s.id}.png`} style={{ ...styles.secondaryBtn, textDecoration: "none" }}>
+                      {t.downloadImage}
+                    </a>
+                  </div>
+                </div>
+              ) : null}
             </div>
-
-            {s.action ? (
-              <div style={{ marginTop: 8 }}>
-                <div style={styles.miniLabel}>Action</div>
-                <div style={styles.miniBox}>{s.action}</div>
-              </div>
-            ) : null}
-
-            {s.on_screen_text ? (
-              <div style={{ marginTop: 8 }}>
-                <div style={styles.miniLabel}>On-screen</div>
-                <div style={styles.miniBox}>{s.on_screen_text}</div>
-              </div>
-            ) : null}
-
-            {s.vo_text ? (
-              <div style={{ marginTop: 8 }}>
-                <div style={styles.miniLabel}>VO</div>
-                <div style={styles.miniBox}>{s.vo_text}</div>
-              </div>
-            ) : null}
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-        <OpenDownloadBlueprintButtons blueprint={blueprint} t={t} />
+        <button type="button" style={styles.secondaryBtn} onClick={onOpenJson}>
+          {t.openJson}
+        </button>
+        <button type="button" style={styles.secondaryBtn} onClick={onDownloadJson}>
+          {t.downloadJson}
+        </button>
       </div>
     </div>
   );
 }
 
-function ExportTab() {
-  const { blueprint, lang } = useStudio();
-  const t = i18n[lang] || i18n.id;
-
+function ExportTab({ t, blueprint, onOpenJson, onDownloadJson }) {
   return (
     <div style={styles.card}>
       <div style={styles.cardHeader}>
@@ -888,7 +1015,12 @@ function ExportTab() {
         <div style={styles.placeholder}>{t.noBlueprint}</div>
       ) : (
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <OpenDownloadBlueprintButtons blueprint={blueprint} t={t} />
+          <button type="button" style={styles.secondaryBtn} onClick={onOpenJson}>
+            {t.openJson}
+          </button>
+          <button type="button" style={styles.secondaryBtn} onClick={onDownloadJson}>
+            {t.downloadJson}
+          </button>
         </div>
       )}
     </div>
@@ -896,95 +1028,22 @@ function ExportTab() {
 }
 
 /* =========================
-   Status Drawer
+   Small UI components
    ========================= */
 
-function StatusDrawer({ open, onToggle, loading, elapsed, project, provider, canGenerate, error, onGenerate, onCancel, t }) {
-  const est = Math.max(0, Number(project?.scene_count || 0) * Number(project?.seconds_per_scene || 0));
+function Field({ label, children }) {
   return (
-    <div style={styles.statusWrap}>
-      <div style={{ ...styles.statusCard, ...(open ? {} : styles.statusCardCollapsed) }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
-  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-    <div style={{ fontWeight: 900, fontSize: 13 }}>{t.status}</div>
-
-    {/* ✅ show spinner even when minimized */}
-    {loading ? (
-      <div style={{ display: "inline-flex", alignItems: "center", gap: 8, opacity: 0.85 }}>
-        <span style={styles.spinner} />
-        <span style={{ fontSize: 12, fontWeight: 800, color: "var(--muted)" }}>
-          {t.generating} · {elapsed}s
-        </span>
-      </div>
-    ) : null}
-  </div>
-
-  <button type="button" style={styles.ghostBtn} onClick={onToggle}>
-    {open ? t.minimize : t.show}
-  </button>
-</div>
-
-        {open ? (
-          <>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-              <Pill ok={!!String(project?.brand || "").trim()} label="Core" />
-              <Pill ok={!!String(project?.model_ref_url || "").trim()} label="Model" />
-              <Pill ok={!!String(project?.product_ref_url || "").trim()} label="Product" />
-              <span style={styles.miniPill}>≈ {est}s</span>
-              <span style={styles.miniPill}>Provider: {provider}</span>
-            </div>
-
-            <div style={{ marginTop: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <div style={{ fontSize: 12, fontWeight: 800, opacity: 0.8 }}>Progress</div>
-                {loading ? (
-                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span style={{ fontSize: 12, fontWeight: 800, opacity: 0.75 }}>Elapsed: {elapsed}s</span>
-                    <button type="button" style={styles.secondaryBtn} onClick={onCancel}>
-                      {t.cancel}
-                    </button>
-                  </div>
-                ) : null}
-              </div>
-
-              <div style={styles.progressBar}>
-                <div
-                  style={{
-                    ...styles.progressFill,
-                    width: loading ? `${clamp((elapsed / Math.max(1, est)) * 100, 6, 92)}%` : "0%",
-                    opacity: loading ? 1 : 0,
-                  }}
-                />
-              </div>
-            </div>
-
-            <button
-              type="button"
-              style={{
-                ...styles.primaryBtn,
-                marginTop: 10,
-                opacity: canGenerate && !loading ? 1 : 0.55,
-                cursor: canGenerate && !loading ? "pointer" : "not-allowed",
-              }}
-              disabled={!canGenerate || loading}
-              onClick={onGenerate}
-            >
-              {loading ? (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 10 }}>
-                  <span style={styles.spinner} />
-                  {t.generating}
-                </span>
-              ) : (
-                t.generate
-              )}
-            </button>
-
-            {error ? <div style={styles.errorBox}>{error}</div> : null}
-          </>
-        ) : null}
-      </div>
+    <div style={{ display: "grid", gap: 6 }}>
+      <div style={styles.label}>{label}</div>
+      {children}
     </div>
   );
+}
+function Input(props) {
+  return <input {...props} style={styles.input} />;
+}
+function Select(props) {
+  return <select {...props} style={styles.select} />;
 }
 
 function Pill({ ok, label }) {
@@ -1001,8 +1060,7 @@ function Pill({ ok, label }) {
   );
 }
 
-function LangToggle({ lang, setLang }) {
-  const t = i18n[lang] || i18n.id;
+function LangToggle({ lang, setLang, t }) {
   return (
     <div style={styles.toggleGroup}>
       <span style={{ fontSize: 12, fontWeight: 800, opacity: 0.75 }}>{t.language}</span>
@@ -1027,141 +1085,17 @@ function ThemeToggle({ theme, setTheme }) {
   );
 }
 
-function OpenDownloadBlueprintButtons({ blueprint, t }) {
-  function openJson() {
-    const w = window.open("", "_blank");
-    if (!w) return;
-    const html = `
-      <pre style="white-space:pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; padding:16px;">
-${escapeHtml(JSON.stringify(blueprint, null, 2))}
-      </pre>`;
-    w.document.write(html);
-    w.document.close();
-  }
-
-  function downloadJson() {
-    const blob = new Blob([JSON.stringify(blueprint, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "blueprint.json";
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  return (
-    <>
-      <button type="button" style={styles.secondaryBtn} onClick={openJson}>
-        {t.openJson}
-      </button>
-      <button type="button" style={styles.secondaryBtn} onClick={downloadJson}>
-        {t.downloadJson}
-      </button>
-    </>
-  );
-}
-
-function escapeHtml(s) {
-  return String(s)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
 /* =========================
-   Generate Plan
-   ========================= */
-
-function canGenerate(p) {
-  // Minimal required for plan.js (your server checks these)
-  const required = ["brand", "product_type", "material", "platform", "aspect_ratio", "scene_count", "seconds_per_scene"];
-  for (const k of required) {
-    if (p[k] === undefined || p[k] === null || String(p[k]).trim() === "") return false;
-  }
-
-  // Backend currently requires both URLs
-  if (!String(p.model_ref_url || "").trim() || !String(p.product_ref_url || "").trim()) return false;
-
-  return true;
-}
-
-async function generatePlan({ projectDraft, setProjectDraft, setBlueprint, setTab, setLoadingPlan, setPlanError, abortRef, showToast, t }) {
-  if (!canGenerate(projectDraft)) return;
-
-  setPlanError("");
-  setLoadingPlan(true);
-  setProjectDraft(projectDraft);
-
-  const provider = (projectDraft.ai_brain || "bedrock").toLowerCase();
-
-  const ctrl = new AbortController();
-  abortRef.current = ctrl;
-
-  try {
-    const r = await fetch("/api/plan", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ provider, project: projectDraft }),
-      signal: ctrl.signal,
-    });
-
-    const raw = await r.text();
-    let json = null;
-    try {
-      json = raw ? JSON.parse(raw) : null;
-    } catch {
-      throw new Error(`Non-JSON response (${r.status}). Preview: ${String(raw).slice(0, 200)}`);
-    }
-
-    if (!r.ok || !json?.ok) throw new Error(json?.error || `${t.failed} (${r.status})`);
-    if (!json?.blueprint) throw new Error("Plan OK tapi blueprint kosong.");
-
-    setBlueprint(json.blueprint);
-    setTab("Scenes");
-    showToast(t.success, "ok");
-  } catch (e) {
-    if (e?.name === "AbortError") {
-      setPlanError("Canceled.");
-    } else {
-      setPlanError(e?.message || String(e));
-      showToast(t.failed, "bad");
-    }
-  } finally {
-    setLoadingPlan(false);
-    abortRef.current = null;
-  }
-}
-
-/* =========================
-   UI atoms
-   ========================= */
-
-function Field({ label, children }) {
-  return (
-    <div style={{ display: "grid", gap: 6 }}>
-      <div style={styles.label}>{label}</div>
-      {children}
-    </div>
-  );
-}
-
-function Input(props) {
-  return <input {...props} style={styles.input} />;
-}
-
-function Select(props) {
-  return <select {...props} style={styles.select} />;
-}
-
-/* =========================
-   Styles (reduced padding/font ~35%)
+   Styles (compact)
    ========================= */
 
 const styles = {
   page: {
     minHeight: "100vh",
-    background: "radial-gradient(900px 500px at 20% 0%, rgba(249,115,22,0.18) 0%, rgba(0,0,0,0) 55%), var(--bg)",
+    background:
+      "radial-gradient(900px 500px at 20% 0%, rgba(249,115,22,0.18) 0%, rgba(0,0,0,0) 55%), var(--bg)",
     paddingBottom: 96,
+    color: "var(--text)",
   },
   topBar: {
     position: "sticky",
@@ -1181,6 +1115,7 @@ const styles = {
   },
   title: { fontWeight: 900, fontSize: 15, letterSpacing: 0.2 },
   container: { maxWidth: 980, margin: "0 auto", padding: 12 },
+
   tabsTop: { display: "flex", gap: 8, flexWrap: "wrap" },
   tabPill: {
     padding: "8px 10px",
@@ -1207,6 +1142,7 @@ const styles = {
   cardHeader: { paddingBottom: 8, borderBottom: "1px solid var(--border)", marginBottom: 10 },
   cardTitle: { fontWeight: 900, fontSize: 14 },
   cardSub: { marginTop: 4, fontSize: 12, color: "var(--muted)", fontWeight: 700 },
+
   placeholder: {
     padding: 10,
     borderRadius: 14,
@@ -1217,22 +1153,9 @@ const styles = {
     fontSize: 12,
   },
 
-  grid3: {
-    display: "grid",
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-    gap: 10,
-  },
-  grid2: {
-    display: "grid",
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-    gap: 10,
-  },
-  inlineRow: {
-    display: "grid",
-    gridTemplateColumns: "1fr auto",
-    gap: 10,
-    alignItems: "end",
-  },
+  grid3: { display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 10 },
+  grid2: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10 },
+  inlineRow: { display: "grid", gridTemplateColumns: "1fr auto", gap: 10, alignItems: "end" },
 
   sectionTitle: { fontWeight: 900, fontSize: 12, opacity: 0.9, marginBottom: 8 },
   label: { fontSize: 11.5, fontWeight: 900, color: "var(--muted)" },
@@ -1290,12 +1213,7 @@ const styles = {
     cursor: "pointer",
   },
 
-  sceneCard: {
-    borderRadius: 14,
-    padding: 10,
-    border: "1px solid var(--border)",
-    background: "var(--panel)",
-  },
+  sceneCard: { borderRadius: 14, padding: 10, border: "1px solid var(--border)", background: "var(--panel)" },
   badge: {
     fontWeight: 900,
     fontSize: 11.5,
@@ -1354,20 +1272,10 @@ const styles = {
     fontWeight: 900,
     fontSize: 12,
   },
-  togglePillActive: {
-    background: "var(--btn2)",
-    borderColor: "rgba(249,115,22,0.30)",
-  },
+  togglePillActive: { background: "var(--btn2)", borderColor: "rgba(249,115,22,0.30)" },
 
   // Status
-  statusWrap: {
-    position: "fixed",
-    left: 0,
-    right: 0,
-    bottom: 34,
-    zIndex: 60,
-    pointerEvents: "none",
-  },
+  statusWrap: { position: "fixed", left: 0, right: 0, bottom: 34, zIndex: 60, pointerEvents: "none" },
   statusCard: {
     pointerEvents: "auto",
     maxWidth: 980,
@@ -1380,16 +1288,9 @@ const styles = {
     marginLeft: 12,
     marginRight: 12,
   },
-  statusCardCollapsed: {
-    paddingBottom: 10,
-  },
-  pill: {
-    fontSize: 11.5,
-    fontWeight: 900,
-    padding: "7px 10px",
-    borderRadius: 999,
-    border: "1px solid var(--border)",
-  },
+  statusCardCollapsed: { paddingBottom: 10 },
+  pill: { fontSize: 11.5, fontWeight: 900, padding: "7px 10px", borderRadius: 999, border: "1px solid var(--border)" },
+
   progressBar: {
     height: 10,
     borderRadius: 999,
@@ -1398,22 +1299,17 @@ const styles = {
     overflow: "hidden",
     marginTop: 8,
   },
-  progressFill: {
-    height: "100%",
-    background: "rgba(249,115,22,0.95)",
-    borderRadius: 999,
-    transition: "width 250ms ease",
-  },
+  progressFill: { height: "100%", background: "rgba(249,115,22,0.95)", borderRadius: 999, transition: "width 250ms ease" },
+
   spinner: {
     width: 14,
     height: 14,
     borderRadius: 999,
-    border: "2px solid rgba(255,255,255,0.35)",
-    borderTopColor: "white",
+    border: "2px solid rgba(249,115,22,0.28)",
+    borderTopColor: "var(--orange)",
     animation: "ugc-spin 0.8s linear infinite",
   },
 
-  // credit fixed bottom
   creditBar: {
     position: "fixed",
     left: 0,
