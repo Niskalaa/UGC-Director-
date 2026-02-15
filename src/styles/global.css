@@ -149,19 +149,18 @@ button {
   align-items: center;
   justify-content: space-between;
   gap: 10px;
+  flex-wrap: wrap;            /* ✅ ADD */
 }
 
-.ugc-title {
-  font-weight: 900;
-  font-size: 18px;
-  letter-spacing: -0.2px;
-}
+.ugc-title { min-width: 110px; }
 
 .ugc-top-actions {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  justify-content: flex-end;  /* ✅ ADD */
+  row-gap: 10px;              /* ✅ ADD */
 }
 
 /* =========================
