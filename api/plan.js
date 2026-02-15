@@ -13,7 +13,7 @@ const bedrock = new BedrockRuntimeClient({ region: REGION });
 
 const MAX_RETRIES = 3;
 const BASE_RETRY_DELAY = 2000; // 2s
-const DEFAULT_MODEL = "anthropic.claude-sonnet-4-5-20250929-v1:0";
+const DEFAULT_MODEL = "us.anthropic.claude-sonnet-4-5-v2:0";
 
 // V1 System Prompt - Enforces segmented blueprint structure
 const V1_SYSTEM_PROMPT = `You are a UGC Creative Director + Senior App Engineer specializing in generating modular UGC ad prompts.
