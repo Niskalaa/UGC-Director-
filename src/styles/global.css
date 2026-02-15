@@ -1,129 +1,17 @@
 /* =========================
-   Base Reset
+   Layout tokens (safe iOS)
    ========================= */
-:root {
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+:root{
+  --tabbar-h: 78px;
+  --status-gap: 12px;
+  --page-bottom-pad: calc(var(--tabbar-h) + 190px + env(safe-area-inset-bottom) + 24px);
 }
 
-* {
-  -webkit-tap-highlight-color: transparent;
-  box-sizing: border-box;
-}
-
-html, body { height: 100%; }
-
-body {
-  margin: 0;
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
-  background: var(--bg);
-  color: var(--fg);
-}
-
-a { color: inherit; }
-
-/* iOS Safari: tombol jangan jadi plain-text */
-button, input, select, textarea { font-family: inherit; }
+/* page bottom reserve so fixed bars don't block inputs */
+.ugc-page { min-height: 100vh; padding-bottom: var(--page-bottom-pad); }
 
 /* =========================
-   Theme Variables (SINGLE SOURCE)
-   ========================= */
-:root {
-  --bg: #050507;
-  --fg: rgba(255,255,255,0.92);
-  --muted: rgba(255,255,255,0.68);
-
-  --card: rgba(16,16,18,0.86);
-  --card2: rgba(255,255,255,0.06);
-
-  --stroke: rgba(255,255,255,0.12);
-  --softStroke: rgba(255,255,255,0.08);
-
-  --topbar: rgba(10,10,14,0.55);
-  --tabbarBg: rgba(16,16,18,0.82);
-  --statusBg: rgba(10,10,14,0.90);
-
-  --inputBg: rgba(255,255,255,0.06);
-
-  --orange: #f97316;
-  --orangeSoft: rgba(249,115,22,0.18);
-
-  --shadow: 0 18px 60px rgba(0,0,0,0.55);
-
-  --r-lg: 18px;
-  --r-md: 14px;
-
-  /* spacing system */
-  --pad: 14px;
-  --gap: 12px;
-}
-
-/* Light */
-:root[data-theme="light"] {
-  --bg: #fff7ed;
-  --fg: rgba(15,15,18,0.88);          /* ✅ lebih soft dari hitam pekat */
-  --muted: rgba(15,15,18,0.58);
-
-  --card: rgba(255,255,255,0.86);
-  --card2: rgba(0,0,0,0.035);
-
-  --stroke: rgba(0,0,0,0.10);
-  --softStroke: rgba(0,0,0,0.06);
-
-  --topbar: rgba(255,255,255,0.70);
-  --tabbarBg: rgba(255,255,255,0.86);
-  --statusBg: rgba(255,255,255,0.92);
-
-  --inputBg: rgba(0,0,0,0.04);
-
-  --shadow: 0 18px 60px rgba(0,0,0,0.12);
-}
-
-/* Background iOS-like subtle */
-body {
-  background:
-    radial-gradient(900px 560px at 70% 10%, rgba(249,115,22,0.16), transparent 60%),
-    radial-gradient(800px 520px at 20% 90%, rgba(249,115,22,0.10), transparent 55%),
-    var(--bg);
-}
-
-/* =========================
-   Layout wrappers
-   ========================= */
-.ugc-page {
-  min-height: 100vh;
-
-  /* ruang buat status dock + tabbar + credit */
-  padding-bottom: calc(260px + env(safe-area-inset-bottom));
-}
-
-.ugc-container {
-  max-width: 920px;
-  margin: 0 auto;
-  padding: var(--pad);
-}
-
-/* =========================
-   Card system
-   ========================= */
-.ugc-card {
-  border-radius: var(--r-lg);
-  padding: var(--pad);
-  background: linear-gradient(180deg, var(--card), var(--card2));
-  border: 1px solid var(--stroke);
-  box-shadow: var(--shadow);
-}
-
-.ugc-cardheader {
-  padding-bottom: 10px;
-  border-bottom: 1px solid var(--softStroke);
-  margin-bottom: 12px;
-}
-.ugc-cardtitle { font-weight: 900; font-size: 16px; }
-.ugc-cardsub { margin-top: 4px; font-size: 12px; color: var(--muted); font-weight: 700; }
-
-/* =========================
-   Topbar (FIX BROKEN HEADER)
+   Topbar (1 line, -30% size)
    ========================= */
 .ugc-topbar {
   position: sticky;
@@ -137,227 +25,143 @@ body {
 .ugc-topbar-inner {
   max-width: 920px;
   margin: 0 auto;
-  padding: 12px var(--pad);
-
-  /* ✅ grid stabil di mobile, gak bikin stack aneh */
-  display: grid;
-  grid-template-columns: 1fr auto;
+  padding: 10px 12px;              /* smaller */
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 10px;
+  flex-wrap: nowrap;               /* IMPORTANT: stop wrapping */
 }
 
 .ugc-title {
   font-weight: 900;
-  font-size: 18px;
+  font-size: 16px;                 /* smaller */
   letter-spacing: -0.2px;
-  min-width: 110px;
+  white-space: nowrap;
 }
 
-.ugc-top-actions {
+.ugc-top-actions{
   display: flex;
-  justify-content: flex-end;
   align-items: center;
-  flex-wrap: wrap;
   gap: 10px;
-  row-gap: 10px;
+  flex-wrap: nowrap;               /* IMPORTANT */
+  justify-content: flex-end;
+  min-width: 0;
 }
 
-/* pill group */
-.ugc-pill {
+/* make the language/theme group behave like one iOS "segmented control" row */
+.ugc-pill{
   display: inline-flex;
-  align-items: center;
   gap: 8px;
-  padding: 8px 10px;
+  align-items: center;
+  padding: 6px 8px;                /* smaller */
   border-radius: 999px;
-  border: 1px solid var(--stroke);
   background: rgba(255,255,255,0.06);
+  border: 1px solid var(--stroke);
+  white-space: nowrap;
 }
+:root[data-theme="light"] .ugc-pill { background: rgba(255,255,255,0.75); }
 
-:root[data-theme="light"] .ugc-pill {
-  background: rgba(255,255,255,0.75);
-}
-
-.ugc-pill-label {
-  font-size: 12px;
+.ugc-pill-label{
+  font-size: 11px;
   font-weight: 900;
-  color: var(--muted);
+  opacity: 0.8;
 }
 
-.ugc-pill-btn {
+.ugc-pill-btn{
   border: 1px solid var(--stroke);
   background: transparent;
   color: var(--fg);
-  padding: 8px 10px;
+  padding: 7px 9px;                /* smaller */
   border-radius: 999px;
   font-weight: 900;
-  font-size: 12px;
+  font-size: 11px;
   cursor: pointer;
+  white-space: nowrap;
 }
-
 .ugc-pill-btn.active {
-  background: var(--orangeSoft);
+  background: rgba(249,115,22,0.20);
   border-color: rgba(249,115,22,0.35);
 }
 
-/* generic buttons */
-.ugc-btn {
-  border-radius: var(--r-md);
-  padding: 12px 14px;
-  border: 1px solid var(--stroke);
-  background: rgba(255,255,255,0.06);
-  color: var(--fg);
-  font-weight: 900;
-  cursor: pointer;
-}
-
-:root[data-theme="light"] .ugc-btn {
-  background: rgba(255,255,255,0.92);
-}
-
-.ugc-btn.primary {
-  background: var(--orange);
-  border-color: rgba(249,115,22,0.55);
-  color: #111;
-}
-
-.ugc-btn.small { padding: 10px 12px; font-size: 12px; }
-.ugc-btn:disabled { opacity: 0.55; cursor: not-allowed; }
-
-/* =========================
-   Inputs
-   ========================= */
-.ugc-label {
-  font-size: 12px;
-  font-weight: 900;
-  margin-bottom: 6px;
-  color: var(--muted);
-}
-
-.ugc-input, .ugc-select {
-  width: 100%;
-  padding: 12px 12px;
-  border-radius: var(--r-md);
-  border: 1px solid var(--stroke);
-  background: var(--inputBg);
-  color: var(--fg);
-  outline: none;
-  font-weight: 800;
-}
-
-.ugc-grid2 { display: grid; grid-template-columns: 1fr; gap: var(--gap); }
-@media (min-width: 760px) {
-  .ugc-grid2 { grid-template-columns: 1fr 1fr; }
+/* separate logout a bit from segmented group */
+.ugc-top-actions .ugc-pill + .ugc-pill-btn {
+  margin-left: 6px;
 }
 
 /* =========================
-   Muted / placeholder
+   Status Dock (no overlap)
    ========================= */
-.ugc-muted { color: var(--muted); font-weight: 700; font-size: 13px; }
-.ugc-muted-box {
-  padding: 12px;
-  border-radius: var(--r-md);
-  border: 1px dashed var(--stroke);
-  color: var(--muted);
-  background: rgba(255,255,255,0.04);
-}
-
-/* =========================
-   Status Dock (FIX OVERLAP)
-   ========================= */
-.ugc-status {
+.ugc-status{
   position: fixed;
   left: 0;
   right: 0;
-  bottom: calc(88px + env(safe-area-inset-bottom)); /* ✅ naik di atas tabbar */
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + var(--status-gap));
   z-index: 60;
   padding: 10px 12px;
 }
 
-.ugc-status-inner {
-  max-width: 920px;
+.ugc-status-inner{
+  max-width: 720px;
   margin: 0 auto;
-  border-radius: var(--r-lg);
+  border-radius: 18px;
   padding: 12px;
-  background: var(--statusBg);
-  border: 1px solid var(--stroke);
-  box-shadow: var(--shadow);
+  background: rgba(12,12,14,0.92);
+  border: 1px solid rgba(255,255,255,0.10);
+  box-shadow: 0 18px 70px rgba(0,0,0,0.55);
 }
 
-.ugc-status.collapsed .ugc-status-inner {
-  padding: 10px 12px;
+:root[data-theme="light"] .ugc-status-inner{
+  background: rgba(255,255,255,0.92);
+  border: 1px solid rgba(0,0,0,0.10);
+  box-shadow: 0 18px 70px rgba(0,0,0,0.18);
 }
 
-.ugc-status-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 10px;
-}
-.ugc-status-title { font-weight: 900; font-size: 14px; }
-
-.ugc-chiprow {
-  display: flex;
-  gap: 10px;
-  flex-wrap: wrap;               /* ✅ gak tumpuk */
-  align-items: center;
+.ugc-status-head{
+  display:flex;
+  justify-content:space-between;
+  align-items:center;
+  gap:10px;
+  margin-bottom:10px;
 }
 
-.ugc-chip {
-  font-size: 12px;
-  font-weight: 900;
-  padding: 8px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--stroke);
-  background: rgba(255,255,255,0.04);
-  white-space: nowrap;
+.ugc-chiprow{
+  display:flex;
+  gap:10px;
+  flex-wrap:wrap;
+  align-items:center;
 }
 
-.ugc-chip.ok {
-  border-color: rgba(34,197,94,0.35);
-  background: rgba(34,197,94,0.14);
-}
-
-.ugc-chip.bad {
-  border-color: rgba(239,68,68,0.35);
-  background: rgba(239,68,68,0.14);
-}
-
-/* progress track */
-.ugc-progress { margin-top: 10px; }
-.ugc-progress-track {
+/* indeterminate loading bar (less flicker than constantly changing width) */
+.ugc-progress-track{
+  position: relative;
   height: 10px;
   border-radius: 999px;
   background: rgba(255,255,255,0.08);
-  border: 1px solid var(--softStroke);
+  border: 1px solid var(--stroke);
   overflow: hidden;
 }
-:root[data-theme="light"] .ugc-progress-track { background: rgba(0,0,0,0.06); }
+:root[data-theme="light"] .ugc-progress-track{ background: rgba(0,0,0,0.06); }
 
-.ugc-progress-bar {
-  height: 100%;
+.ugc-progress-track.indeterminate::before{
+  content:"";
+  position:absolute;
+  top:0; left:-40%;
+  height:100%;
+  width:40%;
   background: var(--orange);
-  width: 0%;
-  transition: width 180ms linear;
+  border-radius:999px;
+  animation: ugc_progress 1.1s linear infinite;
+  will-change: transform;
 }
 
-/* ✅ animasi tetap jalan walau collapsed */
-@keyframes ugc_progress {
-  0% { transform: translateX(-120%); opacity: .85; }
-  50% { transform: translateX(120%); opacity: 1; }
-  100% { transform: translateX(320%); opacity: .85; }
-}
-.ugc-progress-shimmer {
-  height: 100%;
-  width: 40%;
-  background: rgba(255,255,255,0.14);
-  animation: ugc_progress 1.15s linear infinite;
-}
+/* minimize mode should keep animation visible */
+.ugc-status.collapsed .ugc-progress { display:block; margin-top: 8px; }
 
 /* =========================
-   Bottom Tabbar (Telegram-like)
+   Tabbar (space from credit)
    ========================= */
-.ugc-tabbar {
+.ugc-tabbar{
   position: fixed;
   left: 0;
   right: 0;
@@ -367,46 +171,32 @@ body {
   padding-bottom: calc(12px + env(safe-area-inset-bottom));
 }
 
-.ugc-tabbar-inner {
-  max-width: 560px;
+.ugc-tabbar-inner{
+  max-width: 520px;
   margin: 0 auto;
-  display: flex;
-  gap: 10px;
+  display:flex;
+  gap:10px;
   padding: 10px;
-  border-radius: var(--r-lg);
-  background: var(--tabbarBg);
-  border: 1px solid var(--stroke);
+  border-radius: 18px;
+  background: rgba(16,16,18,0.85);
+  border: 1px solid rgba(255,255,255,0.10);
   backdrop-filter: blur(14px);
 }
 
-.ugc-tab {
-  flex: 1;
-  border: 1px solid var(--stroke);
-  background: transparent;
-  color: var(--fg);
-  border-radius: var(--r-md);
-  padding: 12px 10px;
-  font-weight: 900;
-  cursor: pointer;
+:root[data-theme="light"] .ugc-tabbar-inner{
+  background: rgba(255,255,255,0.85);
+  border: 1px solid rgba(0,0,0,0.10);
 }
 
-.ugc-tab.active {
-  background: var(--orangeSoft);
-  border-color: rgba(249,115,22,0.30);
-}
-
-/* =========================
-   Credit (space from tabbar)
-   ========================= */
-.ugc-credit {
+/* credit should not stick to tabbar */
+.ugc-credit{
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: calc(64px + env(safe-area-inset-bottom));
-  text-align: center;
-  font-weight: 900;
-  font-size: 12px;
+  left:0; right:0;
+  bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom) + 10px);
+  text-align:center;
+  font-weight:900;
+  font-size:12px;
   color: rgba(255,255,255,0.55);
-  pointer-events: none;
+  pointer-events:none;
 }
 :root[data-theme="light"] .ugc-credit { color: rgba(0,0,0,0.45); }
