@@ -273,109 +273,94 @@ export default function StudioShell({ onLogout }) {
   
   // Generate image for scene
   const handleGenerateImage = useCallback(async (sceneId, prompt) => {
+  setError("");
   setGeneratingImages(prev => ({ ...prev, [sceneId]: true }));
-  
+
   try {
     const payload = {
       type: "image",
-      brief: prompt,              // ✅ FIXED
-      negative: "",               // ✅ FIXED
-      settings: {                 // ✅ FIXED
+      brief: prompt,
+      negative: "",
+      settings: {
         quality: "standard",
         aspect_ratio: "9:16",
-        seed: Math.floor(Math.random() * 1000000)
-      }
+        seed: Math.floor(Math.random() * 1000000),
+      },
     };
-    
+
     const result = await postJson("/api/jobs", payload);
-    
-    if (result.image_url) {
+
+    // ✅ sukses langsung dari result
+    if (result?.image_url) {
       setSceneImages(prev => ({ ...prev, [sceneId]: result.image_url }));
+      return;
     }
-    
+
+    // kalau server balikin format lain
+    if (result?.output_url) {
+      setSceneImages(prev => ({ ...prev, [sceneId]: result.output_url }));
+      return;
+    }
+
+    // kalau cuma balikin id, baru butuh polling (optional)
+    if (result?.id || result?.job_id) {
+      throw new Error("Job created but no image_url returned. Add polling if needed.");
+    }
+
+    throw new Error("Unexpected /api/jobs response (no image_url).");
   } catch (err) {
-    console.error(`[StudioShell] Error:`, err);
-    setError(`Image failed: ${err.message || err}`);
+    console.error("[StudioShell] Image generation error:", err);
+    setError(`Image failed: ${err?.message || String(err)}`);
   } finally {
     setGeneratingImages(prev => ({ ...prev, [sceneId]: false }));
   }
-}, []);
-
-      
-      if (result.ok && result.job_id) {
-        // Poll for result
-        const pollResult = await pollJobStatus(result.job_id);
-        if (pollResult.output_url) {
-          setSceneImages(prev => ({ ...prev, [sceneId]: pollResult.output_url }));
-        }
-      }
-    } catch (err) {
-      console.error(`[StudioShell] Image generation error for ${sceneId}:`, err);
-    } finally {
-      setGeneratingImages(prev => ({ ...prev, [sceneId]: false }));
-    }
-  }, [expertParams.image]);
+}, []); 
   
   // Generate video for scene
   const handleGenerateVideo = useCallback(async (sceneId, prompt) => {
+  setError("");
   setGeneratingVideos(prev => ({ ...prev, [sceneId]: true }));
-  
+
   try {
     const payload = {
       type: "video",
-      brief: prompt,              // ✅ FIXED
-      negative: "",               // ✅ FIXED
-      settings: {                 // ✅ FIXED
+      brief: prompt,
+      negative: "",
+      settings: {
         video_seconds: 5,
         aspect_ratio: "9:16",
-        seed: Math.floor(Math.random() * 1000000)
-      }
+        seed: Math.floor(Math.random() * 1000000),
+      },
     };
-    
+
     const result = await postJson("/api/jobs", payload);
-    
-    // Poll your existing /api/jobs/[id]
-    let attempts = 0;
-    while (attempts < 60) {
-      await new Promise(r => setTimeout(r, 5000));
-      attempts++;
-      
-      const status = await fetch(`/api/jobs/${result.id}`);
-      const data = await status.json();
-      
-      if (data.status === "done" && data.video_url) {
-        setSceneVideos(prev => ({ ...prev, [sceneId]: data.video_url }));
-        return;
-      }
-      
-      if (data.status === "failed") {
-        throw new Error(data.error || "Video failed");
-      }
+
+    // kalau backend kamu return video_url langsung
+    if (result?.video_url) {
+      setSceneVideos(prev => ({ ...prev, [sceneId]: result.video_url }));
+      return;
     }
-    
-    throw new Error("Timeout");
-    
+
+    // atau output_url
+    if (result?.output_url) {
+      setSceneVideos(prev => ({ ...prev, [sceneId]: result.output_url }));
+      return;
+    }
+
+    // kalau cuma return id, polling perlu (optional)
+    if (result?.id || result?.job_id) {
+      throw new Error("Job created but no video_url returned. Add polling if needed.");
+    }
+
+    throw new Error("Unexpected /api/jobs response (no video_url).");
   } catch (err) {
-    console.error(`[StudioShell] Error:`, err);
-    setError(`Video failed: ${err.message || err}`);
+    console.error("[StudioShell] Video generation error:", err);
+    setError(`Video failed: ${err?.message || String(err)}`);
   } finally {
     setGeneratingVideos(prev => ({ ...prev, [sceneId]: false }));
   }
 }, []);
-
       
-      if (result.ok && result.job_id) {
-        const pollResult = await pollJobStatus(result.job_id);
-        if (pollResult.output_url) {
-          setSceneVideos(prev => ({ ...prev, [sceneId]: pollResult.output_url }));
-        }
-      }
-    } catch (err) {
-      console.error(`[StudioShell] Video generation error for ${sceneId}:`, err);
-    } finally {
-      setGeneratingVideos(prev => ({ ...prev, [sceneId]: false }));
-    }
-  }, [expertParams.video]);
   
   // Poll job status helper
   
