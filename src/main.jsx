@@ -6,6 +6,8 @@ import StudioPage from "./pages/Studio.jsx";
 import GeneratorPage from "./pages/GeneratorPage.jsx";
 
 import "./styles/global.css";
+import { supabase } from "./lib/supabaseClient";
+window.supabase = supabase;
 
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
